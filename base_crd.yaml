@@ -1,0 +1,12 @@
+apiVersion: chaos.gushchin.dev/v1alpha1
+kind: ChaosExperiment
+metadata:
+  name: restart-random-pod
+spec:
+  action: pod-kill   # pod-kill | pod-deplay | node-drain
+  namespace: default # where run it
+  selector:
+    app: my-service  # lablel who will be killed
+  count: 2      # how many pods
+  schedule: "*/5 * * * *" # run every 5 minutes , corn format
+  duration: "30s"   # how long wit will take (for example for delay)
