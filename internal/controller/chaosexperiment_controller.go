@@ -18,11 +18,15 @@ package controller
 
 import (
 	"context"
+	"math/rand"
+	"time"
 
+	corev1 "k8s.io/api/core/v1"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/labels"
 	"k8s.io/apimachinery/pkg/runtime"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
-	logf "sigs.k8s.io/controller-runtime/pkg/log"
 
 	chaosv1alpha1 "github.com/neogan74/k8s-chaos/api/v1alpha1"
 )
@@ -47,11 +51,60 @@ type ChaosExperimentReconciler struct {
 // For more details, check Reconcile and its Result here:
 // - https://pkg.go.dev/sigs.k8s.io/controller-runtime@v0.21.0/pkg/reconcile
 func (r *ChaosExperimentReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
-	_ = logf.FromContext(ctx)
+	log := ctrl.LoggerFrom(ctx)
 
-	// TODO(user): your logic here
+	var exp chaosv1alpha1.ChaosExperiment
+	if err := r.Get(ctx, req.NamespacedName, &exp); err != nil {
+		return ctrl.Result{}, client.IgnoreNotFound(err)
+	}
 
-	return ctrl.Result{}, nil
+	if exp.Spec.Action == "pod-kill" {
+		log.Info("Unsupported action", "action", exp.Spec.Action)
+		return ctrl.Result{}, nil
+	}
+
+	// Choose Pods by selector
+	podList := &corev1.PodList{}
+	selector := labels.SelectorFromSet(exp.Spec.Selector)
+	if err := r.List(ctx, podList, client.InNamespace(exp.Spec.Namespace),
+		client.MatchingLabelsSelector{Selector: selector}); err != nil {
+		return ctrl.Result{}, err
+	}
+
+	if len(podList.Items) == 0 {
+		log.Info("No pods found for selector", "selector", exp.Spec.Selector)
+		return ctrl.Result{}, nil
+	}
+
+	// Перемешаем список Pod-ов
+	rand.Seed(time.Now().UnixNano())
+	rand.Shuffle(len(podList.Items), func(i, j int) {
+		podList.Items[i], podList.Items[j] = podList.Items[j], podList.Items[i]
+	})
+
+	// Удалим нужное количество Pod-ов
+	killCount := exp.Spec.Count
+	if killCount > len(podList.Items) {
+		killCount = len(podList.Items)
+	}
+
+	for i := 0; i < killCount; i++ {
+		pod := podList.Items[i]
+		log.Info("Deleting pod", "pod", pod.Name)
+		if err := r.Delete(ctx, &pod); err != nil {
+			log.Error(err, "Failed to delete pod", "pod", pod.Name)
+		}
+	}
+
+	// Update status
+	now := metav1.Now()
+	exp.Status.LastRunTime = &now
+	exp.Status.Message = "Killed pods"
+	if err := r.Status().Update(ctx, &exp); err != nil {
+		log.Error(err, "Failed to update ChaosExperiment status")
+		return ctrl.Result{}, err
+	}
+	return ctrl.Result{RequeueAfter: time.Minute}, nil
 }
 
 // SetupWithManager sets up the controller with the Manager.

@@ -35,7 +35,7 @@ type ChaosExperimentSpec struct {
 	Action    string            `json:"action"` // pod-kill
 	Namespace string            `json:"namespace"`
 	Selector  map[string]string `json:"selector,omitemptly"` // app=nginx
-	count     int               `json:"count,omitempty"`     // 1
+	Count     int               `json:"count,omitempty"`     // 1
 }
 
 // ChaosExperimentStatus defines the observed state of ChaosExperiment.
