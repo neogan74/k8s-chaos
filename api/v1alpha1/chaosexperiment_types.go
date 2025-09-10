@@ -32,7 +32,10 @@ type ChaosExperimentSpec struct {
 
 	// foo is an example field of ChaosExperiment. Edit chaosexperiment_types.go to remove/update
 	// +optional
-	Foo *string `json:"foo,omitempty"`
+	Action    string            `json:"action"` // pod-kill
+	Namespace string            `json:"namespace"`
+	Selector  map[string]string `json:"selector,omitemptly"` // app=nginx
+	count     int               `json:"count,omitempty"`     // 1
 }
 
 // ChaosExperimentStatus defines the observed state of ChaosExperiment.
@@ -55,7 +58,8 @@ type ChaosExperimentStatus struct {
 	// +listType=map
 	// +listMapKey=type
 	// +optional
-	Conditions []metav1.Condition `json:"conditions,omitempty"`
+	LastRunTime *metav1.Time `json:"lastRunTime,omitempty"`
+	Message     string       `json:"message,omitempty"`
 }
 
 // +kubebuilder:object:root=true
