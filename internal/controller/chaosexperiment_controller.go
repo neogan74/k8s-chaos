@@ -77,7 +77,6 @@ func (r *ChaosExperimentReconciler) Reconcile(ctx context.Context, req ctrl.Requ
 	}
 
 	// Перемешаем список Pod-ов
-	rand.Seed(time.Now().UnixNano())
 	rand.Shuffle(len(podList.Items), func(i, j int) {
 		podList.Items[i], podList.Items[j] = podList.Items[j], podList.Items[i]
 	})
