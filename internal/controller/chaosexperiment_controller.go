@@ -58,7 +58,7 @@ func (r *ChaosExperimentReconciler) Reconcile(ctx context.Context, req ctrl.Requ
 		return ctrl.Result{}, client.IgnoreNotFound(err)
 	}
 
-	if exp.Spec.Action == "pod-kill" {
+	if exp.Spec.Action != "pod-kill" {
 		log.Info("Unsupported action", "action", exp.Spec.Action)
 		return ctrl.Result{}, nil
 	}
