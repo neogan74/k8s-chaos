@@ -1,0 +1,20 @@
+# ChaosExperiment to test with demo-deployment.yaml
+apiVersion: chaos.gushchin.dev/v1alpha1
+kind: ChaosExperiment
+metadata:
+  name: nginx-chaos-demo
+  namespace: chaos-demo
+spec:
+  # Kill pods to test resilience
+  action: "pod-kill"
+
+  # Target the demo namespace
+  namespace: "chaos-demo"
+
+  # Target nginx demo pods
+  selector:
+    app: nginx
+    environment: demo
+
+  # Kill 2 out of 5 replicas to test recovery
+  count: 2
