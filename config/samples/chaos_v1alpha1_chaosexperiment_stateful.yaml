@@ -1,0 +1,22 @@
+apiVersion: chaos.gushchin.dev/v1alpha1
+kind: ChaosExperiment
+metadata:
+  labels:
+    app.kubernetes.io/name: k8s-chaos
+    app.kubernetes.io/managed-by: kustomize
+  name: chaosexperiment-statefulset
+  namespace: database
+spec:
+  # Target stateful applications
+  action: "pod-kill"
+
+  # Target namespace with stateful workloads
+  namespace: "database"
+
+  # Target specific statefulset pods
+  selector:
+    app: postgresql
+    statefulset.kubernetes.io/pod-name: postgresql-1
+
+  # Kill only one replica to test failover
+  count: 1
