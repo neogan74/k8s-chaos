@@ -34,8 +34,8 @@ type ChaosExperimentSpec struct {
 	// +optional
 	Action    string            `json:"action"` // pod-kill
 	Namespace string            `json:"namespace"`
-	Selector  map[string]string `json:"selector,omitemptly"` // app=nginx
-	Count     int               `json:"count,omitempty"`     // 1
+	Selector  map[string]string `json:"selector,omitempty"` // app=nginx
+	Count     int               `json:"count,omitempty"`    // 1
 }
 
 // ChaosExperimentStatus defines the observed state of ChaosExperiment.
@@ -55,8 +55,6 @@ type ChaosExperimentStatus struct {
 	// - "Degraded": the resource failed to reach or maintain its desired state
 	//
 	// The status of each condition is one of True, False, or Unknown.
-	// +listType=map
-	// +listMapKey=type
 	// +optional
 	LastRunTime *metav1.Time `json:"lastRunTime,omitempty"`
 	Message     string       `json:"message,omitempty"`
