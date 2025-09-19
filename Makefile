@@ -146,6 +146,171 @@ build-installer: manifests generate kustomize ## Generate a consolidated YAML wi
 	cd config/manager && $(KUSTOMIZE) edit set image controller=${IMG}
 	$(KUSTOMIZE) build config/default > dist/install.yaml
 
+##@ Local Development
+
+.PHONY: dev-setup
+dev-setup: ## Set up complete local development environment
+	@echo "🚀 Setting up k8s-chaos development environment..."
+	$(MAKE) dev-dependencies
+	$(MAKE) dev-cluster
+	$(MAKE) dev-install
+	$(MAKE) dev-demo
+	@echo "✅ Development environment ready!"
+	@echo "   • Kind cluster: k8s-chaos-dev"
+	@echo "   • Demo namespace: chaos-demo"
+	@echo "   • Try: make demo-run"
+
+.PHONY: dev-dependencies
+dev-dependencies: ## Install all development dependencies
+	@echo "📦 Installing development dependencies..."
+	@command -v kind >/dev/null 2>&1 || { \
+		echo "❌ Kind not found. Install it with: go install sigs.k8s.io/kind@latest"; \
+		exit 1; \
+	}
+	@command -v kubectl >/dev/null 2>&1 || { \
+		echo "❌ kubectl not found. Please install kubectl"; \
+		exit 1; \
+	}
+	$(MAKE) kustomize controller-gen envtest golangci-lint
+
+.PHONY: dev-cluster
+dev-cluster: ## Create local Kind cluster for development
+	@echo "🔧 Setting up Kind cluster..."
+	@if kind get clusters | grep -q "^k8s-chaos-dev$$"; then \
+		echo "✅ Kind cluster 'k8s-chaos-dev' already exists"; \
+	else \
+		echo "Creating Kind cluster 'k8s-chaos-dev'..."; \
+		kind create cluster --name k8s-chaos-dev --config - <<< '\
+apiVersion: kind.x-k8s.io/v1alpha4\
+kind: Cluster\
+nodes:\
+- role: control-plane\
+  kubeadmConfigPatches:\
+  - |\
+    kind: InitConfiguration\
+    nodeRegistration:\
+      kubeletExtraArgs:\
+        node-labels: "ingress-ready=true"\
+  extraPortMappings:\
+  - containerPort: 80\
+    hostPort: 8080\
+    protocol: TCP\
+  - containerPort: 443\
+    hostPort: 8443\
+    protocol: TCP\
+- role: worker\
+- role: worker'; \
+	fi
+	@kubectl cluster-info --context kind-k8s-chaos-dev
+
+.PHONY: dev-install
+dev-install: manifests kustomize ## Install CRDs and deploy controller to dev cluster
+	@echo "📥 Installing CRDs to development cluster..."
+	@kubectl config use-context kind-k8s-chaos-dev
+	$(KUSTOMIZE) build config/crd | kubectl apply -f -
+	@echo "✅ CRDs installed"
+
+.PHONY: dev-demo
+dev-demo: ## Deploy demo environment to dev cluster
+	@echo "🎪 Deploying demo environment..."
+	@kubectl config use-context kind-k8s-chaos-dev
+	kubectl apply -f config/samples/demo-deployment.yaml
+	@echo "⏳ Waiting for demo pods to be ready..."
+	kubectl wait --for=condition=ready pod -l app=nginx -n chaos-demo --timeout=60s
+	@echo "✅ Demo environment ready in 'chaos-demo' namespace"
+
+.PHONY: dev-run
+dev-run: ## Run controller locally against dev cluster
+	@echo "🏃 Running controller locally..."
+	@kubectl config use-context kind-k8s-chaos-dev
+	$(MAKE) run
+
+.PHONY: dev-status
+dev-status: ## Show status of development environment
+	@echo "📊 Development Environment Status"
+	@echo "================================="
+	@if kind get clusters | grep -q "^k8s-chaos-dev$$"; then \
+		echo "✅ Kind cluster: k8s-chaos-dev (running)"; \
+		kubectl cluster-info --context kind-k8s-chaos-dev | head -2; \
+		echo ""; \
+		echo "📦 Demo Environment:"; \
+		kubectl get pods -n chaos-demo --context kind-k8s-chaos-dev 2>/dev/null || echo "❌ Demo not deployed (run: make dev-demo)"; \
+		echo ""; \
+		echo "🔧 CRDs:"; \
+		kubectl get crd chaosexperiments.chaos.gushchin.dev --context kind-k8s-chaos-dev >/dev/null 2>&1 && echo "✅ ChaosExperiment CRD installed" || echo "❌ CRDs not installed (run: make dev-install)"; \
+		echo ""; \
+		echo "🎯 ChaosExperiments:"; \
+		kubectl get chaosexperiments --all-namespaces --context kind-k8s-chaos-dev 2>/dev/null || echo "No experiments running"; \
+	else \
+		echo "❌ Kind cluster not found (run: make dev-cluster)"; \
+	fi
+
+.PHONY: dev-clean
+dev-clean: ## Clean up development environment
+	@echo "🧹 Cleaning up development environment..."
+	@if kind get clusters | grep -q "^k8s-chaos-dev$$"; then \
+		echo "Deleting Kind cluster 'k8s-chaos-dev'..."; \
+		kind delete cluster --name k8s-chaos-dev; \
+		echo "✅ Development cluster deleted"; \
+	else \
+		echo "No development cluster found"; \
+	fi
+
+##@ Demo Commands
+
+.PHONY: demo-run
+demo-run: ## Run a chaos experiment in demo environment
+	@echo "💥 Running chaos experiment in demo..."
+	@kubectl config use-context kind-k8s-chaos-dev
+	kubectl apply -f config/samples/chaos_v1alpha1_chaosexperiment_demo.yaml
+	@echo "✅ Chaos experiment started!"
+	@echo "Watch it with: make demo-watch"
+
+.PHONY: demo-watch
+demo-watch: ## Watch demo pods and chaos experiments
+	@echo "👀 Watching chaos in action..."
+	@echo "Press Ctrl+C to stop watching"
+	@kubectl config use-context kind-k8s-chaos-dev
+	kubectl get pods -n chaos-demo -w
+
+.PHONY: demo-status
+demo-status: ## Show status of demo environment and experiments
+	@echo "🎪 Demo Environment Status"
+	@echo "=========================="
+	@kubectl config use-context kind-k8s-chaos-dev
+	@echo "📦 Demo Pods:"
+	kubectl get pods -n chaos-demo -o wide
+	@echo ""
+	@echo "🔥 Chaos Experiments:"
+	kubectl get chaosexperiments -n chaos-demo -o wide
+	@echo ""
+	@echo "📋 Recent Events:"
+	kubectl get events -n chaos-demo --sort-by='.lastTimestamp' | tail -10
+
+.PHONY: demo-stop
+demo-stop: ## Stop all chaos experiments
+	@echo "🛑 Stopping all chaos experiments..."
+	@kubectl config use-context kind-k8s-chaos-dev
+	kubectl delete chaosexperiments --all -n chaos-demo
+	@echo "✅ All chaos experiments stopped"
+
+.PHONY: demo-reset
+demo-reset: ## Reset demo environment to clean state
+	@echo "🔄 Resetting demo environment..."
+	@kubectl config use-context kind-k8s-chaos-dev
+	kubectl delete chaosexperiments --all -n chaos-demo --ignore-not-found=true
+	kubectl delete -f config/samples/demo-deployment.yaml --ignore-not-found=true
+	kubectl apply -f config/samples/demo-deployment.yaml
+	@echo "⏳ Waiting for pods to be ready..."
+	kubectl wait --for=condition=ready pod -l app=nginx -n chaos-demo --timeout=60s
+	@echo "✅ Demo environment reset"
+
+.PHONY: demo-logs
+demo-logs: ## Show controller logs (when running locally)
+	@echo "📋 Recent controller logs:"
+	@echo "(This shows logs when controller runs via 'make dev-run')"
+	@echo "For deployed controller logs, use: kubectl logs -n k8s-chaos-system deployment/k8s-chaos-controller-manager"
+
 ##@ Deployment
 
 ifndef ignore-not-found
