@@ -1,0 +1,23 @@
+apiVersion: chaos.gushchin.dev/v1alpha1
+kind: ChaosExperiment
+metadata:
+  labels:
+    app.kubernetes.io/name: k8s-chaos
+    app.kubernetes.io/managed-by: kustomize
+  name: chaosexperiment-kill-multiple
+  namespace: production
+spec:
+  # Kill multiple pods at once
+  action: "pod-kill"
+
+  # Target namespace
+  namespace: "production"
+
+  # Target pods with multiple label selectors
+  # This targets pods that have BOTH labels
+  selector:
+    app: web-server
+    tier: frontend
+
+  # Kill up to 3 pods
+  count: 3

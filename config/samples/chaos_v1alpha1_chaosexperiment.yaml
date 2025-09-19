@@ -1,0 +1,23 @@
+apiVersion: chaos.gushchin.dev/v1alpha1
+kind: ChaosExperiment
+metadata:
+  labels:
+    app.kubernetes.io/name: k8s-chaos
+    app.kubernetes.io/managed-by: kustomize
+  name: chaosexperiment-sample
+spec:
+  # Action defines the type of chaos to introduce
+  # Currently supported: "pod-kill"
+  action: "pod-kill"
+
+  # Namespace where the target pods are located
+  namespace: "default"
+
+  # Selector defines the label selector to identify target pods
+  # This example targets pods with label app=nginx
+  selector:
+    app: nginx
+
+  # Count defines how many pods to affect
+  # If count > number of matching pods, all matching pods will be affected
+  count: 1
