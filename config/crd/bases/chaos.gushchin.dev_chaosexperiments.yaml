@@ -14,7 +14,23 @@ spec:
     singular: chaosexperiment
   scope: Namespaced
   versions:
-  - name: v1alpha1
+  - additionalPrinterColumns:
+    - jsonPath: .spec.action
+      name: Action
+      type: string
+    - jsonPath: .spec.namespace
+      name: Namespace
+      type: string
+    - jsonPath: .spec.count
+      name: Count
+      type: integer
+    - jsonPath: .status.phase
+      name: Phase
+      type: string
+    - jsonPath: .metadata.creationTimestamp
+      name: Age
+      type: date
+    name: v1alpha1
     schema:
       openAPIV3Schema:
         description: ChaosExperiment is the Schema for the chaosexperiments API
@@ -40,37 +56,55 @@ spec:
             description: spec defines the desired state of ChaosExperiment
             properties:
               action:
-                description: foo is an example field of ChaosExperiment. Edit chaosexperiment_types.go
-                  to remove/update
+                description: Action specifies the chaos action to perform
+                enum:
+                - pod-kill
+                - pod-delay
+                - node-drain
                 type: string
               count:
+                default: 1
+                description: Count specifies the number of resources to affect
+                maximum: 100
+                minimum: 1
                 type: integer
+              duration:
+                description: Duration specifies how long the chaos action should last
+                  (for pod-delay)
+                pattern: ^([0-9]+(s|m|h))+$
+                type: string
               namespace:
+                description: Namespace specifies the target namespace for chaos experiments
+                minLength: 1
                 type: string
               selector:
                 additionalProperties:
                   type: string
+                description: Selector specifies the label selector for target resources
+                minProperties: 1
                 type: object
             required:
+            - action
             - namespace
+            - selector
             type: object
           status:
             description: status defines the observed state of ChaosExperiment
             properties:
               lastRunTime:
-                description: |-
-                  conditions represent the current state of the ChaosExperiment resource.
-                  Each condition has a unique type and reflects the status of a specific aspect of the resource.
-
-                  Standard condition types include:
-                  - "Available": the resource is fully functional
-                  - "Progressing": the resource is being created or updated
-                  - "Degraded": the resource failed to reach or maintain its desired state
-
-                  The status of each condition is one of True, False, or Unknown.
+                description: LastRunTime indicates when the experiment was last executed
                 format: date-time
                 type: string
               message:
+                description: Message provides human-readable status information
+                type: string
+              phase:
+                description: Phase represents the current state of the experiment
+                enum:
+                - Pending
+                - Running
+                - Completed
+                - Failed
                 type: string
             type: object
         required:
