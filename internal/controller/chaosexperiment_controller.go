@@ -18,6 +18,7 @@ package controller
 
 import (
 	"context"
+	"fmt"
 	"math/rand"
 	"time"
 
@@ -40,6 +41,8 @@ type ChaosExperimentReconciler struct {
 // +kubebuilder:rbac:groups=chaos.gushchin.dev,resources=chaosexperiments,verbs=get;list;watch;create;update;patch;delete
 // +kubebuilder:rbac:groups=chaos.gushchin.dev,resources=chaosexperiments/status,verbs=get;update;patch
 // +kubebuilder:rbac:groups=chaos.gushchin.dev,resources=chaosexperiments/finalizers,verbs=update
+// +kubebuilder:rbac:groups="",resources=pods,verbs=get;list;delete
+// +kubebuilder:rbac:groups="",resources=pods/exec,verbs=create
 
 // Reconcile is part of the main kubernetes reconciliation loop which aims to
 // move the current state of the cluster closer to the desired state.
@@ -58,8 +61,34 @@ func (r *ChaosExperimentReconciler) Reconcile(ctx context.Context, req ctrl.Requ
 		return ctrl.Result{}, client.IgnoreNotFound(err)
 	}
 
-	if exp.Spec.Action != "pod-kill" {
+	if exp.Spec.Action == "" {
+		log.Error(nil, "Action not specified")
+		exp.Status.Message = "Error: Action not specified"
+		_ = r.Status().Update(ctx, &exp)
+		return ctrl.Result{}, nil
+	}
+
+	switch exp.Spec.Action {
+	case "pod-kill":
+		return r.handlePodKill(ctx, &exp)
+	case "pod-delay":
+		return r.handlePodDelay(ctx, &exp)
+	default:
 		log.Info("Unsupported action", "action", exp.Spec.Action)
+		exp.Status.Message = "Error: Unsupported action: " + exp.Spec.Action
+		_ = r.Status().Update(ctx, &exp)
+		return ctrl.Result{}, nil
+	}
+}
+
+func (r *ChaosExperimentReconciler) handlePodKill(ctx context.Context, exp *chaosv1alpha1.ChaosExperiment) (ctrl.Result, error) {
+	log := ctrl.LoggerFrom(ctx)
+
+	// Validate namespace
+	if exp.Spec.Namespace == "" {
+		log.Error(nil, "Namespace not specified")
+		exp.Status.Message = "Error: Namespace not specified"
+		_ = r.Status().Update(ctx, exp)
 		return ctrl.Result{}, nil
 	}
 
@@ -68,38 +97,68 @@ func (r *ChaosExperimentReconciler) Reconcile(ctx context.Context, req ctrl.Requ
 	selector := labels.SelectorFromSet(exp.Spec.Selector)
 	if err := r.List(ctx, podList, client.InNamespace(exp.Spec.Namespace),
 		client.MatchingLabelsSelector{Selector: selector}); err != nil {
+		log.Error(err, "Failed to list pods")
+		exp.Status.Message = "Error: Failed to list pods"
+		_ = r.Status().Update(ctx, exp)
 		return ctrl.Result{}, err
 	}
 
 	if len(podList.Items) == 0 {
 		log.Info("No pods found for selector", "selector", exp.Spec.Selector)
-		return ctrl.Result{}, nil
+		exp.Status.Message = "No pods found matching selector"
+		_ = r.Status().Update(ctx, exp)
+		return ctrl.Result{RequeueAfter: time.Minute}, nil
 	}
 
-	// Перемешаем список Pod-ов
+	// Shuffle the list of pods
 	rand.Shuffle(len(podList.Items), func(i, j int) {
 		podList.Items[i], podList.Items[j] = podList.Items[j], podList.Items[i]
 	})
 
-	// Удалим нужное количество Pod-ов
+	// Delete the specified number of pods
 	killCount := exp.Spec.Count
+	if killCount <= 0 {
+		killCount = 1 // Default to 1 if not specified or invalid
+	}
 	if killCount > len(podList.Items) {
 		killCount = len(podList.Items)
 	}
 
+	killedPods := []string{}
 	for i := 0; i < killCount; i++ {
 		pod := podList.Items[i]
-		log.Info("Deleting pod", "pod", pod.Name)
+		log.Info("Deleting pod", "pod", pod.Name, "namespace", pod.Namespace)
 		if err := r.Delete(ctx, &pod); err != nil {
 			log.Error(err, "Failed to delete pod", "pod", pod.Name)
+		} else {
+			killedPods = append(killedPods, pod.Name)
 		}
 	}
 
 	// Update status
 	now := metav1.Now()
 	exp.Status.LastRunTime = &now
-	exp.Status.Message = "Killed pods"
-	if err := r.Status().Update(ctx, &exp); err != nil {
+	if len(killedPods) > 0 {
+		exp.Status.Message = fmt.Sprintf("Successfully killed %d pod(s)", len(killedPods))
+	} else {
+		exp.Status.Message = "Failed to kill any pods"
+	}
+	if err := r.Status().Update(ctx, exp); err != nil {
+		log.Error(err, "Failed to update ChaosExperiment status")
+		return ctrl.Result{}, err
+	}
+	return ctrl.Result{RequeueAfter: time.Minute}, nil
+}
+
+func (r *ChaosExperimentReconciler) handlePodDelay(ctx context.Context, exp *chaosv1alpha1.ChaosExperiment) (ctrl.Result, error) {
+	log := ctrl.LoggerFrom(ctx)
+	log.Info("Pod delay action not yet implemented")
+
+	// Update status
+	now := metav1.Now()
+	exp.Status.LastRunTime = &now
+	exp.Status.Message = "Pod delay action not yet implemented"
+	if err := r.Status().Update(ctx, exp); err != nil {
 		log.Error(err, "Failed to update ChaosExperiment status")
 		return ctrl.Result{}, err
 	}
