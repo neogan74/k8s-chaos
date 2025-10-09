@@ -5,9 +5,10 @@ metadata:
     app.kubernetes.io/name: k8s-chaos
     app.kubernetes.io/managed-by: kustomize
   name: chaosexperiment-sample
+  namespace: chaos-testing
 spec:
   # Action defines the type of chaos to introduce
-  # Currently supported: "pod-kill"
+  # Supported actions: "pod-kill", "pod-delay", "node-drain"
   action: "pod-kill"
 
   # Namespace where the target pods are located
@@ -15,9 +16,11 @@ spec:
 
   # Selector defines the label selector to identify target pods
   # This example targets pods with label app=nginx
+  # Multiple labels create an AND condition
   selector:
     app: nginx
 
-  # Count defines how many pods to affect
+  # Count defines how many pods to affect (1-100)
   # If count > number of matching pods, all matching pods will be affected
+  # Default: 1
   count: 1

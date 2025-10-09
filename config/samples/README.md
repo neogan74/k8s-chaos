@@ -23,6 +23,11 @@ This directory contains sample ChaosExperiment resources to help you get started
 - Kills 2 out of 5 nginx replicas
 - Safe for learning and experimentation
 
+### 5. Network Delay Testing (`chaos_v1alpha1_chaosexperiment_delay.yaml`)
+- Adds network latency to API service pods
+- Demonstrates the `pod-delay` action
+- Targets staging environment for safe testing
+
 ## Demo Deployment
 
 The `demo-deployment.yaml` file creates:
@@ -68,7 +73,7 @@ kubectl delete -f demo-deployment.yaml
 
 Each sample includes comments explaining the fields:
 
-- **action**: Currently only supports `"pod-kill"`
+- **action**: Supports `"pod-kill"`, `"pod-delay"`, `"node-drain"`
 - **namespace**: Target namespace for the chaos
 - **selector**: Label selector to identify target pods
 - **count**: Number of pods to affect
