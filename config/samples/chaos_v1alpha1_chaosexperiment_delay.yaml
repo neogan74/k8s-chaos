@@ -1,0 +1,22 @@
+apiVersion: chaos.gushchin.dev/v1alpha1
+kind: ChaosExperiment
+metadata:
+  labels:
+    app.kubernetes.io/name: k8s-chaos
+    app.kubernetes.io/managed-by: kustomize
+  name: chaosexperiment-network-delay
+  namespace: staging
+spec:
+  # Add network latency to pods
+  action: "pod-delay"
+
+  # Target namespace
+  namespace: "staging"
+
+  # Target API service pods
+  selector:
+    app: api-service
+    tier: backend
+
+  # Add delay to 2 pods to test resilience
+  count: 2
