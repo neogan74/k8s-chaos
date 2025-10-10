@@ -7,9 +7,11 @@ Welcome to the k8s-chaos documentation! This directory contains comprehensive gu
 ### For Developers
 - **[Quick Start](QUICKSTART.md)** - Get running in 5 minutes
 - **[Development Guide](DEVELOPMENT.md)** - Complete local development setup
+- **[Architecture Decision Records](adr/README.md)** - Design decisions and rationale
 - **[CLAUDE.md](../CLAUDE.md)** - Guidance for Claude Code AI assistant
 
 ### For Users
+- **[API Reference](API.md)** - Complete CRD field documentation
 - **[Sample CRDs](../config/samples/README.md)** - Example chaos experiments
 - **[Project README](../Readme.md)** - Project overview and installation
 
