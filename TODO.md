@@ -3,7 +3,7 @@
 ## 🔥 High Priority
 
 ### Core Functionality
-- [ ] **Complete Sample CRD** - Add a working example in `config/samples/chaos_v1alpha1_chaosexperiment.yaml`
+- [x] **Complete Sample CRD** - Add a working example in `config/samples/chaos_v1alpha1_chaosexperiment.yaml`
 - [ ] **Add Validation** - Implement OpenAPI schema validation for CRD fields
   - [ ] Validate action field against allowed values
   - [ ] Ensure count is positive integer
@@ -100,10 +100,10 @@
 - [ ] **Troubleshooting Guide** - Common issues and solutions
 
 ### Developer Documentation
-- [ ] **Architecture Decision Records (ADRs)**
-- [ ] **API Documentation** - Detailed CRD field descriptions
+- [x] **Architecture Decision Records (ADRs)**
+- [x] **API Documentation** - Detailed CRD field descriptions
 - [ ] **Contributing Guide** - How to add new chaos actions
-- [ ] **Code Comments** - Translate Russian comments to English
+- [x] **Code Comments** - Translate Russian comments to English
 
 ## 🔒 Security
 
