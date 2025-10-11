@@ -162,17 +162,188 @@ func (r *ChaosExperimentReconciler) handlePodKill(ctx context.Context, exp *chao
 
 func (r *ChaosExperimentReconciler) handlePodDelay(ctx context.Context, exp *chaosv1alpha1.ChaosExperiment) (ctrl.Result, error) {
 	log := ctrl.LoggerFrom(ctx)
-	log.Info("Pod delay action not yet implemented")
+
+	// Validate namespace
+	if exp.Spec.Namespace == "" {
+		log.Error(nil, "Namespace not specified")
+		exp.Status.Message = "Error: Namespace not specified"
+		_ = r.Status().Update(ctx, exp)
+		return ctrl.Result{}, nil
+	}
+
+	// Validate duration is specified for pod-delay
+	if exp.Spec.Duration == "" {
+		log.Error(nil, "Duration not specified for pod-delay action")
+		exp.Status.Message = "Error: Duration is required for pod-delay action"
+		_ = r.Status().Update(ctx, exp)
+		return ctrl.Result{}, nil
+	}
+
+	// Parse duration
+	delayMs, err := r.parseDurationToMs(exp.Spec.Duration)
+	if err != nil {
+		log.Error(err, "Failed to parse duration", "duration", exp.Spec.Duration)
+		exp.Status.Message = fmt.Sprintf("Error: Invalid duration format: %s", exp.Spec.Duration)
+		_ = r.Status().Update(ctx, exp)
+		return ctrl.Result{}, nil
+	}
+
+	// List pods by selector
+	podList := &corev1.PodList{}
+	selector := labels.SelectorFromSet(exp.Spec.Selector)
+	if err := r.List(ctx, podList, client.InNamespace(exp.Spec.Namespace),
+		client.MatchingLabelsSelector{Selector: selector}); err != nil {
+		log.Error(err, "Failed to list pods")
+		exp.Status.Message = "Error: Failed to list pods"
+		_ = r.Status().Update(ctx, exp)
+		return ctrl.Result{}, err
+	}
+
+	if len(podList.Items) == 0 {
+		log.Info("No pods found for selector", "selector", exp.Spec.Selector)
+		exp.Status.Message = "No pods found matching selector"
+		_ = r.Status().Update(ctx, exp)
+		return ctrl.Result{RequeueAfter: time.Minute}, nil
+	}
+
+	// Shuffle the list of pods
+	rand.Shuffle(len(podList.Items), func(i, j int) {
+		podList.Items[i], podList.Items[j] = podList.Items[j], podList.Items[i]
+	})
+
+	// Determine how many pods to affect
+	affectCount := exp.Spec.Count
+	if affectCount <= 0 {
+		affectCount = 1 // Default to 1 if not specified or invalid
+	}
+	if affectCount > len(podList.Items) {
+		affectCount = len(podList.Items)
+	}
+
+	// Apply network delay to selected pods
+	affectedPods := []string{}
+	for i := 0; i < affectCount; i++ {
+		pod := podList.Items[i]
+		log.Info("Adding network delay to pod", "pod", pod.Name, "namespace", pod.Namespace, "delay", delayMs)
+
+		// Apply delay using tc (traffic control)
+		if err := r.applyNetworkDelay(ctx, &pod, delayMs); err != nil {
+			log.Error(err, "Failed to apply network delay", "pod", pod.Name)
+		} else {
+			affectedPods = append(affectedPods, pod.Name)
+		}
+	}
 
 	// Update status
 	now := metav1.Now()
 	exp.Status.LastRunTime = &now
-	exp.Status.Message = "Pod delay action not yet implemented"
+	if len(affectedPods) > 0 {
+		exp.Status.Message = fmt.Sprintf("Successfully added %dms delay to %d pod(s)", delayMs, len(affectedPods))
+	} else {
+		exp.Status.Message = "Failed to add delay to any pods"
+	}
 	if err := r.Status().Update(ctx, exp); err != nil {
 		log.Error(err, "Failed to update ChaosExperiment status")
 		return ctrl.Result{}, err
 	}
+
 	return ctrl.Result{RequeueAfter: time.Minute}, nil
+}
+
+// parseDurationToMs parses a duration string (e.g., "30s", "5m", "1h") and returns milliseconds
+func (r *ChaosExperimentReconciler) parseDurationToMs(durationStr string) (int, error) {
+	// Pattern: ^([0-9]+(s|m|h))+$
+	re := regexp.MustCompile(`(\d+)([smh])`)
+	matches := re.FindAllStringSubmatch(durationStr, -1)
+
+	if len(matches) == 0 {
+		return 0, fmt.Errorf("invalid duration format")
+	}
+
+	totalMs := 0
+	for _, match := range matches {
+		value, _ := strconv.Atoi(match[1])
+		unit := match[2]
+
+		switch unit {
+		case "s":
+			totalMs += value * 1000
+		case "m":
+			totalMs += value * 60 * 1000
+		case "h":
+			totalMs += value * 60 * 60 * 1000
+		}
+	}
+
+	return totalMs, nil
+}
+
+// applyNetworkDelay adds network latency to a pod using tc (traffic control)
+func (r *ChaosExperimentReconciler) applyNetworkDelay(ctx context.Context, pod *corev1.Pod, delayMs int) error {
+	log := ctrl.LoggerFrom(ctx)
+
+	// Find the first container (we'll apply delay to the pod network namespace)
+	if len(pod.Spec.Containers) == 0 {
+		return fmt.Errorf("no containers found in pod")
+	}
+	containerName := pod.Spec.Containers[0].Name
+
+	// Commands to apply network delay using tc
+	commands := [][]string{
+		// First, try to delete any existing qdisc (ignore errors)
+		{"tc", "qdisc", "del", "dev", "eth0", "root"},
+		// Add delay using netem
+		{"tc", "qdisc", "add", "dev", "eth0", "root", "netem", "delay", fmt.Sprintf("%dms", delayMs)},
+	}
+
+	for i, command := range commands {
+		stdout, stderr, err := r.execInPod(ctx, pod.Namespace, pod.Name, containerName, command)
+		if err != nil && i > 0 { // Ignore error for delete command (first command)
+			log.Error(err, "Failed to execute command in pod",
+				"pod", pod.Name,
+				"command", strings.Join(command, " "),
+				"stdout", stdout,
+				"stderr", stderr)
+			return err
+		}
+		log.Info("Executed command in pod",
+			"pod", pod.Name,
+			"command", strings.Join(command, " "),
+			"stdout", stdout,
+			"stderr", stderr)
+	}
+
+	return nil
+}
+
+// execInPod executes a command in a pod and returns stdout, stderr, and error
+func (r *ChaosExperimentReconciler) execInPod(ctx context.Context, namespace, podName, containerName string, command []string) (string, string, error) {
+	req := r.Clientset.CoreV1().RESTClient().Post().
+		Resource("pods").
+		Name(podName).
+		Namespace(namespace).
+		SubResource("exec").
+		VersionedParams(&corev1.PodExecOptions{
+			Container: containerName,
+			Command:   command,
+			Stdin:     false,
+			Stdout:    true,
+			Stderr:    true,
+			TTY:       false,
+		}, scheme.ParameterCodec)
+
+	exec, err := remotecommand.NewSPDYExecutor(r.Config, "POST", req.URL())
+	if err != nil {
+		return "", "", fmt.Errorf("failed to create executor: %w", err)
+	}
+
+	var stdout, stderr bytes.Buffer
+	err = exec.StreamWithContext(ctx, remotecommand.StreamOptions{
+		Stdout: &stdout,
+		Stderr: &stderr,
+	})
+
+	return stdout.String(), stderr.String(), err
 }
 
 // SetupWithManager sets up the controller with the Manager.
