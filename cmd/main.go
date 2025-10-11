@@ -179,9 +179,19 @@ func main() {
 		os.Exit(1)
 	}
 
+	// Get REST config for pod exec
+	config := mgr.GetConfig()
+	clientset, err := kubernetes.NewForConfig(config)
+	if err != nil {
+		setupLog.Error(err, "unable to create kubernetes clientset")
+		os.Exit(1)
+	}
+
 	if err := (&controller.ChaosExperimentReconciler{
-		Client: mgr.GetClient(),
-		Scheme: mgr.GetScheme(),
+		Client:    mgr.GetClient(),
+		Scheme:    mgr.GetScheme(),
+		Config:    config,
+		Clientset: clientset,
 	}).SetupWithManager(mgr); err != nil {
 		setupLog.Error(err, "unable to create controller", "controller", "ChaosExperiment")
 		os.Exit(1)
