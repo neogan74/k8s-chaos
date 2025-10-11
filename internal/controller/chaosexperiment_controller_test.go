@@ -222,12 +222,12 @@ var _ = Describe("ChaosExperiment Controller", func() {
 			Expect(err).NotTo(HaveOccurred())
 			Expect(result.RequeueAfter).To(Equal(time.Minute))
 
-			By("Verifying status message indicates not implemented")
+			By("Verifying status message (no pods to affect in this test)")
 			exp := &chaosv1alpha1.ChaosExperiment{}
 			Eventually(func() string {
 				_ = k8sClient.Get(ctx, typeNamespacedName, exp)
 				return exp.Status.Message
-			}, timeout, interval).Should(ContainSubstring("not yet implemented"))
+			}, timeout, interval).Should(ContainSubstring("No pods found matching selector"))
 		})
 
 		It("Should requeue after specified time", func() {
