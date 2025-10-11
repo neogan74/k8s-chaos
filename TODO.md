@@ -46,7 +46,7 @@
 ## 🚀 New Chaos Actions
 
 ### Pod Chaos
-- [ ] **pod-delay** - Add network latency to pods
+- [x] **pod-delay** - Add network latency to pods
 - [ ] **pod-cpu-stress** - Consume CPU resources
 - [ ] **pod-memory-stress** - Consume memory resources
 - [ ] **pod-network-loss** - Simulate packet loss
