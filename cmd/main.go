@@ -185,6 +185,12 @@ func main() {
 		setupLog.Error(err, "unable to create controller", "controller", "ChaosExperiment")
 		os.Exit(1)
 	}
+
+	// Setup webhooks
+	if err := (&chaosv1alpha1.ChaosExperiment{}).SetupWebhookWithManager(mgr); err != nil {
+		setupLog.Error(err, "unable to create webhook", "webhook", "ChaosExperiment")
+		os.Exit(1)
+	}
 	// +kubebuilder:scaffold:builder
 
 	if err := mgr.AddHealthzCheck("healthz", healthz.Ping); err != nil {
