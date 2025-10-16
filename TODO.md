@@ -4,10 +4,16 @@
 
 ### Core Functionality
 - [x] **Complete Sample CRD** - Add a working example in `config/samples/chaos_v1alpha1_chaosexperiment.yaml`
-- [ ] **Add Validation** - Implement OpenAPI schema validation for CRD fields
-  - [ ] Validate action field against allowed values
-  - [ ] Ensure count is positive integer
-  - [ ] Validate selector is not empty
+- [x] **Add Validation** - Implement OpenAPI schema validation for CRD fields
+  - [x] Validate action field against allowed values
+  - [x] Ensure count is positive integer
+  - [x] Validate selector is not empty
+  - [x] Add admission webhook for advanced validation
+  - [x] Validate namespace exists
+  - [x] Validate selector matches pods
+  - [x] Cross-field validation (e.g., duration required for pod-delay)
+  - [x] Unit tests for validation logic
+  - [x] Webhook tests with fake client
 - [ ] **Implement Safety Checks**
   - [ ] Add dry-run mode to preview affected pods
   - [ ] Implement maximum percentage limit (e.g., max 30% of pods)
@@ -15,10 +21,10 @@
   - [ ] Add confirmation/approval mechanism for production namespaces
 
 ### Error Handling
-- [ ] **Improve Error Messages** - Add more descriptive error messages and status updates
+- [x] **Improve Error Messages** - Add more descriptive error messages and status updates
 - [ ] **Add Retry Logic** - Implement exponential backoff for transient failures
-- [ ] **Handle Edge Cases**
-  - [ ] What if namespace doesn't exist?
+- [x] **Handle Edge Cases**
+  - [x] What if namespace doesn't exist? - Webhook validates this
   - [ ] What if pods are already terminating?
   - [ ] Handle permission denied errors gracefully
 
