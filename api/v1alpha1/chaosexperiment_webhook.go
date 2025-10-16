@@ -35,6 +35,7 @@ import (
 var chaosexperimentlog = logf.Log.WithName("chaosexperiment-resource")
 
 // ChaosExperimentWebhook implements webhook.CustomValidator
+// +kubebuilder:object:generate=false
 type ChaosExperimentWebhook struct {
 	Client client.Client
 }
