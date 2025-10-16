@@ -148,15 +148,19 @@ Additional safety checks in the reconciliation loop:
 - [x] Pattern validation for duration field
 - [x] MinProperties validation for selector
 - [x] Required field markers
+- [x] Admission webhook scaffolding (Layer 2)
+- [x] Namespace existence validation
+- [x] Selector effectiveness check
+- [x] Duration requirement for delay actions (cross-field validation)
+- [x] Comprehensive validation unit tests
+- [x] Webhook integration tests with fake client
 
-### Planned
-- [ ] Admission webhook scaffolding
-- [ ] Namespace existence validation
-- [ ] Selector effectiveness check
-- [ ] Safety policy enforcement (max percentage)
+### Planned (Future)
+- [ ] Safety policy enforcement (max percentage) - Currently warns if count exceeds available pods
 - [ ] Exclusion label support
-- [ ] Duration requirement for delay actions
-- [ ] Comprehensive validation tests
+- [ ] Integration with external policy engines (OPA/Kyverno)
+- [ ] Steady-state verification before chaos
+- [ ] E2E webhook tests with real cluster
 
 ## References
 
