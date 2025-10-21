@@ -7,6 +7,16 @@ rules:
 - apiGroups:
   - ""
   resources:
+  - nodes
+  verbs:
+  - get
+  - list
+  - patch
+  - update
+  - watch
+- apiGroups:
+  - ""
+  resources:
   - pods
   verbs:
   - delete
@@ -15,6 +25,7 @@ rules:
 - apiGroups:
   - ""
   resources:
+  - pods/eviction
   - pods/exec
   verbs:
   - create
