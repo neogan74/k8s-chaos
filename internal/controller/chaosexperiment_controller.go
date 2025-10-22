@@ -41,6 +41,12 @@ import (
 	chaosmetrics "github.com/neogan74/k8s-chaos/internal/metrics"
 )
 
+const (
+	// Status constants for experiment execution
+	statusSuccess = "success"
+	statusFailure = "failure"
+)
+
 // ChaosExperimentReconciler reconciles a ChaosExperiment object
 type ChaosExperimentReconciler struct {
 	client.Client
@@ -158,12 +164,12 @@ func (r *ChaosExperimentReconciler) handlePodKill(ctx context.Context, exp *chao
 	// Update status
 	now := metav1.Now()
 	exp.Status.LastRunTime = &now
-	status := "success"
+	status := statusSuccess
 	if len(killedPods) > 0 {
 		exp.Status.Message = fmt.Sprintf("Successfully killed %d pod(s)", len(killedPods))
 	} else {
 		exp.Status.Message = "Failed to kill any pods"
-		status = "failure"
+		status = statusFailure
 	}
 	if err := r.Status().Update(ctx, exp); err != nil {
 		log.Error(err, "Failed to update ChaosExperiment status")
@@ -261,12 +267,12 @@ func (r *ChaosExperimentReconciler) handlePodDelay(ctx context.Context, exp *cha
 	// Update status
 	now := metav1.Now()
 	exp.Status.LastRunTime = &now
-	status := "success"
+	status := statusSuccess
 	if len(affectedPods) > 0 {
 		exp.Status.Message = fmt.Sprintf("Successfully added %dms delay to %d pod(s)", delayMs, len(affectedPods))
 	} else {
 		exp.Status.Message = "Failed to add delay to any pods"
-		status = "failure"
+		status = statusFailure
 	}
 	if err := r.Status().Update(ctx, exp); err != nil {
 		log.Error(err, "Failed to update ChaosExperiment status")
