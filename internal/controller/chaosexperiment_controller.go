@@ -38,6 +38,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	chaosv1alpha1 "github.com/neogan74/k8s-chaos/api/v1alpha1"
+	chaosmetrics "github.com/neogan74/k8s-chaos/internal/metrics"
 )
 
 // ChaosExperimentReconciler reconciles a ChaosExperiment object
@@ -97,6 +98,11 @@ func (r *ChaosExperimentReconciler) Reconcile(ctx context.Context, req ctrl.Requ
 
 func (r *ChaosExperimentReconciler) handlePodKill(ctx context.Context, exp *chaosv1alpha1.ChaosExperiment) (ctrl.Result, error) {
 	log := ctrl.LoggerFrom(ctx)
+	startTime := time.Now()
+
+	// Track active experiments
+	chaosmetrics.ActiveExperiments.WithLabelValues("pod-kill").Inc()
+	defer chaosmetrics.ActiveExperiments.WithLabelValues("pod-kill").Dec()
 
 	// Validate namespace
 	if exp.Spec.Namespace == "" {
@@ -152,20 +158,34 @@ func (r *ChaosExperimentReconciler) handlePodKill(ctx context.Context, exp *chao
 	// Update status
 	now := metav1.Now()
 	exp.Status.LastRunTime = &now
+	status := "success"
 	if len(killedPods) > 0 {
 		exp.Status.Message = fmt.Sprintf("Successfully killed %d pod(s)", len(killedPods))
 	} else {
 		exp.Status.Message = "Failed to kill any pods"
+		status = "failure"
 	}
 	if err := r.Status().Update(ctx, exp); err != nil {
 		log.Error(err, "Failed to update ChaosExperiment status")
 		return ctrl.Result{}, err
 	}
+
+	// Record metrics
+	duration := time.Since(startTime).Seconds()
+	chaosmetrics.ExperimentsTotal.WithLabelValues("pod-kill", exp.Spec.Namespace, status).Inc()
+	chaosmetrics.ExperimentDuration.WithLabelValues("pod-kill", exp.Spec.Namespace).Observe(duration)
+	chaosmetrics.ResourcesAffected.WithLabelValues("pod-kill", exp.Spec.Namespace, exp.Name).Set(float64(len(killedPods)))
+
 	return ctrl.Result{RequeueAfter: time.Minute}, nil
 }
 
 func (r *ChaosExperimentReconciler) handlePodDelay(ctx context.Context, exp *chaosv1alpha1.ChaosExperiment) (ctrl.Result, error) {
 	log := ctrl.LoggerFrom(ctx)
+	startTime := time.Now()
+
+	// Track active experiments
+	chaosmetrics.ActiveExperiments.WithLabelValues("pod-delay").Inc()
+	defer chaosmetrics.ActiveExperiments.WithLabelValues("pod-delay").Dec()
 
 	// Validate namespace
 	if exp.Spec.Namespace == "" {
@@ -241,15 +261,23 @@ func (r *ChaosExperimentReconciler) handlePodDelay(ctx context.Context, exp *cha
 	// Update status
 	now := metav1.Now()
 	exp.Status.LastRunTime = &now
+	status := "success"
 	if len(affectedPods) > 0 {
 		exp.Status.Message = fmt.Sprintf("Successfully added %dms delay to %d pod(s)", delayMs, len(affectedPods))
 	} else {
 		exp.Status.Message = "Failed to add delay to any pods"
+		status = "failure"
 	}
 	if err := r.Status().Update(ctx, exp); err != nil {
 		log.Error(err, "Failed to update ChaosExperiment status")
 		return ctrl.Result{}, err
 	}
+
+	// Record metrics
+	duration := time.Since(startTime).Seconds()
+	chaosmetrics.ExperimentsTotal.WithLabelValues("pod-delay", exp.Spec.Namespace, status).Inc()
+	chaosmetrics.ExperimentDuration.WithLabelValues("pod-delay", exp.Spec.Namespace).Observe(duration)
+	chaosmetrics.ResourcesAffected.WithLabelValues("pod-delay", exp.Spec.Namespace, exp.Name).Set(float64(len(affectedPods)))
 
 	return ctrl.Result{RequeueAfter: time.Minute}, nil
 }
@@ -353,6 +381,11 @@ func (r *ChaosExperimentReconciler) execInPod(ctx context.Context, namespace, po
 // handleNodeDrain cordons and drains nodes matching the selector
 func (r *ChaosExperimentReconciler) handleNodeDrain(ctx context.Context, exp *chaosv1alpha1.ChaosExperiment) (ctrl.Result, error) {
 	log := ctrl.LoggerFrom(ctx)
+	startTime := time.Now()
+
+	// Track active experiments
+	chaosmetrics.ActiveExperiments.WithLabelValues("node-drain").Inc()
+	defer chaosmetrics.ActiveExperiments.WithLabelValues("node-drain").Dec()
 
 	// List nodes by selector
 	nodeList := &corev1.NodeList{}
@@ -409,15 +442,23 @@ func (r *ChaosExperimentReconciler) handleNodeDrain(ctx context.Context, exp *ch
 	// Update status
 	now := metav1.Now()
 	exp.Status.LastRunTime = &now
+	status := "success"
 	if len(drainedNodes) > 0 {
 		exp.Status.Message = fmt.Sprintf("Successfully drained %d node(s): %v", len(drainedNodes), drainedNodes)
 	} else {
 		exp.Status.Message = "Failed to drain any nodes"
+		status = "failure"
 	}
 	if err := r.Status().Update(ctx, exp); err != nil {
 		log.Error(err, "Failed to update ChaosExperiment status")
 		return ctrl.Result{}, err
 	}
+
+	// Record metrics
+	duration := time.Since(startTime).Seconds()
+	chaosmetrics.ExperimentsTotal.WithLabelValues("node-drain", exp.Spec.Namespace, status).Inc()
+	chaosmetrics.ExperimentDuration.WithLabelValues("node-drain", exp.Spec.Namespace).Observe(duration)
+	chaosmetrics.ResourcesAffected.WithLabelValues("node-drain", exp.Spec.Namespace, exp.Name).Set(float64(len(drainedNodes)))
 
 	return ctrl.Result{RequeueAfter: time.Minute}, nil
 }
