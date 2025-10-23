@@ -448,12 +448,12 @@ func (r *ChaosExperimentReconciler) handleNodeDrain(ctx context.Context, exp *ch
 	// Update status
 	now := metav1.Now()
 	exp.Status.LastRunTime = &now
-	status := "success"
+	status := statusSuccess
 	if len(drainedNodes) > 0 {
 		exp.Status.Message = fmt.Sprintf("Successfully drained %d node(s): %v", len(drainedNodes), drainedNodes)
 	} else {
 		exp.Status.Message = "Failed to drain any nodes"
-		status = "failure"
+		status = statusFailure
 	}
 	if err := r.Status().Update(ctx, exp); err != nil {
 		log.Error(err, "Failed to update ChaosExperiment status")
