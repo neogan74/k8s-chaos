@@ -28,6 +28,12 @@ This directory contains sample ChaosExperiment resources to help you get started
 - Demonstrates the `pod-delay` action
 - Targets staging environment for safe testing
 
+### 6. Node Drain Testing (`chaos_v1alpha1_chaosexperiment_node_drain.yaml`)
+- Cordons and drains worker nodes to test node failure scenarios
+- Demonstrates the `node-drain` action
+- Uses node labels to target specific nodes
+- **CAUTION**: Can cause significant disruption - test carefully!
+
 ## Demo Deployment
 
 The `demo-deployment.yaml` file creates:
@@ -74,17 +80,20 @@ kubectl delete -f demo-deployment.yaml
 Each sample includes comments explaining the fields:
 
 - **action**: Supports `"pod-kill"`, `"pod-delay"`, `"node-drain"`
-- **namespace**: Target namespace for the chaos
-- **selector**: Label selector to identify target pods
-- **count**: Number of pods to affect
+- **namespace**: Target namespace for pod-level chaos (not used for node-drain)
+- **selector**: Label selector to identify target pods/nodes
+- **count**: Number of pods/nodes to affect
+- **duration**: Duration for time-based actions (required for pod-delay)
 
 ## Safety Tips
 
-1. **Start small**: Begin with 1 pod and low-traffic environments
-2. **Use selectors carefully**: Make sure your selector only targets intended pods
+1. **Start small**: Begin with 1 pod/node and low-traffic environments
+2. **Use selectors carefully**: Make sure your selector only targets intended resources
 3. **Monitor impact**: Watch system metrics during experiments
 4. **Have rollback ready**: Know how to quickly restore service if needed
 5. **Avoid production**: Test in staging/dev environments first
+6. **Node-drain caution**: Always test node selectors with `kubectl get nodes -l <selector>` first
+7. **Uncordon nodes**: Remember to manually uncordon nodes after testing: `kubectl uncordon <node-name>`
 
 ## Troubleshooting
 

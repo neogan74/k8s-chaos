@@ -38,6 +38,7 @@ import (
 
 	chaosv1alpha1 "github.com/neogan74/k8s-chaos/api/v1alpha1"
 	"github.com/neogan74/k8s-chaos/internal/controller"
+	_ "github.com/neogan74/k8s-chaos/internal/metrics" // Import to register custom metrics
 	// +kubebuilder:scaffold:imports
 )
 

@@ -1,0 +1,26 @@
+apiVersion: chaos.gushchin.dev/v1alpha1
+kind: ChaosExperiment
+metadata:
+  labels:
+    app.kubernetes.io/name: k8s-chaos
+    app.kubernetes.io/managed-by: kustomize
+  name: chaosexperiment-node-drain
+  namespace: chaos-testing
+spec:
+  # Drain nodes to test node failure scenarios
+  action: "node-drain"
+
+  # Namespace is not used for node-drain (nodes are cluster-scoped)
+  # But it's required by the API, so we set a placeholder value
+  namespace: "default"
+
+  # Selector defines node labels to identify target nodes
+  # This example targets worker nodes in a specific zone
+  # IMPORTANT: Be very careful with node selectors to avoid draining critical nodes!
+  selector:
+    node-role.kubernetes.io/worker: ""
+    topology.kubernetes.io/zone: "us-west-2a"
+
+  # Drain only 1 node at a time to minimize disruption
+  # Increase cautiously after testing
+  count: 1

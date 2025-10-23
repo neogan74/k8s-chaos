@@ -38,6 +38,13 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	chaosv1alpha1 "github.com/neogan74/k8s-chaos/api/v1alpha1"
+	chaosmetrics "github.com/neogan74/k8s-chaos/internal/metrics"
+)
+
+const (
+	// Status constants for experiment execution
+	statusSuccess = "success"
+	statusFailure = "failure"
 )
 
 // ChaosExperimentReconciler reconciles a ChaosExperiment object
@@ -53,6 +60,8 @@ type ChaosExperimentReconciler struct {
 // +kubebuilder:rbac:groups=chaos.gushchin.dev,resources=chaosexperiments/finalizers,verbs=update
 // +kubebuilder:rbac:groups="",resources=pods,verbs=get;list;delete
 // +kubebuilder:rbac:groups="",resources=pods/exec,verbs=create
+// +kubebuilder:rbac:groups="",resources=nodes,verbs=get;list;watch;update;patch
+// +kubebuilder:rbac:groups="",resources=pods/eviction,verbs=create
 
 // Reconcile is part of the main kubernetes reconciliation loop which aims to
 // move the current state of the cluster closer to the desired state.
@@ -83,6 +92,8 @@ func (r *ChaosExperimentReconciler) Reconcile(ctx context.Context, req ctrl.Requ
 		return r.handlePodKill(ctx, &exp)
 	case "pod-delay":
 		return r.handlePodDelay(ctx, &exp)
+	case "node-drain":
+		return r.handleNodeDrain(ctx, &exp)
 	default:
 		log.Info("Unsupported action", "action", exp.Spec.Action)
 		exp.Status.Message = "Error: Unsupported action: " + exp.Spec.Action
@@ -93,6 +104,11 @@ func (r *ChaosExperimentReconciler) Reconcile(ctx context.Context, req ctrl.Requ
 
 func (r *ChaosExperimentReconciler) handlePodKill(ctx context.Context, exp *chaosv1alpha1.ChaosExperiment) (ctrl.Result, error) {
 	log := ctrl.LoggerFrom(ctx)
+	startTime := time.Now()
+
+	// Track active experiments
+	chaosmetrics.ActiveExperiments.WithLabelValues("pod-kill").Inc()
+	defer chaosmetrics.ActiveExperiments.WithLabelValues("pod-kill").Dec()
 
 	// Validate namespace
 	if exp.Spec.Namespace == "" {
@@ -148,20 +164,34 @@ func (r *ChaosExperimentReconciler) handlePodKill(ctx context.Context, exp *chao
 	// Update status
 	now := metav1.Now()
 	exp.Status.LastRunTime = &now
+	status := statusSuccess
 	if len(killedPods) > 0 {
 		exp.Status.Message = fmt.Sprintf("Successfully killed %d pod(s)", len(killedPods))
 	} else {
 		exp.Status.Message = "Failed to kill any pods"
+		status = statusFailure
 	}
 	if err := r.Status().Update(ctx, exp); err != nil {
 		log.Error(err, "Failed to update ChaosExperiment status")
 		return ctrl.Result{}, err
 	}
+
+	// Record metrics
+	duration := time.Since(startTime).Seconds()
+	chaosmetrics.ExperimentsTotal.WithLabelValues("pod-kill", exp.Spec.Namespace, status).Inc()
+	chaosmetrics.ExperimentDuration.WithLabelValues("pod-kill", exp.Spec.Namespace).Observe(duration)
+	chaosmetrics.ResourcesAffected.WithLabelValues("pod-kill", exp.Spec.Namespace, exp.Name).Set(float64(len(killedPods)))
+
 	return ctrl.Result{RequeueAfter: time.Minute}, nil
 }
 
 func (r *ChaosExperimentReconciler) handlePodDelay(ctx context.Context, exp *chaosv1alpha1.ChaosExperiment) (ctrl.Result, error) {
 	log := ctrl.LoggerFrom(ctx)
+	startTime := time.Now()
+
+	// Track active experiments
+	chaosmetrics.ActiveExperiments.WithLabelValues("pod-delay").Inc()
+	defer chaosmetrics.ActiveExperiments.WithLabelValues("pod-delay").Dec()
 
 	// Validate namespace
 	if exp.Spec.Namespace == "" {
@@ -237,15 +267,23 @@ func (r *ChaosExperimentReconciler) handlePodDelay(ctx context.Context, exp *cha
 	// Update status
 	now := metav1.Now()
 	exp.Status.LastRunTime = &now
+	status := statusSuccess
 	if len(affectedPods) > 0 {
 		exp.Status.Message = fmt.Sprintf("Successfully added %dms delay to %d pod(s)", delayMs, len(affectedPods))
 	} else {
 		exp.Status.Message = "Failed to add delay to any pods"
+		status = statusFailure
 	}
 	if err := r.Status().Update(ctx, exp); err != nil {
 		log.Error(err, "Failed to update ChaosExperiment status")
 		return ctrl.Result{}, err
 	}
+
+	// Record metrics
+	duration := time.Since(startTime).Seconds()
+	chaosmetrics.ExperimentsTotal.WithLabelValues("pod-delay", exp.Spec.Namespace, status).Inc()
+	chaosmetrics.ExperimentDuration.WithLabelValues("pod-delay", exp.Spec.Namespace).Observe(duration)
+	chaosmetrics.ResourcesAffected.WithLabelValues("pod-delay", exp.Spec.Namespace, exp.Name).Set(float64(len(affectedPods)))
 
 	return ctrl.Result{RequeueAfter: time.Minute}, nil
 }
@@ -344,6 +382,185 @@ func (r *ChaosExperimentReconciler) execInPod(ctx context.Context, namespace, po
 	})
 
 	return stdout.String(), stderr.String(), err
+}
+
+// handleNodeDrain cordons and drains nodes matching the selector
+func (r *ChaosExperimentReconciler) handleNodeDrain(ctx context.Context, exp *chaosv1alpha1.ChaosExperiment) (ctrl.Result, error) {
+	log := ctrl.LoggerFrom(ctx)
+	startTime := time.Now()
+
+	// Track active experiments
+	chaosmetrics.ActiveExperiments.WithLabelValues("node-drain").Inc()
+	defer chaosmetrics.ActiveExperiments.WithLabelValues("node-drain").Dec()
+
+	// List nodes by selector
+	nodeList := &corev1.NodeList{}
+	selector := labels.SelectorFromSet(exp.Spec.Selector)
+	if err := r.List(ctx, nodeList, client.MatchingLabelsSelector{Selector: selector}); err != nil {
+		log.Error(err, "Failed to list nodes")
+		exp.Status.Message = "Error: Failed to list nodes"
+		_ = r.Status().Update(ctx, exp)
+		return ctrl.Result{}, err
+	}
+
+	if len(nodeList.Items) == 0 {
+		log.Info("No nodes found for selector", "selector", exp.Spec.Selector)
+		exp.Status.Message = "No nodes found matching selector"
+		_ = r.Status().Update(ctx, exp)
+		return ctrl.Result{RequeueAfter: time.Minute}, nil
+	}
+
+	// Shuffle the list of nodes
+	rand.Shuffle(len(nodeList.Items), func(i, j int) {
+		nodeList.Items[i], nodeList.Items[j] = nodeList.Items[j], nodeList.Items[i]
+	})
+
+	// Determine how many nodes to drain
+	drainCount := exp.Spec.Count
+	if drainCount <= 0 {
+		drainCount = 1 // Default to 1 if not specified or invalid
+	}
+	if drainCount > len(nodeList.Items) {
+		drainCount = len(nodeList.Items)
+	}
+
+	// Cordon and drain selected nodes
+	drainedNodes := []string{}
+	for i := 0; i < drainCount; i++ {
+		node := &nodeList.Items[i]
+		log.Info("Cordoning and draining node", "node", node.Name)
+
+		// Cordon the node (mark as unschedulable)
+		if err := r.cordonNode(ctx, node); err != nil {
+			log.Error(err, "Failed to cordon node", "node", node.Name)
+			continue
+		}
+
+		// Drain the node (evict pods)
+		if err := r.drainNode(ctx, node); err != nil {
+			log.Error(err, "Failed to drain node", "node", node.Name)
+			continue
+		}
+
+		drainedNodes = append(drainedNodes, node.Name)
+	}
+
+	// Update status
+	now := metav1.Now()
+	exp.Status.LastRunTime = &now
+	status := statusSuccess
+	if len(drainedNodes) > 0 {
+		exp.Status.Message = fmt.Sprintf("Successfully drained %d node(s): %v", len(drainedNodes), drainedNodes)
+	} else {
+		exp.Status.Message = "Failed to drain any nodes"
+		status = statusFailure
+	}
+	if err := r.Status().Update(ctx, exp); err != nil {
+		log.Error(err, "Failed to update ChaosExperiment status")
+		return ctrl.Result{}, err
+	}
+
+	// Record metrics
+	duration := time.Since(startTime).Seconds()
+	chaosmetrics.ExperimentsTotal.WithLabelValues("node-drain", exp.Spec.Namespace, status).Inc()
+	chaosmetrics.ExperimentDuration.WithLabelValues("node-drain", exp.Spec.Namespace).Observe(duration)
+	chaosmetrics.ResourcesAffected.WithLabelValues("node-drain", exp.Spec.Namespace, exp.Name).Set(float64(len(drainedNodes)))
+
+	return ctrl.Result{RequeueAfter: time.Minute}, nil
+}
+
+// cordonNode marks a node as unschedulable
+func (r *ChaosExperimentReconciler) cordonNode(ctx context.Context, node *corev1.Node) error {
+	log := ctrl.LoggerFrom(ctx)
+
+	// Check if already cordoned
+	if node.Spec.Unschedulable {
+		log.Info("Node is already cordoned", "node", node.Name)
+		return nil
+	}
+
+	// Mark as unschedulable
+	node.Spec.Unschedulable = true
+	if err := r.Update(ctx, node); err != nil {
+		return fmt.Errorf("failed to cordon node: %w", err)
+	}
+
+	log.Info("Successfully cordoned node", "node", node.Name)
+	return nil
+}
+
+// drainNode evicts all pods from a node
+func (r *ChaosExperimentReconciler) drainNode(ctx context.Context, node *corev1.Node) error {
+	log := ctrl.LoggerFrom(ctx)
+
+	// List all pods on this node
+	podList := &corev1.PodList{}
+	if err := r.List(ctx, podList, client.MatchingFields{"spec.nodeName": node.Name}); err != nil {
+		return fmt.Errorf("failed to list pods on node: %w", err)
+	}
+
+	log.Info("Found pods on node", "node", node.Name, "count", len(podList.Items))
+
+	// Evict each pod
+	evictedCount := 0
+	for _, pod := range podList.Items {
+		// Skip pods that are already terminating or in a final state
+		if pod.DeletionTimestamp != nil {
+			continue
+		}
+		if pod.Status.Phase == corev1.PodSucceeded || pod.Status.Phase == corev1.PodFailed {
+			continue
+		}
+
+		// Skip DaemonSet pods (they can't be evicted and will be recreated anyway)
+		if isDaemonSetPod(&pod) {
+			log.Info("Skipping DaemonSet pod", "pod", pod.Name, "namespace", pod.Namespace)
+			continue
+		}
+
+		// Skip static pods (managed by kubelet)
+		if isStaticPod(&pod) {
+			log.Info("Skipping static pod", "pod", pod.Name, "namespace", pod.Namespace)
+			continue
+		}
+
+		log.Info("Evicting pod from node", "pod", pod.Name, "namespace", pod.Namespace, "node", node.Name)
+
+		// Try to delete the pod gracefully
+		if err := r.Delete(ctx, &pod, client.GracePeriodSeconds(30)); err != nil {
+			log.Error(err, "Failed to evict pod", "pod", pod.Name, "namespace", pod.Namespace)
+			continue
+		}
+
+		evictedCount++
+	}
+
+	log.Info("Evicted pods from node", "node", node.Name, "evicted", evictedCount, "total", len(podList.Items))
+	return nil
+}
+
+// isDaemonSetPod checks if a pod is managed by a DaemonSet
+func isDaemonSetPod(pod *corev1.Pod) bool {
+	for _, owner := range pod.OwnerReferences {
+		if owner.Kind == "DaemonSet" {
+			return true
+		}
+	}
+	return false
+}
+
+// isStaticPod checks if a pod is a static pod (managed by kubelet)
+func isStaticPod(pod *corev1.Pod) bool {
+	for _, owner := range pod.OwnerReferences {
+		if owner.Kind == "Node" {
+			return true
+		}
+	}
+	// Static pods typically have this annotation
+	if _, exists := pod.Annotations["kubernetes.io/config.source"]; exists {
+		return true
+	}
+	return false
 }
 
 // SetupWithManager sets up the controller with the Manager.

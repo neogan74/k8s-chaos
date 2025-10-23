@@ -20,3 +20,9 @@ spec:
 
   # Add delay to 2 pods to test resilience
   count: 2
+
+  # Duration of network delay to add (in milliseconds internally)
+  # Format: combinations of numbers with units (s=seconds, m=minutes, h=hours)
+  # Examples: "30s", "5m", "1h30m"
+  # Note: Controller converts to milliseconds (30s = 30000ms delay)
+  duration: "30s"
