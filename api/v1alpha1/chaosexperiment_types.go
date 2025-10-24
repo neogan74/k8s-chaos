@@ -117,6 +117,7 @@ type ChaosExperimentStatus struct {
 // +kubebuilder:printcolumn:name="Namespace",type="string",JSONPath=".spec.namespace"
 // +kubebuilder:printcolumn:name="Count",type="integer",JSONPath=".spec.count"
 // +kubebuilder:printcolumn:name="Phase",type="string",JSONPath=".status.phase"
+// +kubebuilder:printcolumn:name="Retries",type="integer",JSONPath=".status.retryCount"
 // +kubebuilder:printcolumn:name="Age",type="date",JSONPath=".metadata.creationTimestamp"
 
 // ChaosExperiment is the Schema for the chaosexperiments API
