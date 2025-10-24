@@ -90,6 +90,9 @@ Each sample includes comments explaining the fields:
 - **selector**: Label selector to identify target pods/nodes
 - **count**: Number of pods/nodes to affect
 - **duration**: Duration for time-based actions (required for pod-delay)
+- **maxRetries**: Maximum retry attempts for failed experiments (0-10, default: 3)
+- **retryBackoff**: Backoff strategy - `"exponential"` or `"fixed"` (default: exponential)
+- **retryDelay**: Initial delay between retries (default: "30s")
 
 ## Safety Tips
 
