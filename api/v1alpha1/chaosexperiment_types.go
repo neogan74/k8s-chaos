@@ -56,6 +56,25 @@ type ChaosExperimentSpec struct {
 	// +kubebuilder:validation:Pattern="^([0-9]+(s|m|h))+$"
 	// +optional
 	Duration string `json:"duration,omitempty"`
+
+	// MaxRetries specifies the maximum number of retry attempts for failed experiments
+	// +kubebuilder:validation:Minimum=0
+	// +kubebuilder:validation:Maximum=10
+	// +kubebuilder:default=3
+	// +optional
+	MaxRetries int `json:"maxRetries,omitempty"`
+
+	// RetryBackoff specifies the backoff strategy for retries (exponential or fixed)
+	// +kubebuilder:validation:Enum=exponential;fixed
+	// +kubebuilder:default=exponential
+	// +optional
+	RetryBackoff string `json:"retryBackoff,omitempty"`
+
+	// RetryDelay specifies the initial delay between retries (e.g., "30s", "1m")
+	// +kubebuilder:validation:Pattern="^([0-9]+(s|m|h))+$"
+	// +kubebuilder:default="30s"
+	// +optional
+	RetryDelay string `json:"retryDelay,omitempty"`
 }
 
 // ChaosExperimentStatus defines the observed state of ChaosExperiment.
@@ -78,6 +97,18 @@ type ChaosExperimentStatus struct {
 	// +kubebuilder:validation:Enum=Pending;Running;Completed;Failed
 	// +optional
 	Phase string `json:"phase,omitempty"`
+
+	// RetryCount tracks the current number of retry attempts
+	// +optional
+	RetryCount int `json:"retryCount,omitempty"`
+
+	// LastError stores the last error message encountered
+	// +optional
+	LastError string `json:"lastError,omitempty"`
+
+	// NextRetryTime indicates when the next retry will be attempted
+	// +optional
+	NextRetryTime *metav1.Time `json:"nextRetryTime,omitempty"`
 }
 
 // +kubebuilder:object:root=true
