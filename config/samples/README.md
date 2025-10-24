@@ -34,6 +34,12 @@ This directory contains sample ChaosExperiment resources to help you get started
 - Uses node labels to target specific nodes
 - **CAUTION**: Can cause significant disruption - test carefully!
 
+### 7. Retry Configuration (`chaos_v1alpha1_chaosexperiment_with_retry.yaml`)
+- Demonstrates retry configuration for failed experiments
+- Supports exponential and fixed backoff strategies
+- Configurable max retries and retry delays
+- Useful for transient failures (network issues, temporary resource constraints)
+
 ## Demo Deployment
 
 The `demo-deployment.yaml` file creates:
