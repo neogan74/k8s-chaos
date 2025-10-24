@@ -125,17 +125,11 @@ func (r *ChaosExperimentReconciler) handlePodKill(ctx context.Context, exp *chao
 	selector := labels.SelectorFromSet(exp.Spec.Selector)
 	if err := r.List(ctx, podList, client.InNamespace(exp.Spec.Namespace),
 		client.MatchingLabelsSelector{Selector: selector}); err != nil {
-		log.Error(err, "Failed to list pods")
-		exp.Status.Message = "Error: Failed to list pods"
-		_ = r.Status().Update(ctx, exp)
-		return ctrl.Result{}, err
+		return r.handleExperimentFailure(ctx, exp, fmt.Sprintf("Failed to list pods: %v", err))
 	}
 
 	if len(podList.Items) == 0 {
-		log.Info("No pods found for selector", "selector", exp.Spec.Selector)
-		exp.Status.Message = "No pods found matching selector"
-		_ = r.Status().Update(ctx, exp)
-		return ctrl.Result{RequeueAfter: time.Minute}, nil
+		return r.handleExperimentFailure(ctx, exp, "No pods found matching selector")
 	}
 
 	// Shuffle the list of pods
@@ -163,24 +157,25 @@ func (r *ChaosExperimentReconciler) handlePodKill(ctx context.Context, exp *chao
 		}
 	}
 
-	// Update status
+	// Check if we killed any pods
+	if len(killedPods) == 0 {
+		return r.handleExperimentFailure(ctx, exp, "Failed to kill any pods")
+	}
+
+	// Update status - success
 	now := metav1.Now()
 	exp.Status.LastRunTime = &now
-	status := statusSuccess
-	if len(killedPods) > 0 {
-		exp.Status.Message = fmt.Sprintf("Successfully killed %d pod(s)", len(killedPods))
-	} else {
-		exp.Status.Message = "Failed to kill any pods"
-		status = statusFailure
-	}
-	if err := r.Status().Update(ctx, exp); err != nil {
+	exp.Status.Message = fmt.Sprintf("Successfully killed %d pod(s)", len(killedPods))
+
+	// Reset retry counters on success
+	if err := r.handleExperimentSuccess(ctx, exp); err != nil {
 		log.Error(err, "Failed to update ChaosExperiment status")
 		return ctrl.Result{}, err
 	}
 
 	// Record metrics
 	duration := time.Since(startTime).Seconds()
-	chaosmetrics.ExperimentsTotal.WithLabelValues("pod-kill", exp.Spec.Namespace, status).Inc()
+	chaosmetrics.ExperimentsTotal.WithLabelValues("pod-kill", exp.Spec.Namespace, statusSuccess).Inc()
 	chaosmetrics.ExperimentDuration.WithLabelValues("pod-kill", exp.Spec.Namespace).Observe(duration)
 	chaosmetrics.ResourcesAffected.WithLabelValues("pod-kill", exp.Spec.Namespace, exp.Name).Set(float64(len(killedPods)))
 
