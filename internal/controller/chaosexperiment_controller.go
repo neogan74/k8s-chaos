@@ -117,10 +117,7 @@ func (r *ChaosExperimentReconciler) handlePodKill(ctx context.Context, exp *chao
 
 	// Validate namespace
 	if exp.Spec.Namespace == "" {
-		log.Error(nil, "Namespace not specified")
-		exp.Status.Message = "Error: Namespace not specified"
-		_ = r.Status().Update(ctx, exp)
-		return ctrl.Result{}, nil
+		return r.handleExperimentFailure(ctx, exp, "Namespace not specified")
 	}
 
 	// Choose Pods by selector
@@ -566,6 +563,144 @@ func isStaticPod(pod *corev1.Pod) bool {
 		return true
 	}
 	return false
+}
+
+// calculateRetryDelay calculates the delay before the next retry based on backoff strategy
+func (r *ChaosExperimentReconciler) calculateRetryDelay(exp *chaosv1alpha1.ChaosExperiment) time.Duration {
+	// Get base delay
+	baseDelay := defaultRetryDelay
+	if exp.Spec.RetryDelay != "" {
+		if parsed, err := r.parseDuration(exp.Spec.RetryDelay); err == nil {
+			baseDelay = parsed
+		}
+	}
+
+	// Apply backoff strategy
+	backoffStrategy := exp.Spec.RetryBackoff
+	if backoffStrategy == "" {
+		backoffStrategy = defaultRetryBackoff
+	}
+
+	retryCount := exp.Status.RetryCount
+	if backoffStrategy == "exponential" {
+		// Exponential backoff: delay * 2^retryCount (capped at 10 minutes)
+		delay := baseDelay * time.Duration(1<<uint(retryCount))
+		maxDelay := 10 * time.Minute
+		if delay > maxDelay {
+			delay = maxDelay
+		}
+		return delay
+	}
+
+	// Fixed backoff: always use base delay
+	return baseDelay
+}
+
+// parseDuration parses a duration string (e.g., "30s", "5m", "1h") and returns time.Duration
+func (r *ChaosExperimentReconciler) parseDuration(durationStr string) (time.Duration, error) {
+	re := regexp.MustCompile(`(\d+)([smh])`)
+	matches := re.FindAllStringSubmatch(durationStr, -1)
+
+	if len(matches) == 0 {
+		return 0, fmt.Errorf("invalid duration format")
+	}
+
+	var totalDuration time.Duration
+	for _, match := range matches {
+		value, _ := strconv.Atoi(match[1])
+		unit := match[2]
+
+		switch unit {
+		case "s":
+			totalDuration += time.Duration(value) * time.Second
+		case "m":
+			totalDuration += time.Duration(value) * time.Minute
+		case "h":
+			totalDuration += time.Duration(value) * time.Hour
+		}
+	}
+
+	return totalDuration, nil
+}
+
+// shouldRetry determines if the experiment should be retried
+func (r *ChaosExperimentReconciler) shouldRetry(exp *chaosv1alpha1.ChaosExperiment) bool {
+	maxRetries := exp.Spec.MaxRetries
+	if maxRetries == 0 {
+		maxRetries = defaultMaxRetries
+	}
+
+	return exp.Status.RetryCount < maxRetries
+}
+
+// handleExperimentFailure updates status and determines retry behavior
+func (r *ChaosExperimentReconciler) handleExperimentFailure(ctx context.Context, exp *chaosv1alpha1.ChaosExperiment, errorMsg string) (ctrl.Result, error) {
+	log := ctrl.LoggerFrom(ctx)
+
+	// Update error information
+	exp.Status.LastError = errorMsg
+	exp.Status.Message = fmt.Sprintf("Failed: %s", errorMsg)
+
+	// Check if we should retry
+	if r.shouldRetry(exp) {
+		// Increment retry count
+		exp.Status.RetryCount++
+		exp.Status.Phase = "Pending"
+
+		// Calculate next retry time
+		retryDelay := r.calculateRetryDelay(exp)
+		nextRetry := metav1.NewTime(time.Now().Add(retryDelay))
+		exp.Status.NextRetryTime = &nextRetry
+
+		exp.Status.Message = fmt.Sprintf("Failed: %s (Retry %d/%d in %s)", errorMsg, exp.Status.RetryCount, exp.Spec.MaxRetries, retryDelay)
+
+		log.Info("Experiment failed, scheduling retry",
+			"error", errorMsg,
+			"retryCount", exp.Status.RetryCount,
+			"maxRetries", exp.Spec.MaxRetries,
+			"nextRetry", retryDelay)
+
+		if err := r.Status().Update(ctx, exp); err != nil {
+			log.Error(err, "Failed to update ChaosExperiment status")
+			return ctrl.Result{}, err
+		}
+
+		// Requeue after retry delay
+		return ctrl.Result{RequeueAfter: retryDelay}, nil
+	}
+
+	// Max retries exceeded
+	exp.Status.Phase = "Failed"
+	exp.Status.Message = fmt.Sprintf("Failed after %d retries: %s", exp.Status.RetryCount, errorMsg)
+	exp.Status.NextRetryTime = nil
+
+	log.Info("Experiment failed, max retries exceeded",
+		"error", errorMsg,
+		"retryCount", exp.Status.RetryCount)
+
+	if err := r.Status().Update(ctx, exp); err != nil {
+		log.Error(err, "Failed to update ChaosExperiment status")
+		return ctrl.Result{}, err
+	}
+
+	// Don't requeue, experiment has permanently failed
+	return ctrl.Result{}, nil
+}
+
+// handleExperimentSuccess resets retry counters on success
+func (r *ChaosExperimentReconciler) handleExperimentSuccess(ctx context.Context, exp *chaosv1alpha1.ChaosExperiment) error {
+	// Reset retry-related fields on success
+	if exp.Status.RetryCount > 0 || exp.Status.LastError != "" || exp.Status.NextRetryTime != nil {
+		exp.Status.RetryCount = 0
+		exp.Status.LastError = ""
+		exp.Status.NextRetryTime = nil
+		exp.Status.Phase = "Completed"
+
+		if err := r.Status().Update(ctx, exp); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 // SetupWithManager sets up the controller with the Manager.
