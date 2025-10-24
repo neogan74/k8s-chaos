@@ -27,6 +27,9 @@ spec:
     - jsonPath: .status.phase
       name: Phase
       type: string
+    - jsonPath: .status.retryCount
+      name: Retries
+      type: integer
     - jsonPath: .metadata.creationTimestamp
       name: Age
       type: date
@@ -73,9 +76,30 @@ spec:
                   (for pod-delay)
                 pattern: ^([0-9]+(s|m|h))+$
                 type: string
+              maxRetries:
+                default: 3
+                description: MaxRetries specifies the maximum number of retry attempts
+                  for failed experiments
+                maximum: 10
+                minimum: 0
+                type: integer
               namespace:
                 description: Namespace specifies the target namespace for chaos experiments
                 minLength: 1
+                type: string
+              retryBackoff:
+                default: exponential
+                description: RetryBackoff specifies the backoff strategy for retries
+                  (exponential or fixed)
+                enum:
+                - exponential
+                - fixed
+                type: string
+              retryDelay:
+                default: 30s
+                description: RetryDelay specifies the initial delay between retries
+                  (e.g., "30s", "1m")
+                pattern: ^([0-9]+(s|m|h))+$
                 type: string
               selector:
                 additionalProperties:
@@ -91,12 +115,19 @@ spec:
           status:
             description: status defines the observed state of ChaosExperiment
             properties:
+              lastError:
+                description: LastError stores the last error message encountered
+                type: string
               lastRunTime:
                 description: LastRunTime indicates when the experiment was last executed
                 format: date-time
                 type: string
               message:
                 description: Message provides human-readable status information
+                type: string
+              nextRetryTime:
+                description: NextRetryTime indicates when the next retry will be attempted
+                format: date-time
                 type: string
               phase:
                 description: Phase represents the current state of the experiment
@@ -106,6 +137,9 @@ spec:
                 - Completed
                 - Failed
                 type: string
+              retryCount:
+                description: RetryCount tracks the current number of retry attempts
+                type: integer
             type: object
         required:
         - spec
