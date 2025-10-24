@@ -45,6 +45,11 @@ const (
 	// Status constants for experiment execution
 	statusSuccess = "success"
 	statusFailure = "failure"
+
+	// Default retry configuration
+	defaultMaxRetries   = 3
+	defaultRetryDelay   = 30 * time.Second
+	defaultRetryBackoff = "exponential"
 )
 
 // ChaosExperimentReconciler reconciles a ChaosExperiment object
