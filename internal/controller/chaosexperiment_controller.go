@@ -632,7 +632,9 @@ func (r *ChaosExperimentReconciler) shouldRetry(exp *chaosv1alpha1.ChaosExperime
 func (r *ChaosExperimentReconciler) handleExperimentFailure(ctx context.Context, exp *chaosv1alpha1.ChaosExperiment, errorMsg string) (ctrl.Result, error) {
 	log := ctrl.LoggerFrom(ctx)
 
-	// Update error information
+	// Update error information and last run time
+	now := metav1.Now()
+	exp.Status.LastRunTime = &now
 	exp.Status.LastError = errorMsg
 	exp.Status.Message = fmt.Sprintf("Failed: %s", errorMsg)
 
@@ -685,15 +687,13 @@ func (r *ChaosExperimentReconciler) handleExperimentFailure(ctx context.Context,
 // handleExperimentSuccess resets retry counters on success
 func (r *ChaosExperimentReconciler) handleExperimentSuccess(ctx context.Context, exp *chaosv1alpha1.ChaosExperiment) error {
 	// Reset retry-related fields on success
-	if exp.Status.RetryCount > 0 || exp.Status.LastError != "" || exp.Status.NextRetryTime != nil {
-		exp.Status.RetryCount = 0
-		exp.Status.LastError = ""
-		exp.Status.NextRetryTime = nil
-		exp.Status.Phase = "Completed"
+	exp.Status.RetryCount = 0
+	exp.Status.LastError = ""
+	exp.Status.NextRetryTime = nil
+	exp.Status.Phase = "Completed"
 
-		if err := r.Status().Update(ctx, exp); err != nil {
-			return err
-		}
+	if err := r.Status().Update(ctx, exp); err != nil {
+		return err
 	}
 	return nil
 }
