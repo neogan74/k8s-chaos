@@ -21,7 +21,8 @@
   - [ ] Add confirmation/approval mechanism for production namespaces
 
 ### Error Handling
-- [x] **Improve Error Messages** - Add more descriptive error messages and status updates
+- [x] **Improve Error Messages
+- ** - Add more descriptive error messages and status updates
 - [ ] **Add Retry Logic** - Implement exponential backoff for transient failures
 - [x] **Handle Edge Cases**
   - [x] What if namespace doesn't exist? - Webhook validates this
