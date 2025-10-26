@@ -57,6 +57,12 @@ type ChaosExperimentSpec struct {
 	// +optional
 	Duration string `json:"duration,omitempty"`
 
+	// ExperimentDuration specifies how long the entire experiment should run before auto-stopping
+	// If not set, the experiment runs indefinitely until manually stopped
+	// +kubebuilder:validation:Pattern="^([0-9]+(s|m|h))+$"
+	// +optional
+	ExperimentDuration string `json:"experimentDuration,omitempty"`
+
 	// MaxRetries specifies the maximum number of retry attempts for failed experiments
 	// +kubebuilder:validation:Minimum=0
 	// +kubebuilder:validation:Maximum=10
@@ -109,6 +115,14 @@ type ChaosExperimentStatus struct {
 	// NextRetryTime indicates when the next retry will be attempted
 	// +optional
 	NextRetryTime *metav1.Time `json:"nextRetryTime,omitempty"`
+
+	// StartTime indicates when the experiment started running
+	// +optional
+	StartTime *metav1.Time `json:"startTime,omitempty"`
+
+	// CompletedAt indicates when the experiment completed (either by duration or manually)
+	// +optional
+	CompletedAt *metav1.Time `json:"completedAt,omitempty"`
 }
 
 // +kubebuilder:object:root=true
