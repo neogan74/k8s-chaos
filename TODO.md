@@ -155,6 +155,40 @@
 - [ ] **Linting Rules** - Stricter linting configuration
 - [ ] **License Checking** - Ensure dependency license compliance
 
+## 🖥️ CLI Tool
+
+### Core Commands
+- [x] **list** - List all chaos experiments with compact/wide output
+- [x] **describe** - Show detailed experiment information
+- [x] **delete** - Delete experiments with confirmation prompt
+- [x] **stats** - Display aggregate statistics (success rates, action breakdown)
+- [x] **top** - Show top experiments by retries, age, and failures
+
+### Advanced Commands
+- [ ] **create** - Interactive wizard for creating experiments
+  - [ ] Guided prompts for action, namespace, selector
+  - [ ] Validation before creation
+  - [ ] Template selection
+- [ ] **validate** - Validate experiment YAML files
+  - [ ] Schema validation
+  - [ ] Cross-field validation
+  - [ ] Namespace and selector checks
+- [ ] **check** - Health check for cluster readiness
+  - [ ] Verify CRD installation
+  - [ ] Check RBAC permissions
+  - [ ] Test API connectivity
+- [ ] **logs** - Show experiment execution history
+  - [ ] View past executions
+  - [ ] Filter by date/status
+  - [ ] Export to file
+
+### Enhancements
+- [ ] **Watch mode** - Real-time updates with `--watch` flag
+- [ ] **Export formats** - JSON/CSV export for stats
+- [ ] **Dashboard** - Web-based UI integration
+- [ ] **Shell completion** - Bash/Zsh/Fish autocompletion
+- [ ] **Config file** - Support for `.k8s-chaos.yaml` config file
+
 ## 💡 Advanced Features
 
 ### Experiment Orchestration
