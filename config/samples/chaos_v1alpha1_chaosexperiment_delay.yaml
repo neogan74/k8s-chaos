@@ -26,3 +26,7 @@ spec:
   # Examples: "30s", "5m", "1h30m"
   # Note: Controller converts to milliseconds (30s = 30000ms delay)
   duration: "30s"
+
+  # Optional: ExperimentDuration defines how long the experiment runs before auto-stopping
+  # Uncomment to enable duration-based lifecycle (auto-stop after 15 minutes)
+  # experimentDuration: "15m"
