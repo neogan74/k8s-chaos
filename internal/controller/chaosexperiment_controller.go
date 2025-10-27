@@ -46,6 +46,12 @@ const (
 	statusSuccess = "success"
 	statusFailure = "failure"
 
+	// Phase constants for experiment lifecycle
+	phaseRunning   = "Running"
+	phaseCompleted = "Completed"
+	phasePending   = "Pending"
+	phaseFailed    = "Failed"
+
 	// Default retry configuration
 	defaultMaxRetries   = 3
 	defaultRetryDelay   = 30 * time.Second
@@ -89,6 +95,16 @@ func (r *ChaosExperimentReconciler) Reconcile(ctx context.Context, req ctrl.Requ
 		log.Error(nil, "Action not specified")
 		exp.Status.Message = "Error: Action not specified"
 		_ = r.Status().Update(ctx, &exp)
+		return ctrl.Result{}, nil
+	}
+
+	// Check experiment lifecycle (duration-based auto-stop)
+	shouldContinue, err := r.checkExperimentLifecycle(ctx, &exp)
+	if err != nil {
+		return ctrl.Result{}, err
+	}
+	if !shouldContinue {
+		// Experiment has completed its duration or is already completed
 		return ctrl.Result{}, nil
 	}
 
@@ -645,7 +661,7 @@ func (r *ChaosExperimentReconciler) handleExperimentFailure(ctx context.Context,
 	if r.shouldRetry(exp) {
 		// Increment retry count
 		exp.Status.RetryCount++
-		exp.Status.Phase = "Pending"
+		exp.Status.Phase = phasePending
 
 		// Calculate next retry time
 		retryDelay := r.calculateRetryDelay(exp)
@@ -670,7 +686,7 @@ func (r *ChaosExperimentReconciler) handleExperimentFailure(ctx context.Context,
 	}
 
 	// Max retries exceeded
-	exp.Status.Phase = "Failed"
+	exp.Status.Phase = phaseFailed
 	exp.Status.Message = fmt.Sprintf("Failed after %d retries: %s", exp.Status.RetryCount, errorMsg)
 	exp.Status.NextRetryTime = nil
 
@@ -687,20 +703,75 @@ func (r *ChaosExperimentReconciler) handleExperimentFailure(ctx context.Context,
 	return ctrl.Result{}, nil
 }
 
-// handleExperimentSuccess resets retry counters on success
-func (r *ChaosExperimentReconciler) handleExperimentSuccess(ctx context.Context, exp *chaosv1alpha1.ChaosExperiment) error {
-	// Reset retry-related fields on success
-	if exp.Status.RetryCount > 0 || exp.Status.LastError != "" || exp.Status.NextRetryTime != nil {
-		exp.Status.RetryCount = 0
-		exp.Status.LastError = ""
-		exp.Status.NextRetryTime = nil
-		exp.Status.Phase = "Completed"
+// checkExperimentLifecycle manages the experiment lifecycle based on experimentDuration
+// Returns (shouldContinue, error)
+func (r *ChaosExperimentReconciler) checkExperimentLifecycle(ctx context.Context, exp *chaosv1alpha1.ChaosExperiment) (bool, error) {
+	log := ctrl.LoggerFrom(ctx)
+
+	// If experiment is already completed, don't continue
+	if exp.Status.Phase == phaseCompleted {
+		log.Info("Experiment already completed", "completedAt", exp.Status.CompletedAt)
+		return false, nil
+	}
+
+	// Initialize StartTime on first run
+	if exp.Status.StartTime == nil {
+		now := metav1.Now()
+		exp.Status.StartTime = &now
+		exp.Status.Phase = phaseRunning
+		if err := r.Status().Update(ctx, exp); err != nil {
+			log.Error(err, "Failed to update experiment start time")
+			return false, err
+		}
+		log.Info("Experiment started", "startTime", now)
+	}
+
+	// Check if experimentDuration is set
+	if exp.Spec.ExperimentDuration == "" {
+		// No duration limit, continue indefinitely
+		return true, nil
+	}
+
+	// Parse experiment duration
+	duration, err := r.parseDuration(exp.Spec.ExperimentDuration)
+	if err != nil {
+		log.Error(err, "Failed to parse experimentDuration", "duration", exp.Spec.ExperimentDuration)
+		return false, err
+	}
+
+	// Calculate end time
+	endTime := exp.Status.StartTime.Add(duration)
+	now := time.Now()
+
+	// Check if duration has been exceeded
+	if now.After(endTime) {
+		log.Info("Experiment duration exceeded, completing experiment",
+			"startTime", exp.Status.StartTime,
+			"duration", duration,
+			"endTime", endTime)
+
+		// Mark as completed
+		completedAt := metav1.Now()
+		exp.Status.CompletedAt = &completedAt
+		exp.Status.Phase = phaseCompleted
+		exp.Status.Message = fmt.Sprintf("Experiment completed after running for %s", duration)
 
 		if err := r.Status().Update(ctx, exp); err != nil {
-			return err
+			log.Error(err, "Failed to update experiment completion status")
+			return false, err
 		}
+
+		return false, nil
 	}
-	return nil
+
+	// Calculate time until experiment should complete
+	timeUntilCompletion := endTime.Sub(now)
+	log.Info("Experiment still running",
+		"timeRemaining", timeUntilCompletion,
+		"willCompleteAt", endTime)
+
+	// Continue experiment
+	return true, nil
 }
 
 // SetupWithManager sets up the controller with the Manager.
