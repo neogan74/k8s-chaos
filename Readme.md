@@ -46,6 +46,30 @@ make deploy IMG=<your-registry>/k8s-chaos:tag
 
 ## 📝 Usage
 
+### CLI Tool
+
+k8s-chaos includes a powerful command-line tool for managing and monitoring chaos experiments:
+
+```bash
+# Build and install the CLI
+make build-cli
+make install-cli
+
+# List all experiments
+k8s-chaos list
+
+# View experiment details
+k8s-chaos describe nginx-chaos-demo -n chaos-testing
+
+# Show statistics
+k8s-chaos stats
+
+# Show top experiments by metrics
+k8s-chaos top
+```
+
+See the [CLI documentation](docs/CLI.md) for complete usage details.
+
 ### Create a ChaosExperiment
 
 ```yaml
