@@ -244,6 +244,69 @@ func TestChaosExperimentWebhook_ValidateCreate(t *testing.T) {
 			wantErr:     true,
 			errContains: "duration must match pattern",
 		},
+		{
+			name: "valid experimentDuration",
+			experiment: &ChaosExperiment{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      "test-experiment",
+					Namespace: "default",
+				},
+				Spec: ChaosExperimentSpec{
+					Action:             "pod-kill",
+					Namespace:          "test-ns",
+					Selector:           map[string]string{"app": "test"},
+					Count:              1,
+					ExperimentDuration: "10m",
+				},
+			},
+			objects: []client.Object{
+				&corev1.Namespace{
+					ObjectMeta: metav1.ObjectMeta{
+						Name: "test-ns",
+					},
+				},
+				&corev1.Pod{
+					ObjectMeta: metav1.ObjectMeta{
+						Name:      "test-pod-1",
+						Namespace: "test-ns",
+						Labels:    map[string]string{"app": "test"},
+					},
+				},
+			},
+			wantErr: false,
+		},
+		{
+			name: "invalid experimentDuration format",
+			experiment: &ChaosExperiment{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      "test-experiment",
+					Namespace: "default",
+				},
+				Spec: ChaosExperimentSpec{
+					Action:             "pod-kill",
+					Namespace:          "test-ns",
+					Selector:           map[string]string{"app": "test"},
+					Count:              1,
+					ExperimentDuration: "invalid",
+				},
+			},
+			objects: []client.Object{
+				&corev1.Namespace{
+					ObjectMeta: metav1.ObjectMeta{
+						Name: "test-ns",
+					},
+				},
+				&corev1.Pod{
+					ObjectMeta: metav1.ObjectMeta{
+						Name:      "test-pod-1",
+						Namespace: "test-ns",
+						Labels:    map[string]string{"app": "test"},
+					},
+				},
+			},
+			wantErr:     true,
+			errContains: "invalid experimentDuration format",
+		},
 	}
 
 	for _, tt := range tests {
