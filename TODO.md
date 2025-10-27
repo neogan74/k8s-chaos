@@ -60,10 +60,11 @@
 - [ ] **pod-restart** - Restart pods instead of delete
 
 ### Node Chaos
-- [ ] **node-drain** - Drain nodes temporarily
+- [x] **node-drain** - Drain nodes temporarily
 - [ ] **node-taint** - Add taints to nodes
 - [ ] **node-cpu-stress** - Stress node CPU
 - [ ] **node-disk-fill** - Fill node disk space
+- [ ] **node-uncordon** - Auto-uncordon nodes after drain experiments complete
 
 ### Network Chaos
 - [ ] **network-partition** - Simulate network splits
