@@ -70,7 +70,16 @@ func getKubeClient() (client.Client, error) {
 		return nil, fmt.Errorf("failed to build kubeconfig: %w", err)
 	}
 
-	k8sClient, err := client.New(config, client.Options{})
+	// Create scheme and register ChaosExperiment types
+	scheme := runtime.NewScheme()
+	if err := clientgoscheme.AddToScheme(scheme); err != nil {
+		return nil, fmt.Errorf("failed to add client-go scheme: %w", err)
+	}
+	if err := chaosv1alpha1.AddToScheme(scheme); err != nil {
+		return nil, fmt.Errorf("failed to add chaos scheme: %w", err)
+	}
+
+	k8sClient, err := client.New(config, client.Options{Scheme: scheme})
 	if err != nil {
 		return nil, fmt.Errorf("failed to create Kubernetes client: %w", err)
 	}
