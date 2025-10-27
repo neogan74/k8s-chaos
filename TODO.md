@@ -79,8 +79,8 @@
 - [ ] **Dependency Management** - Wait for other experiments to complete
 
 ### Duration Control
-- [ ] **Experiment Duration** - Add `duration` field to auto-stop experiments
-- [ ] **Graceful Termination** - Clean up resources when experiment ends
+- [x] **Experiment Duration** - Add `experimentDuration` field to auto-stop experiments
+- [x] **Graceful Termination** - Clean up resources when experiment ends
 - [ ] **Pause/Resume** - Allow pausing and resuming experiments
 
 ## 🧪 Testing
