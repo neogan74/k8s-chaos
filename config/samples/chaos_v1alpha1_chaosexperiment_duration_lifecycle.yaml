@@ -1,0 +1,32 @@
+apiVersion: chaos.gushchin.dev/v1alpha1
+kind: ChaosExperiment
+metadata:
+  labels:
+    app.kubernetes.io/name: k8s-chaos
+    app.kubernetes.io/managed-by: kustomize
+  name: chaosexperiment-duration-lifecycle
+  namespace: chaos-testing
+spec:
+  # Action defines the type of chaos to introduce
+  action: "pod-kill"
+
+  # Namespace where the target pods are located
+  namespace: "default"
+
+  # Selector defines the label selector to identify target pods
+  selector:
+    app: nginx
+
+  # Count defines how many pods to affect per execution
+  count: 1
+
+  # ExperimentDuration defines how long the experiment should run before auto-stopping
+  # Format: "30s", "5m", "1h", "1h30m", etc.
+  # If not specified, the experiment runs indefinitely until manually stopped
+  # This example runs for 10 minutes
+  experimentDuration: "10m"
+
+  # Optional: Retry configuration
+  maxRetries: 3
+  retryBackoff: "exponential"
+  retryDelay: "30s"

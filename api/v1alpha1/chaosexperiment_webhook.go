@@ -158,5 +158,12 @@ func (w *ChaosExperimentWebhook) validateCrossFieldConstraints(spec *ChaosExperi
 		}
 	}
 
+	// Validate experimentDuration format if provided
+	if spec.ExperimentDuration != "" {
+		if err := ValidateDurationFormat(spec.ExperimentDuration); err != nil {
+			return fmt.Errorf("invalid experimentDuration format: %w", err)
+		}
+	}
+
 	return nil
 }
