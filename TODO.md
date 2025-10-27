@@ -21,9 +21,8 @@
   - [ ] Add confirmation/approval mechanism for production namespaces
 
 ### Error Handling
-- [x] **Improve Error Messages
-- ** - Add more descriptive error messages and status updates
-- [ ] **Add Retry Logic** - Implement exponential backoff for transient failures
+- [x] **Improve Error Messages** - Add more descriptive error messages and status updates
+- [x] **Add Retry Logic** - Implement exponential backoff for transient failures
 - [x] **Handle Edge Cases**
   - [x] What if namespace doesn't exist? - Webhook validates this
   - [ ] What if pods are already terminating?
@@ -32,21 +31,21 @@
 ## 📊 Observability
 
 ### Monitoring
-- [ ] **Add Prometheus Metrics**
-  - [ ] `chaos_experiments_total` - Total experiments run
-  - [ ] `chaos_experiments_failed` - Failed experiments
-  - [ ] `chaos_pods_deleted_total` - Total pods deleted
-  - [ ] `chaos_experiment_duration_seconds` - Experiment execution time
-- [ ] **Implement Structured Logging**
-  - [ ] Add correlation IDs for tracking experiments
-  - [ ] Log affected pod names and namespaces
-  - [ ] Add log levels (debug, info, warn, error)
+- [x] **Add Prometheus Metrics**
+  - [x] `chaos_experiments_total` - Total experiments run
+  - [x] `chaos_experiments_failed` - Failed experiments
+  - [x] `chaos_pods_deleted_total` - Total pods deleted
+  - [x] `chaos_experiment_duration_seconds` - Experiment execution time
+- [x] **Implement Structured Logging**
+  - [x] Add correlation IDs for tracking experiments
+  - [x] Log affected pod names and namespaces
+  - [x] Add log levels (debug, info, warn, error)
 
 ### Status Reporting
-- [ ] **Enhance Status Fields**
-  - [ ] Add `phase` field (Pending, Running, Completed, Failed)
+- [x] **Enhance Status Fields**
+  - [x] Add `phase` field (Pending, Running, Completed, Failed)
   - [ ] Add `affectedPods` list with pod names
-  - [ ] Add `startTime` and `endTime` timestamps
+  - [x] Add `startTime` and `endTime` timestamps
   - [ ] Add `conditions` array for detailed status
 - [ ] **Kubernetes Events** - Emit events on ChaosExperiment and affected pods
 
