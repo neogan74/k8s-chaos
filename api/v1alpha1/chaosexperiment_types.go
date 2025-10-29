@@ -32,7 +32,7 @@ type ChaosExperimentSpec struct {
 
 	// Action specifies the chaos action to perform
 	// +kubebuilder:validation:Required
-	// +kubebuilder:validation:Enum=pod-kill;pod-delay;node-drain
+	// +kubebuilder:validation:Enum=pod-kill;pod-delay;node-drain;pod-cpu-stress
 	Action string `json:"action"`
 
 	// Namespace specifies the target namespace for chaos experiments
@@ -81,6 +81,19 @@ type ChaosExperimentSpec struct {
 	// +kubebuilder:default="30s"
 	// +optional
 	RetryDelay string `json:"retryDelay,omitempty"`
+
+	// CPULoad specifies the percentage of CPU to consume (for pod-cpu-stress)
+	// +kubebuilder:validation:Minimum=1
+	// +kubebuilder:validation:Maximum=100
+	// +optional
+	CPULoad int `json:"cpuLoad,omitempty"`
+
+	// CPUWorkers specifies the number of CPU workers (for pod-cpu-stress)
+	// +kubebuilder:validation:Minimum=1
+	// +kubebuilder:validation:Maximum=32
+	// +kubebuilder:default=1
+	// +optional
+	CPUWorkers int `json:"cpuWorkers,omitempty"`
 }
 
 // ChaosExperimentStatus defines the observed state of ChaosExperiment.
