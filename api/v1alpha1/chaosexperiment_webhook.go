@@ -151,6 +151,16 @@ func (w *ChaosExperimentWebhook) validateCrossFieldConstraints(spec *ChaosExperi
 		return fmt.Errorf("duration is required for pod-delay action")
 	}
 
+	// pod-cpu-stress action requires duration and cpuLoad
+	if spec.Action == "pod-cpu-stress" {
+		if spec.Duration == "" {
+			return fmt.Errorf("duration is required for pod-cpu-stress action")
+		}
+		if spec.CPULoad <= 0 {
+			return fmt.Errorf("cpuLoad must be specified and greater than 0 for pod-cpu-stress action")
+		}
+	}
+
 	// Validate duration format if provided
 	if spec.Duration != "" {
 		if err := ValidateDurationFormat(spec.Duration); err != nil {
