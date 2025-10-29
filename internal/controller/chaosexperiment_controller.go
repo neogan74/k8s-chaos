@@ -27,6 +27,7 @@ import (
 	"time"
 
 	corev1 "k8s.io/api/core/v1"
+	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/labels"
 	"k8s.io/apimachinery/pkg/runtime"
@@ -69,8 +70,9 @@ type ChaosExperimentReconciler struct {
 // +kubebuilder:rbac:groups=chaos.gushchin.dev,resources=chaosexperiments,verbs=get;list;watch;create;update;patch;delete
 // +kubebuilder:rbac:groups=chaos.gushchin.dev,resources=chaosexperiments/status,verbs=get;update;patch
 // +kubebuilder:rbac:groups=chaos.gushchin.dev,resources=chaosexperiments/finalizers,verbs=update
-// +kubebuilder:rbac:groups="",resources=pods,verbs=get;list;delete
+// +kubebuilder:rbac:groups="",resources=pods,verbs=get;list;delete;patch
 // +kubebuilder:rbac:groups="",resources=pods/exec,verbs=create
+// +kubebuilder:rbac:groups="",resources=pods/ephemeralcontainers,verbs=get;update;patch
 // +kubebuilder:rbac:groups="",resources=nodes,verbs=get;list;watch;update;patch
 // +kubebuilder:rbac:groups="",resources=pods/eviction,verbs=create
 
@@ -115,6 +117,8 @@ func (r *ChaosExperimentReconciler) Reconcile(ctx context.Context, req ctrl.Requ
 		return r.handlePodDelay(ctx, &exp)
 	case "node-drain":
 		return r.handleNodeDrain(ctx, &exp)
+	case "pod-cpu-stress":
+		return r.handlePodCPUStress(ctx, &exp)
 	default:
 		log.Info("Unsupported action", "action", exp.Spec.Action)
 		exp.Status.Message = "Error: Unsupported action: " + exp.Spec.Action
@@ -304,6 +308,192 @@ func (r *ChaosExperimentReconciler) handlePodDelay(ctx context.Context, exp *cha
 	chaosmetrics.ResourcesAffected.WithLabelValues("pod-delay", exp.Spec.Namespace, exp.Name).Set(float64(len(affectedPods)))
 
 	return ctrl.Result{RequeueAfter: time.Minute}, nil
+}
+
+// handlePodCPUStress injects ephemeral containers with stress-ng to consume CPU resources
+func (r *ChaosExperimentReconciler) handlePodCPUStress(ctx context.Context, exp *chaosv1alpha1.ChaosExperiment) (ctrl.Result, error) {
+	log := ctrl.LoggerFrom(ctx)
+	startTime := time.Now()
+
+	// Track active experiments
+	chaosmetrics.ActiveExperiments.WithLabelValues("pod-cpu-stress").Inc()
+	defer chaosmetrics.ActiveExperiments.WithLabelValues("pod-cpu-stress").Dec()
+
+	// Validate namespace
+	if exp.Spec.Namespace == "" {
+		return r.handleExperimentFailure(ctx, exp, "Namespace not specified")
+	}
+
+	// Validate required fields for pod-cpu-stress
+	if exp.Spec.CPULoad <= 0 {
+		return r.handleExperimentFailure(ctx, exp, "CPULoad must be specified and greater than 0 for pod-cpu-stress")
+	}
+
+	if exp.Spec.Duration == "" {
+		return r.handleExperimentFailure(ctx, exp, "Duration is required for pod-cpu-stress action")
+	}
+
+	// Parse duration for stress-ng timeout
+	durationSeconds, err := r.parseDurationToSeconds(exp.Spec.Duration)
+	if err != nil {
+		return r.handleExperimentFailure(ctx, exp, fmt.Sprintf("Invalid duration format: %s", exp.Spec.Duration))
+	}
+
+	// List pods by selector
+	podList := &corev1.PodList{}
+	selector := labels.SelectorFromSet(exp.Spec.Selector)
+	if err := r.List(ctx, podList, client.InNamespace(exp.Spec.Namespace),
+		client.MatchingLabelsSelector{Selector: selector}); err != nil {
+		log.Error(err, "Failed to list pods")
+		return r.handleExperimentFailure(ctx, exp, "Failed to list pods")
+	}
+
+	if len(podList.Items) == 0 {
+		log.Info("No pods found for selector", "selector", exp.Spec.Selector)
+		exp.Status.Message = "No pods found matching selector"
+		_ = r.Status().Update(ctx, exp)
+		return ctrl.Result{RequeueAfter: time.Minute}, nil
+	}
+
+	// Shuffle the list of pods
+	rand.Shuffle(len(podList.Items), func(i, j int) {
+		podList.Items[i], podList.Items[j] = podList.Items[j], podList.Items[i]
+	})
+
+	// Determine how many pods to affect
+	affectCount := exp.Spec.Count
+	if affectCount <= 0 {
+		affectCount = 1 // Default to 1 if not specified or invalid
+	}
+	if affectCount > len(podList.Items) {
+		affectCount = len(podList.Items)
+	}
+
+	// Set default CPU workers if not specified
+	cpuWorkers := exp.Spec.CPUWorkers
+	if cpuWorkers <= 0 {
+		cpuWorkers = 1
+	}
+
+	// Apply CPU stress to selected pods
+	affectedPods := []string{}
+	for i := 0; i < affectCount; i++ {
+		pod := podList.Items[i]
+		log.Info("Injecting CPU stress into pod",
+			"pod", pod.Name,
+			"namespace", pod.Namespace,
+			"cpuLoad", exp.Spec.CPULoad,
+			"cpuWorkers", cpuWorkers,
+			"duration", durationSeconds)
+
+		// Inject ephemeral container with stress-ng
+		if err := r.injectCPUStressContainer(ctx, &pod, exp.Spec.CPULoad, cpuWorkers, durationSeconds); err != nil {
+			log.Error(err, "Failed to inject CPU stress container", "pod", pod.Name)
+			chaosmetrics.ExperimentErrors.WithLabelValues("pod-cpu-stress", exp.Spec.Namespace).Inc()
+		} else {
+			affectedPods = append(affectedPods, pod.Name)
+		}
+	}
+
+	// Update status
+	now := metav1.Now()
+	exp.Status.LastRunTime = &now
+	status := statusSuccess
+	if len(affectedPods) > 0 {
+		exp.Status.Message = fmt.Sprintf("Successfully applied %d%% CPU stress to %d pod(s) for %ds",
+			exp.Spec.CPULoad, len(affectedPods), durationSeconds)
+		// Reset retry count on success
+		exp.Status.RetryCount = 0
+		exp.Status.LastError = ""
+		exp.Status.NextRetryTime = nil
+	} else {
+		exp.Status.Message = "Failed to apply CPU stress to any pods"
+		status = statusFailure
+	}
+	if err := r.Status().Update(ctx, exp); err != nil {
+		log.Error(err, "Failed to update ChaosExperiment status")
+		return ctrl.Result{}, err
+	}
+
+	// Record metrics
+	duration := time.Since(startTime).Seconds()
+	chaosmetrics.ExperimentsTotal.WithLabelValues("pod-cpu-stress", exp.Spec.Namespace, status).Inc()
+	chaosmetrics.ExperimentDuration.WithLabelValues("pod-cpu-stress", exp.Spec.Namespace).Observe(duration)
+	chaosmetrics.ResourcesAffected.WithLabelValues("pod-cpu-stress", exp.Spec.Namespace, exp.Name).Set(float64(len(affectedPods)))
+
+	return ctrl.Result{RequeueAfter: time.Minute}, nil
+}
+
+// injectCPUStressContainer adds an ephemeral container with stress-ng to the pod
+func (r *ChaosExperimentReconciler) injectCPUStressContainer(ctx context.Context, pod *corev1.Pod, cpuLoad, cpuWorkers, durationSeconds int) error {
+	log := ctrl.LoggerFrom(ctx)
+
+	// Generate unique container name based on experiment
+	containerName := fmt.Sprintf("chaos-cpu-stress-%d", time.Now().Unix())
+
+	// Check if ephemeral container already exists
+	for _, ec := range pod.Spec.EphemeralContainers {
+		if strings.HasPrefix(ec.Name, "chaos-cpu-stress") {
+			log.Info("Ephemeral container already exists", "pod", pod.Name, "container", ec.Name)
+			return nil
+		}
+	}
+
+	// Create ephemeral container spec with stress-ng
+	ephemeralContainer := corev1.EphemeralContainer{
+		EphemeralContainerCommon: corev1.EphemeralContainerCommon{
+			Name:  containerName,
+			Image: "alexeiled/stress-ng:latest-alpine",
+			Command: []string{
+				"stress-ng",
+				"--cpu", fmt.Sprintf("%d", cpuWorkers),
+				"--cpu-load", fmt.Sprintf("%d", cpuLoad),
+				"--timeout", fmt.Sprintf("%ds", durationSeconds),
+				"--metrics-brief",
+			},
+			Resources: corev1.ResourceRequirements{
+				Limits: corev1.ResourceList{
+					corev1.ResourceCPU: resource.MustParse(fmt.Sprintf("%d", cpuWorkers)),
+				},
+				Requests: corev1.ResourceList{
+					corev1.ResourceCPU: resource.MustParse("100m"),
+				},
+			},
+		},
+	}
+
+	// Get the current pod to work with latest resource version
+	currentPod := &corev1.Pod{}
+	if err := r.Get(ctx, client.ObjectKeyFromObject(pod), currentPod); err != nil {
+		return fmt.Errorf("failed to get current pod state: %w", err)
+	}
+
+	// Append the ephemeral container
+	currentPod.Spec.EphemeralContainers = append(currentPod.Spec.EphemeralContainers, ephemeralContainer)
+
+	// Update the pod with the ephemeral container
+	// Use SubResource to update ephemeralcontainers
+	if err := r.Client.SubResource("ephemeralcontainers").Update(ctx, currentPod); err != nil {
+		return fmt.Errorf("failed to inject ephemeral container: %w", err)
+	}
+
+	log.Info("Successfully injected CPU stress ephemeral container",
+		"pod", pod.Name,
+		"container", containerName,
+		"cpuLoad", cpuLoad,
+		"cpuWorkers", cpuWorkers,
+		"duration", durationSeconds)
+
+	return nil
+}
+
+// parseDurationToSeconds converts duration string to seconds
+func (r *ChaosExperimentReconciler) parseDurationToSeconds(durationStr string) (int, error) {
+	duration, err := r.parseDuration(durationStr)
+	if err != nil {
+		return 0, err
+	}
+	return int(duration.Seconds()), nil
 }
 
 // parseDurationToMs parses a duration string (e.g., "30s", "5m", "1h") and returns milliseconds
