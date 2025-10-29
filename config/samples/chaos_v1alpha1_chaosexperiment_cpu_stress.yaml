@@ -1,0 +1,39 @@
+apiVersion: chaos.gushchin.dev/v1alpha1
+kind: ChaosExperiment
+metadata:
+  name: chaosexperiment-cpu-stress
+  namespace: chaos-testing
+spec:
+  # Action: pod-cpu-stress - Injects CPU stress using ephemeral containers
+  action: pod-cpu-stress
+
+  # Target namespace where the chaos will be applied
+  namespace: default
+
+  # Selector: Target pods with matching labels
+  selector:
+    app: web-server
+
+  # Number of pods to affect (randomly selected)
+  count: 2
+
+  # Duration: How long the CPU stress should run
+  # Format: "30s", "5m", "1h", or combinations like "1h30m"
+  duration: "5m"
+
+  # CPULoad: Percentage of CPU to consume (1-100)
+  # 80% means each CPU worker will run at 80% capacity
+  cpuLoad: 80
+
+  # CPUWorkers: Number of CPU workers to spawn (1-32)
+  # Default is 1. Increase for multi-core stress testing.
+  cpuWorkers: 2
+
+  # Optional: Auto-stop the entire experiment after this duration
+  # If not set, experiment runs indefinitely until manually deleted
+  experimentDuration: "15m"
+
+  # Optional: Retry configuration
+  maxRetries: 3
+  retryBackoff: exponential
+  retryDelay: "30s"
