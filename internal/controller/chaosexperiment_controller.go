@@ -69,10 +69,12 @@ type ChaosExperimentReconciler struct {
 // +kubebuilder:rbac:groups=chaos.gushchin.dev,resources=chaosexperiments,verbs=get;list;watch;create;update;patch;delete
 // +kubebuilder:rbac:groups=chaos.gushchin.dev,resources=chaosexperiments/status,verbs=get;update;patch
 // +kubebuilder:rbac:groups=chaos.gushchin.dev,resources=chaosexperiments/finalizers,verbs=update
-// +kubebuilder:rbac:groups="",resources=pods,verbs=get;list;delete
+// +kubebuilder:rbac:groups="",resources=pods,verbs=get;list;delete;patch
 // +kubebuilder:rbac:groups="",resources=pods/exec,verbs=create
+// +kubebuilder:rbac:groups="",resources=pods/ephemeralcontainers,verbs=get;update;patch
 // +kubebuilder:rbac:groups="",resources=nodes,verbs=get;list;watch;update;patch
 // +kubebuilder:rbac:groups="",resources=pods/eviction,verbs=create
+// +kubebuilder:rbac:groups="",resources=namespaces,verbs=get;list
 
 // Reconcile is part of the main kubernetes reconciliation loop which aims to
 // move the current state of the cluster closer to the desired state.
@@ -115,6 +117,8 @@ func (r *ChaosExperimentReconciler) Reconcile(ctx context.Context, req ctrl.Requ
 		return r.handlePodDelay(ctx, &exp)
 	case "node-drain":
 		return r.handleNodeDrain(ctx, &exp)
+	case "pod-cpu-stress":
+		return r.handlePodCPUStress(ctx, &exp)
 	default:
 		log.Info("Unsupported action", "action", exp.Spec.Action)
 		exp.Status.Message = "Error: Unsupported action: " + exp.Spec.Action
@@ -700,6 +704,73 @@ func (r *ChaosExperimentReconciler) handleExperimentFailure(ctx context.Context,
 	}
 
 	// Don't requeue, experiment has permanently failed
+	return ctrl.Result{}, nil
+}
+
+// filterExcludedPods removes pods with exclusion labels or in excluded namespaces
+func (r *ChaosExperimentReconciler) filterExcludedPods(ctx context.Context, pods []corev1.Pod, namespace string) []corev1.Pod {
+	log := ctrl.LoggerFrom(ctx)
+	eligible := []corev1.Pod{}
+
+	// Check if namespace has exclusion annotation
+	ns := &corev1.Namespace{}
+	nsExcluded := false
+	if err := r.Get(ctx, client.ObjectKey{Name: namespace}, ns); err == nil {
+		if val, exists := ns.Annotations[chaosv1alpha1.ExclusionLabel]; exists && val == "true" {
+			nsExcluded = true
+			log.Info("Namespace is excluded from chaos experiments", "namespace", namespace)
+		}
+	}
+
+	// If namespace is excluded, return empty list
+	if nsExcluded {
+		return eligible
+	}
+
+	// Filter pods with exclusion label
+	for _, pod := range pods {
+		if val, exists := pod.Labels[chaosv1alpha1.ExclusionLabel]; exists && val == "true" {
+			log.Info("Pod excluded from chaos experiment", "pod", pod.Name, "namespace", pod.Namespace)
+			continue
+		}
+		eligible = append(eligible, pod)
+	}
+
+	return eligible
+}
+
+// handleDryRun handles dry-run mode by previewing affected resources without executing chaos
+func (r *ChaosExperimentReconciler) handleDryRun(ctx context.Context, exp *chaosv1alpha1.ChaosExperiment, pods []corev1.Pod, actionType string) (ctrl.Result, error) {
+	log := ctrl.LoggerFrom(ctx)
+
+	count := exp.Spec.Count
+	if count <= 0 {
+		count = 1
+	}
+	if count > len(pods) {
+		count = len(pods)
+	}
+
+	// Build preview message
+	podNames := []string{}
+	for i := 0; i < count && i < len(pods); i++ {
+		podNames = append(podNames, pods[i].Name)
+	}
+
+	now := metav1.Now()
+	exp.Status.LastRunTime = &now
+	exp.Status.Message = fmt.Sprintf("DRY RUN: Would %s %d pod(s): %v",
+		actionType, count, podNames)
+	exp.Status.Phase = "Completed"
+
+	if err := r.Status().Update(ctx, exp); err != nil {
+		log.Error(err, "Failed to update ChaosExperiment status")
+		return ctrl.Result{}, err
+	}
+
+	log.Info("Dry run completed", "action", actionType, "wouldAffect", count, "pods", podNames)
+
+	// Don't requeue for dry-run experiments
 	return ctrl.Result{}, nil
 }
 

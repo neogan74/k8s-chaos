@@ -64,6 +64,7 @@ spec:
                 - pod-kill
                 - pod-delay
                 - node-drain
+                - pod-cpu-stress
                 type: string
               count:
                 default: 1
