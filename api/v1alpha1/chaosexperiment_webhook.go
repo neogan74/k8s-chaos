@@ -172,5 +172,150 @@ func (w *ChaosExperimentWebhook) validateCrossFieldConstraints(spec *ChaosExperi
 		}
 	}
 
+	// pod-cpu-stress action requires duration and cpuLoad
+	if spec.Action == "pod-cpu-stress" {
+		if spec.Duration == "" {
+			return fmt.Errorf("duration is required for pod-cpu-stress action")
+		}
+		if spec.CPULoad <= 0 {
+			return fmt.Errorf("cpuLoad must be specified and greater than 0 for pod-cpu-stress action")
+		}
+	}
+
+	return nil
+}
+
+// validateSafetyConstraints validates safety-related constraints
+func (w *ChaosExperimentWebhook) validateSafetyConstraints(ctx context.Context, exp *ChaosExperiment, matchedPods []corev1.Pod) (admission.Warnings, error) {
+	var warnings admission.Warnings
+
+	// 1. Check production namespace protection
+	if err := w.validateProductionNamespace(ctx, exp); err != nil {
+		return warnings, err
+	}
+
+	// 2. Filter excluded pods
+	eligiblePods := w.filterExcludedPods(matchedPods)
+
+	// 3. Warn if all pods are excluded
+	if len(eligiblePods) == 0 && len(matchedPods) > 0 {
+		return warnings, fmt.Errorf("all %d matching pods are excluded via %s label", len(matchedPods), ExclusionLabel)
+	}
+
+	// 4. Validate maximum percentage limit
+	if exp.Spec.MaxPercentage > 0 {
+		if err := w.validateMaxPercentage(exp, eligiblePods); err != nil {
+			return warnings, err
+		}
+	}
+
+	// 5. Add informational warnings
+	if len(matchedPods) > len(eligiblePods) {
+		excludedCount := len(matchedPods) - len(eligiblePods)
+		warnings = append(warnings, fmt.Sprintf(
+			"%d pod(s) excluded via %s label. %d eligible pods remain.",
+			excludedCount, ExclusionLabel, len(eligiblePods),
+		))
+	}
+
+	if exp.Spec.DryRun {
+		warnings = append(warnings, "DRY RUN mode enabled: No actual chaos will be executed")
+	}
+
+	return warnings, nil
+}
+
+// validateProductionNamespace checks if experiment is allowed in production namespaces
+func (w *ChaosExperimentWebhook) validateProductionNamespace(ctx context.Context, exp *ChaosExperiment) error {
+	// Skip if AllowProduction is true
+	if exp.Spec.AllowProduction {
+		return nil
+	}
+
+	// Get the target namespace
+	ns := &corev1.Namespace{}
+	err := w.Client.Get(ctx, types.NamespacedName{Name: exp.Spec.Namespace}, ns)
+	if err != nil {
+		// Namespace existence already validated earlier
+		return nil
+	}
+
+	// Check if namespace is marked as production
+	isProduction := false
+
+	// Check annotation
+	if val, exists := ns.Annotations[ProductionAnnotation]; exists && val == "true" {
+		isProduction = true
+	}
+
+	// Check environment label
+	if val, exists := ns.Labels[ProductionLabel]; exists && (val == ProductionLabelValue || val == "prod") {
+		isProduction = true
+	}
+
+	// Check env label
+	if val, exists := ns.Labels["env"]; exists && val == "prod" {
+		isProduction = true
+	}
+
+	// Check namespace name patterns
+	nsName := exp.Spec.Namespace
+	if nsName == "production" || nsName == "prod" ||
+		strings.HasPrefix(nsName, "prod-") || strings.HasPrefix(nsName, "production-") ||
+		strings.HasSuffix(nsName, "-prod") || strings.HasSuffix(nsName, "-production") {
+		isProduction = true
+	}
+
+	if isProduction {
+		return fmt.Errorf(
+			"chaos experiments in production namespace %q require explicit approval: set allowProduction: true",
+			exp.Spec.Namespace,
+		)
+	}
+
+	return nil
+}
+
+// filterExcludedPods removes pods with exclusion label
+func (w *ChaosExperimentWebhook) filterExcludedPods(pods []corev1.Pod) []corev1.Pod {
+	eligible := []corev1.Pod{}
+	for _, pod := range pods {
+		// Check if pod has exclusion label
+		if val, exists := pod.Labels[ExclusionLabel]; exists && val == "true" {
+			continue
+		}
+		// Check if pod's namespace has exclusion annotation
+		// Note: We can't easily check namespace here without additional API call
+		// This will be handled in the controller
+		eligible = append(eligible, pod)
+	}
+	return eligible
+}
+
+// validateMaxPercentage checks if count exceeds maximum percentage limit
+func (w *ChaosExperimentWebhook) validateMaxPercentage(exp *ChaosExperiment, eligiblePods []corev1.Pod) error {
+	totalPods := len(eligiblePods)
+	if totalPods == 0 {
+		return nil
+	}
+
+	count := exp.Spec.Count
+	if count <= 0 {
+		count = 1
+	}
+
+	// Calculate actual percentage that would be affected
+	actualPercentage := (float64(count) / float64(totalPods)) * 100
+
+	if actualPercentage > float64(exp.Spec.MaxPercentage) {
+		return fmt.Errorf(
+			"count (%d) would affect %.1f%% of pods, exceeding maxPercentage limit of %d%%: reduce count to %d or lower",
+			count,
+			actualPercentage,
+			exp.Spec.MaxPercentage,
+			int(float64(totalPods)*float64(exp.Spec.MaxPercentage)/100),
+		)
+	}
+
 	return nil
 }
