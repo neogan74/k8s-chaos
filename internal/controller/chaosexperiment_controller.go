@@ -707,6 +707,73 @@ func (r *ChaosExperimentReconciler) handleExperimentFailure(ctx context.Context,
 	return ctrl.Result{}, nil
 }
 
+// filterExcludedPods removes pods with exclusion labels or in excluded namespaces
+func (r *ChaosExperimentReconciler) filterExcludedPods(ctx context.Context, pods []corev1.Pod, namespace string) []corev1.Pod {
+	log := ctrl.LoggerFrom(ctx)
+	eligible := []corev1.Pod{}
+
+	// Check if namespace has exclusion annotation
+	ns := &corev1.Namespace{}
+	nsExcluded := false
+	if err := r.Get(ctx, client.ObjectKey{Name: namespace}, ns); err == nil {
+		if val, exists := ns.Annotations[chaosv1alpha1.ExclusionLabel]; exists && val == "true" {
+			nsExcluded = true
+			log.Info("Namespace is excluded from chaos experiments", "namespace", namespace)
+		}
+	}
+
+	// If namespace is excluded, return empty list
+	if nsExcluded {
+		return eligible
+	}
+
+	// Filter pods with exclusion label
+	for _, pod := range pods {
+		if val, exists := pod.Labels[chaosv1alpha1.ExclusionLabel]; exists && val == "true" {
+			log.Info("Pod excluded from chaos experiment", "pod", pod.Name, "namespace", pod.Namespace)
+			continue
+		}
+		eligible = append(eligible, pod)
+	}
+
+	return eligible
+}
+
+// handleDryRun handles dry-run mode by previewing affected resources without executing chaos
+func (r *ChaosExperimentReconciler) handleDryRun(ctx context.Context, exp *chaosv1alpha1.ChaosExperiment, pods []corev1.Pod, actionType string) (ctrl.Result, error) {
+	log := ctrl.LoggerFrom(ctx)
+
+	count := exp.Spec.Count
+	if count <= 0 {
+		count = 1
+	}
+	if count > len(pods) {
+		count = len(pods)
+	}
+
+	// Build preview message
+	podNames := []string{}
+	for i := 0; i < count && i < len(pods); i++ {
+		podNames = append(podNames, pods[i].Name)
+	}
+
+	now := metav1.Now()
+	exp.Status.LastRunTime = &now
+	exp.Status.Message = fmt.Sprintf("DRY RUN: Would %s %d pod(s): %v",
+		actionType, count, podNames)
+	exp.Status.Phase = "Completed"
+
+	if err := r.Status().Update(ctx, exp); err != nil {
+		log.Error(err, "Failed to update ChaosExperiment status")
+		return ctrl.Result{}, err
+	}
+
+	log.Info("Dry run completed", "action", actionType, "wouldAffect", count, "pods", podNames)
+
+	// Don't requeue for dry-run experiments
+	return ctrl.Result{}, nil
+}
+
 // checkExperimentLifecycle manages the experiment lifecycle based on experimentDuration
 // Returns (shouldContinue, error)
 func (r *ChaosExperimentReconciler) checkExperimentLifecycle(ctx context.Context, exp *chaosv1alpha1.ChaosExperiment) (bool, error) {
