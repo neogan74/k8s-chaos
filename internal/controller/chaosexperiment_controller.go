@@ -115,6 +115,8 @@ func (r *ChaosExperimentReconciler) Reconcile(ctx context.Context, req ctrl.Requ
 		return r.handlePodDelay(ctx, &exp)
 	case "node-drain":
 		return r.handleNodeDrain(ctx, &exp)
+	case "pod-cpu-stress":
+		return r.handlePodCPUStress(ctx, &exp)
 	default:
 		log.Info("Unsupported action", "action", exp.Spec.Action)
 		exp.Status.Message = "Error: Unsupported action: " + exp.Spec.Action
