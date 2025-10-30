@@ -158,9 +158,23 @@ func (r *ChaosExperimentReconciler) handlePodKill(ctx context.Context, exp *chao
 		return ctrl.Result{RequeueAfter: time.Minute}, nil
 	}
 
-	// Shuffle the list of pods
-	rand.Shuffle(len(podList.Items), func(i, j int) {
-		podList.Items[i], podList.Items[j] = podList.Items[j], podList.Items[i]
+	// Apply safety filtering: remove excluded pods
+	eligiblePods := r.filterExcludedPods(ctx, podList.Items, exp.Spec.Namespace)
+	if len(eligiblePods) == 0 {
+		log.Info("No eligible pods after exclusion filtering", "total", len(podList.Items))
+		exp.Status.Message = "All matching pods are excluded from chaos experiments"
+		_ = r.Status().Update(ctx, exp)
+		return ctrl.Result{RequeueAfter: time.Minute}, nil
+	}
+
+	// Handle dry-run mode
+	if exp.Spec.DryRun {
+		return r.handleDryRun(ctx, exp, eligiblePods, "delete")
+	}
+
+	// Shuffle the list of eligible pods
+	rand.Shuffle(len(eligiblePods), func(i, j int) {
+		eligiblePods[i], eligiblePods[j] = eligiblePods[j], eligiblePods[i]
 	})
 
 	// Delete the specified number of pods
@@ -168,8 +182,8 @@ func (r *ChaosExperimentReconciler) handlePodKill(ctx context.Context, exp *chao
 	if killCount <= 0 {
 		killCount = 1 // Default to 1 if not specified or invalid
 	}
-	if killCount > len(podList.Items) {
-		killCount = len(podList.Items)
+	if killCount > len(eligiblePods) {
+		killCount = len(eligiblePods)
 	}
 
 	killedPods := []string{}
