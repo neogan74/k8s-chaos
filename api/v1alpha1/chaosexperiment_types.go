@@ -23,6 +23,20 @@ import (
 // EDIT THIS FILE!  THIS IS SCAFFOLDING FOR YOU TO OWN!
 // NOTE: json tags are required.  Any new fields you add must have json tags for the fields to be serialized.
 
+const (
+	// ExclusionLabel is the label that protects resources from chaos experiments
+	ExclusionLabel = "chaos.gushchin.dev/exclude"
+
+	// ProductionAnnotation marks a namespace as production
+	ProductionAnnotation = "chaos.gushchin.dev/production"
+
+	// ProductionLabel alternative way to mark namespaces as production
+	ProductionLabel = "environment"
+
+	// ProductionLabelValue for environment label
+	ProductionLabelValue = "production"
+)
+
 // ChaosExperimentSpec defines the desired state of ChaosExperiment
 type ChaosExperimentSpec struct {
 	// INSERT ADDITIONAL SPEC FIELDS - desired state of cluster
