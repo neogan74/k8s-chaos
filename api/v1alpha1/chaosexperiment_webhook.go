@@ -87,6 +87,13 @@ func (w *ChaosExperimentWebhook) ValidateCreate(ctx context.Context, obj runtime
 		return warnings, err
 	}
 
+	// Validate safety constraints
+	safetyWarnings, err := w.validateSafetyConstraints(ctx, exp, matchedPods)
+	if err != nil {
+		return warnings, err
+	}
+	warnings = append(warnings, safetyWarnings...)
+
 	return warnings, nil
 }
 
