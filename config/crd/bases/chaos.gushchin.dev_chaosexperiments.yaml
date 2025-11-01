@@ -66,12 +66,36 @@ spec:
                 - node-drain
                 - pod-cpu-stress
                 type: string
+              allowProduction:
+                default: false
+                description: |-
+                  AllowProduction explicitly allows experiments in production namespaces
+                  Production namespaces are identified by annotations or labels (environment=production, env=prod)
+                type: boolean
               count:
                 default: 1
                 description: Count specifies the number of resources to affect
                 maximum: 100
                 minimum: 1
                 type: integer
+              cpuLoad:
+                description: CPULoad specifies the percentage of CPU to consume (for
+                  pod-cpu-stress)
+                maximum: 100
+                minimum: 1
+                type: integer
+              cpuWorkers:
+                default: 1
+                description: CPUWorkers specifies the number of CPU workers (for pod-cpu-stress)
+                maximum: 32
+                minimum: 1
+                type: integer
+              dryRun:
+                default: false
+                description: |-
+                  DryRun mode previews affected resources without executing chaos
+                  When enabled, the controller lists resources that would be affected and updates status without performing actions
+                type: boolean
               duration:
                 description: Duration specifies how long the chaos action should last
                   (for pod-delay)
@@ -83,6 +107,14 @@ spec:
                   If not set, the experiment runs indefinitely until manually stopped
                 pattern: ^([0-9]+(s|m|h))+$
                 type: string
+              maxPercentage:
+                description: |-
+                  MaxPercentage limits the percentage of matching resources that can be affected
+                  If count would affect more than this percentage, the experiment fails validation
+                  Range: 1-100. If not specified, no percentage limit is enforced.
+                maximum: 100
+                minimum: 1
+                type: integer
               maxRetries:
                 default: 3
                 description: MaxRetries specifies the maximum number of retry attempts
