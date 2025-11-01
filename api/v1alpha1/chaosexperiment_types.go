@@ -95,6 +95,39 @@ type ChaosExperimentSpec struct {
 	// +kubebuilder:default="30s"
 	// +optional
 	RetryDelay string `json:"retryDelay,omitempty"`
+
+	// CPULoad specifies the percentage of CPU to consume (for pod-cpu-stress)
+	// +kubebuilder:validation:Minimum=1
+	// +kubebuilder:validation:Maximum=100
+	// +optional
+	CPULoad int `json:"cpuLoad,omitempty"`
+
+	// CPUWorkers specifies the number of CPU workers (for pod-cpu-stress)
+	// +kubebuilder:validation:Minimum=1
+	// +kubebuilder:validation:Maximum=32
+	// +kubebuilder:default=1
+	// +optional
+	CPUWorkers int `json:"cpuWorkers,omitempty"`
+
+	// DryRun mode previews affected resources without executing chaos
+	// When enabled, the controller lists resources that would be affected and updates status without performing actions
+	// +kubebuilder:default=false
+	// +optional
+	DryRun bool `json:"dryRun,omitempty"`
+
+	// MaxPercentage limits the percentage of matching resources that can be affected
+	// If count would affect more than this percentage, the experiment fails validation
+	// Range: 1-100. If not specified, no percentage limit is enforced.
+	// +kubebuilder:validation:Minimum=1
+	// +kubebuilder:validation:Maximum=100
+	// +optional
+	MaxPercentage int `json:"maxPercentage,omitempty"`
+
+	// AllowProduction explicitly allows experiments in production namespaces
+	// Production namespaces are identified by annotations or labels (environment=production, env=prod)
+	// +kubebuilder:default=false
+	// +optional
+	AllowProduction bool `json:"allowProduction,omitempty"`
 }
 
 // ChaosExperimentStatus defines the observed state of ChaosExperiment.
