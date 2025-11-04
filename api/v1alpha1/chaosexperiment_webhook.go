@@ -19,6 +19,7 @@ package v1alpha1
 import (
 	"context"
 	"fmt"
+	"strings"
 
 	corev1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
@@ -179,6 +180,20 @@ func (w *ChaosExperimentWebhook) validateCrossFieldConstraints(spec *ChaosExperi
 		}
 		if spec.CPULoad <= 0 {
 			return fmt.Errorf("cpuLoad must be specified and greater than 0 for pod-cpu-stress action")
+		}
+	}
+
+	// pod-memory-stress action requires duration and memorySize
+	if spec.Action == "pod-memory-stress" {
+		if spec.Duration == "" {
+			return fmt.Errorf("duration is required for pod-memory-stress action")
+		}
+		if spec.MemorySize == "" {
+			return fmt.Errorf("memorySize must be specified for pod-memory-stress action")
+		}
+		// Validate memorySize format (already validated by pattern, but double-check)
+		if err := ValidateMemorySize(spec.MemorySize); err != nil {
+			return err
 		}
 	}
 
