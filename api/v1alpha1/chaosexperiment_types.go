@@ -46,7 +46,7 @@ type ChaosExperimentSpec struct {
 
 	// Action specifies the chaos action to perform
 	// +kubebuilder:validation:Required
-	// +kubebuilder:validation:Enum=pod-kill;pod-delay;node-drain;pod-cpu-stress
+	// +kubebuilder:validation:Enum=pod-kill;pod-delay;node-drain;pod-cpu-stress;pod-memory-stress
 	Action string `json:"action"`
 
 	// Namespace specifies the target namespace for chaos experiments
@@ -95,6 +95,46 @@ type ChaosExperimentSpec struct {
 	// +kubebuilder:default="30s"
 	// +optional
 	RetryDelay string `json:"retryDelay,omitempty"`
+
+	// CPULoad specifies the CPU load percentage for pod-cpu-stress action
+	// +kubebuilder:validation:Minimum=1
+	// +kubebuilder:validation:Maximum=100
+	// +optional
+	CPULoad int `json:"cpuLoad,omitempty"`
+
+	// CPUWorkers specifies the number of CPU workers for pod-cpu-stress action
+	// +kubebuilder:validation:Minimum=1
+	// +kubebuilder:validation:Maximum=32
+	// +kubebuilder:default=1
+	// +optional
+	CPUWorkers int `json:"cpuWorkers,omitempty"`
+
+	// MemorySize specifies the amount of memory to consume (for pod-memory-stress)
+	// Format: "256M", "1G", "512M", etc.
+	// +kubebuilder:validation:Pattern="^[0-9]+[MG]$"
+	// +optional
+	MemorySize string `json:"memorySize,omitempty"`
+
+	// MemoryWorkers specifies the number of memory workers (for pod-memory-stress)
+	// +kubebuilder:validation:Minimum=1
+	// +kubebuilder:validation:Maximum=8
+	// +kubebuilder:default=1
+	// +optional
+	MemoryWorkers int `json:"memoryWorkers,omitempty"`
+
+	// DryRun enables preview mode without executing actual chaos
+	// +optional
+	DryRun bool `json:"dryRun,omitempty"`
+
+	// MaxPercentage limits the maximum percentage of resources to affect
+	// +kubebuilder:validation:Minimum=1
+	// +kubebuilder:validation:Maximum=100
+	// +optional
+	MaxPercentage int `json:"maxPercentage,omitempty"`
+
+	// AllowProduction explicitly permits chaos experiments in production namespaces
+	// +optional
+	AllowProduction bool `json:"allowProduction,omitempty"`
 }
 
 // ChaosExperimentStatus defines the observed state of ChaosExperiment.
