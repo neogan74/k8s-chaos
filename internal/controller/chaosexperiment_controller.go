@@ -964,6 +964,22 @@ func (r *ChaosExperimentReconciler) handleExperimentFailure(ctx context.Context,
 	return ctrl.Result{}, nil
 }
 
+// handleExperimentSuccess resets retry counters after a successful experiment execution
+func (r *ChaosExperimentReconciler) handleExperimentSuccess(ctx context.Context, exp *chaosv1alpha1.ChaosExperiment) error {
+	// Reset retry count and error information on success
+	exp.Status.RetryCount = 0
+	exp.Status.LastError = ""
+	exp.Status.NextRetryTime = nil
+	exp.Status.Phase = phaseCompleted
+
+	// Update status
+	if err := r.Status().Update(ctx, exp); err != nil {
+		return fmt.Errorf("failed to update status after success: %w", err)
+	}
+
+	return nil
+}
+
 // handleDryRun handles dry-run mode by previewing affected resources without executing chaos
 func (r *ChaosExperimentReconciler) handleDryRun(ctx context.Context, exp *chaosv1alpha1.ChaosExperiment, pods []corev1.Pod, actionType string) (ctrl.Result, error) {
 	log := ctrl.LoggerFrom(ctx)
