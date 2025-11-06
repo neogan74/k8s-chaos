@@ -341,27 +341,15 @@ func (r *ChaosExperimentReconciler) handlePodCPUStress(ctx context.Context, exp 
 		return r.handleExperimentFailure(ctx, exp, fmt.Sprintf("Invalid duration format: %s", exp.Spec.Duration))
 	}
 
-	// List pods by selector
-	podList := &corev1.PodList{}
-	selector := labels.SelectorFromSet(exp.Spec.Selector)
-	if err := r.List(ctx, podList, client.InNamespace(exp.Spec.Namespace),
-		client.MatchingLabelsSelector{Selector: selector}); err != nil {
-		log.Error(err, "Failed to list pods")
-		return r.handleExperimentFailure(ctx, exp, "Failed to list pods")
+	// Get eligible pods (includes namespace validation and exclusion filtering)
+	eligiblePods, err := r.getEligiblePods(ctx, exp)
+	if err != nil {
+		return r.handleExperimentFailure(ctx, exp, fmt.Sprintf("Failed to get eligible pods: %v", err))
 	}
 
-	if len(podList.Items) == 0 {
-		log.Info("No pods found for selector", "selector", exp.Spec.Selector)
-		exp.Status.Message = "No pods found matching selector"
-		_ = r.Status().Update(ctx, exp)
-		return ctrl.Result{RequeueAfter: time.Minute}, nil
-	}
-
-	// Apply safety filtering: remove excluded pods
-	eligiblePods := r.filterExcludedPods(ctx, podList.Items, exp.Spec.Namespace)
 	if len(eligiblePods) == 0 {
-		log.Info("No eligible pods after exclusion filtering", "total", len(podList.Items))
-		exp.Status.Message = "All matching pods are excluded from chaos experiments"
+		log.Info("No eligible pods found")
+		exp.Status.Message = "No eligible pods found matching selector (or all are excluded)"
 		_ = r.Status().Update(ctx, exp)
 		return ctrl.Result{RequeueAfter: time.Minute}, nil
 	}
