@@ -1,0 +1,35 @@
+apiVersion: chaos.gushchin.dev/v1alpha1
+kind: ChaosExperiment
+metadata:
+  labels:
+    app.kubernetes.io/name: k8s-chaos
+    app.kubernetes.io/managed-by: kustomize
+  name: chaosexperiment-with-retry
+  namespace: chaos-testing
+spec:
+  # Action defines the type of chaos to introduce
+  action: "pod-kill"
+
+  # Target namespace
+  namespace: "default"
+
+  # Selector defines the label selector to identify target pods
+  selector:
+    app: nginx
+
+  # Kill 2 pods
+  count: 2
+
+  # Retry configuration
+  # Maximum number of retry attempts (0-10, default: 3)
+  maxRetries: 5
+
+  # Retry backoff strategy: "exponential" or "fixed" (default: exponential)
+  # - exponential: delay doubles with each retry (30s, 1m, 2m, 4m, 8m...)
+  # - fixed: constant delay between retries (always 30s)
+  retryBackoff: "exponential"
+
+  # Initial delay between retries (default: 30s)
+  # With exponential backoff, this doubles each retry
+  # With fixed backoff, this stays constant
+  retryDelay: "30s"

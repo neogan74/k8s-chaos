@@ -108,6 +108,14 @@ lint-config: golangci-lint ## Verify golangci-lint linter configuration
 build: manifests generate fmt vet ## Build manager binary.
 	go build -o bin/manager cmd/main.go
 
+.PHONY: build-cli
+build-cli: ## Build k8s-chaos CLI binary.
+	go build -o bin/k8s-chaos cmd/k8s-chaos-cli/main.go
+
+.PHONY: install-cli
+install-cli: build-cli ## Install k8s-chaos CLI to /usr/local/bin.
+	sudo install -m 755 bin/k8s-chaos /usr/local/bin/k8s-chaos
+
 .PHONY: run
 run: manifests generate fmt vet ## Run a controller from your host.
 	go run ./cmd/main.go

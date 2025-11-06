@@ -4,36 +4,37 @@ metadata:
   labels:
     app.kubernetes.io/name: k8s-chaos
     app.kubernetes.io/managed-by: kustomize
-  name: chaosexperiment-cpu-stress
+  name: chaosexperiment-memory-stress
   namespace: staging
 spec:
-  # Stress CPU resources in pods
-  action: "pod-cpu-stress"
+  # Stress memory resources in pods
+  action: "pod-memory-stress"
 
   # Target namespace
   namespace: "staging"
 
-  # Target API service pods
+  # Target web application pods
   selector:
-    app: api-service
-    tier: backend
+    app: web-app
+    tier: frontend
 
-  # Stress 2 pods to test CPU resilience
+  # Stress 2 pods to test memory resilience
   count: 2
 
-  # Duration of CPU stress
+  # Duration of memory stress
   # Format: combinations of numbers with units (s=seconds, m=minutes, h=hours)
   # Examples: "30s", "5m", "1h30m"
   duration: "5m"
 
-  # CPU load percentage (1-100)
-  # 80 means 80% CPU utilization per worker
-  cpuLoad: 80
+  # Memory size to allocate per worker
+  # Format: number followed by M (megabytes) or G (gigabytes)
+  # Examples: "256M", "512M", "1G", "2G"
+  memorySize: "512M"
 
-  # Number of CPU workers (optional, default: 1)
-  # Total CPU usage = cpuLoad * cpuWorkers / 100 cores
-  # Example: 2 workers at 80% = up to 1.6 cores
-  cpuWorkers: 2
+  # Number of memory workers (optional, default: 1)
+  # Total memory consumed = memorySize * memoryWorkers
+  # Example: 2 workers * 512M = 1GB total
+  memoryWorkers: 2
 
   # Optional: ExperimentDuration defines how long the experiment runs before auto-stopping
   # Uncomment to enable duration-based lifecycle (auto-stop after 15 minutes)
