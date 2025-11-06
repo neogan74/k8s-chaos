@@ -183,6 +183,20 @@ func (w *ChaosExperimentWebhook) validateCrossFieldConstraints(spec *ChaosExperi
 		}
 	}
 
+	// pod-memory-stress action requires duration and memorySize
+	if spec.Action == "pod-memory-stress" {
+		if spec.Duration == "" {
+			return fmt.Errorf("duration is required for pod-memory-stress action")
+		}
+		if spec.MemorySize == "" {
+			return fmt.Errorf("memorySize must be specified for pod-memory-stress action")
+		}
+		// Validate memorySize format (already validated by pattern, but double-check)
+		if err := ValidateMemorySize(spec.MemorySize); err != nil {
+			return err
+		}
+	}
+
 	return nil
 }
 

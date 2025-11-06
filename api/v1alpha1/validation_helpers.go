@@ -25,6 +25,10 @@ import (
 // Pattern: ^([0-9]+(s|m|h))+$
 var durationPattern = regexp.MustCompile(`^([0-9]+(s|m|h))+$`)
 
+// memorySizePattern matches the pattern used in the MemorySize field validation
+// Pattern: ^[0-9]+[MG]$
+var memorySizePattern = regexp.MustCompile(`^[0-9]+[MG]$`)
+
 // ValidationError represents a validation error for a specific field
 type ValidationError struct {
 	Field   string
@@ -36,7 +40,7 @@ func (e *ValidationError) Error() string {
 }
 
 // ValidActions is the list of supported chaos actions
-var ValidActions = []string{"pod-kill", "pod-delay", "node-drain"}
+var ValidActions = []string{"pod-kill", "pod-delay", "node-drain", "pod-cpu-stress", "pod-memory-stress"}
 
 // IsValidAction checks if the given action is valid
 func IsValidAction(action string) bool {
@@ -55,6 +59,17 @@ func ValidateDurationFormat(duration string) error {
 	}
 	if !durationPattern.MatchString(duration) {
 		return fmt.Errorf("duration must match pattern ^([0-9]+(s|m|h))+$, got: %s", duration)
+	}
+	return nil
+}
+
+// ValidateMemorySize validates that a memory size string matches the expected pattern
+func ValidateMemorySize(memorySize string) error {
+	if memorySize == "" {
+		return nil // MemorySize is optional
+	}
+	if !memorySizePattern.MatchString(memorySize) {
+		return fmt.Errorf("memorySize must match pattern ^[0-9]+[MG]$, got: %s", memorySize)
 	}
 	return nil
 }

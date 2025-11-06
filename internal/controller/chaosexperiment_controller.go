@@ -120,6 +120,8 @@ func (r *ChaosExperimentReconciler) Reconcile(ctx context.Context, req ctrl.Requ
 		return r.handleNodeDrain(ctx, &exp)
 	case "pod-cpu-stress":
 		return r.handlePodCPUStress(ctx, &exp)
+	case "pod-memory-stress":
+		return r.handlePodMemoryStress(ctx, &exp)
 	default:
 		log.Info("Unsupported action", "action", exp.Spec.Action)
 		exp.Status.Message = "Error: Unsupported action: " + exp.Spec.Action
@@ -965,38 +967,6 @@ func (r *ChaosExperimentReconciler) handleExperimentFailure(ctx context.Context,
 	return ctrl.Result{}, nil
 }
 
-// filterExcludedPods removes pods with exclusion labels or in excluded namespaces
-func (r *ChaosExperimentReconciler) filterExcludedPods(ctx context.Context, pods []corev1.Pod, namespace string) []corev1.Pod {
-	log := ctrl.LoggerFrom(ctx)
-	eligible := []corev1.Pod{}
-
-	// Check if namespace has exclusion annotation
-	ns := &corev1.Namespace{}
-	nsExcluded := false
-	if err := r.Get(ctx, client.ObjectKey{Name: namespace}, ns); err == nil {
-		if val, exists := ns.Annotations[chaosv1alpha1.ExclusionLabel]; exists && val == "true" {
-			nsExcluded = true
-			log.Info("Namespace is excluded from chaos experiments", "namespace", namespace)
-		}
-	}
-
-	// If namespace is excluded, return empty list
-	if nsExcluded {
-		return eligible
-	}
-
-	// Filter pods with exclusion label
-	for _, pod := range pods {
-		if val, exists := pod.Labels[chaosv1alpha1.ExclusionLabel]; exists && val == "true" {
-			log.Info("Pod excluded from chaos experiment", "pod", pod.Name, "namespace", pod.Namespace)
-			continue
-		}
-		eligible = append(eligible, pod)
-	}
-
-	return eligible
-}
-
 // handleDryRun handles dry-run mode by previewing affected resources without executing chaos
 func (r *ChaosExperimentReconciler) handleDryRun(ctx context.Context, exp *chaosv1alpha1.ChaosExperiment, pods []corev1.Pod, actionType string) (ctrl.Result, error) {
 	log := ctrl.LoggerFrom(ctx)
@@ -1101,6 +1071,321 @@ func (r *ChaosExperimentReconciler) checkExperimentLifecycle(ctx context.Context
 
 	// Continue experiment
 	return true, nil
+}
+
+// getEligiblePods returns pods that match the selector and are not excluded
+func (r *ChaosExperimentReconciler) getEligiblePods(ctx context.Context, exp *chaosv1alpha1.ChaosExperiment) ([]corev1.Pod, error) {
+	log := ctrl.LoggerFrom(ctx)
+
+	// Validate namespace
+	if exp.Spec.Namespace == "" {
+		return nil, fmt.Errorf("namespace not specified")
+	}
+
+	// Choose Pods by selector
+	podList := &corev1.PodList{}
+	selector := labels.SelectorFromSet(exp.Spec.Selector)
+	if err := r.List(ctx, podList, client.InNamespace(exp.Spec.Namespace),
+		client.MatchingLabelsSelector{Selector: selector}); err != nil {
+		log.Error(err, "Failed to list pods")
+		return nil, fmt.Errorf("failed to list pods: %w", err)
+	}
+
+	// Get namespace to check for exclusion annotation
+	ns := &corev1.Namespace{}
+	namespaceExcluded := false
+	if err := r.Get(ctx, client.ObjectKey{Name: exp.Spec.Namespace}, ns); err == nil {
+		if val, exists := ns.Annotations[chaosv1alpha1.ExclusionLabel]; exists && val == "true" {
+			namespaceExcluded = true
+		}
+	}
+
+	// Filter out excluded pods
+	eligiblePods := []corev1.Pod{}
+	for _, pod := range podList.Items {
+		// Skip if namespace is excluded
+		if namespaceExcluded {
+			continue
+		}
+
+		// Skip if pod has exclusion label
+		if val, exists := pod.Labels[chaosv1alpha1.ExclusionLabel]; exists && val == "true" {
+			log.Info("Skipping excluded pod", "pod", pod.Name, "namespace", pod.Namespace)
+			continue
+		}
+
+		eligiblePods = append(eligiblePods, pod)
+	}
+
+	return eligiblePods, nil
+}
+
+// handlePodCPUStress injects ephemeral containers with stress-ng to stress CPU
+func (r *ChaosExperimentReconciler) handlePodCPUStress(ctx context.Context, exp *chaosv1alpha1.ChaosExperiment) (ctrl.Result, error) {
+	log := ctrl.LoggerFrom(ctx)
+	startTime := time.Now()
+
+	// Track active experiments
+	chaosmetrics.ActiveExperiments.WithLabelValues("pod-cpu-stress").Inc()
+	defer chaosmetrics.ActiveExperiments.WithLabelValues("pod-cpu-stress").Dec()
+
+	// Validate required fields
+	if exp.Spec.Duration == "" {
+		return r.handleExperimentFailure(ctx, exp, "Duration is required for pod-cpu-stress action")
+	}
+	if exp.Spec.CPULoad <= 0 {
+		return r.handleExperimentFailure(ctx, exp, "CPULoad must be specified and greater than 0 for pod-cpu-stress action")
+	}
+
+	// Parse duration to seconds for stress-ng timeout
+	duration, err := r.parseDuration(exp.Spec.Duration)
+	if err != nil {
+		return r.handleExperimentFailure(ctx, exp, fmt.Sprintf("Invalid duration format: %v", err))
+	}
+	timeoutSeconds := int(duration.Seconds())
+
+	// Get eligible pods
+	eligiblePods, err := r.getEligiblePods(ctx, exp)
+	if err != nil {
+		return ctrl.Result{}, err
+	}
+
+	if len(eligiblePods) == 0 {
+		log.Info("No eligible pods found for selector", "selector", exp.Spec.Selector)
+		exp.Status.Message = "No eligible pods found matching selector"
+		_ = r.Status().Update(ctx, exp)
+		return ctrl.Result{RequeueAfter: time.Minute}, nil
+	}
+
+	// Handle dry-run mode
+	if exp.Spec.DryRun {
+		return r.handleDryRun(ctx, exp, eligiblePods, "pod-cpu-stress")
+	}
+
+	// Shuffle the list of pods
+	rand.Shuffle(len(eligiblePods), func(i, j int) {
+		eligiblePods[i], eligiblePods[j] = eligiblePods[j], eligiblePods[i]
+	})
+
+	// Determine how many pods to stress
+	stressCount := exp.Spec.Count
+	if stressCount <= 0 {
+		stressCount = 1
+	}
+	if stressCount > len(eligiblePods) {
+		stressCount = len(eligiblePods)
+	}
+
+	// Set default CPU workers if not specified
+	cpuWorkers := exp.Spec.CPUWorkers
+	if cpuWorkers <= 0 {
+		cpuWorkers = 1
+	}
+
+	// Inject ephemeral containers to stress CPU
+	stressedPods := []string{}
+	for i := 0; i < stressCount; i++ {
+		pod := eligiblePods[i]
+		log.Info("Injecting CPU stress into pod", "pod", pod.Name, "namespace", pod.Namespace)
+
+		if err := r.injectCPUStressContainer(ctx, &pod, cpuWorkers, exp.Spec.CPULoad, timeoutSeconds); err != nil {
+			log.Error(err, "Failed to inject CPU stress container", "pod", pod.Name)
+			continue
+		}
+
+		stressedPods = append(stressedPods, pod.Name)
+	}
+
+	// Update status
+	now := metav1.Now()
+	exp.Status.LastRunTime = &now
+	status := statusSuccess
+	if len(stressedPods) > 0 {
+		exp.Status.Message = fmt.Sprintf("Successfully injected CPU stress into %d pod(s) for %s", len(stressedPods), exp.Spec.Duration)
+	} else {
+		exp.Status.Message = "Failed to stress any pods"
+		status = statusFailure
+	}
+	if err := r.Status().Update(ctx, exp); err != nil {
+		log.Error(err, "Failed to update ChaosExperiment status")
+		return ctrl.Result{}, err
+	}
+
+	// Record metrics
+	duration = time.Since(startTime)
+	chaosmetrics.ExperimentsTotal.WithLabelValues("pod-cpu-stress", exp.Spec.Namespace, status).Inc()
+	chaosmetrics.ExperimentDuration.WithLabelValues("pod-cpu-stress", exp.Spec.Namespace).Observe(duration.Seconds())
+	chaosmetrics.ResourcesAffected.WithLabelValues("pod-cpu-stress", exp.Spec.Namespace, exp.Name).Set(float64(len(stressedPods)))
+
+	return ctrl.Result{RequeueAfter: time.Minute}, nil
+}
+
+// handlePodMemoryStress injects ephemeral containers with stress-ng to stress memory
+func (r *ChaosExperimentReconciler) handlePodMemoryStress(ctx context.Context, exp *chaosv1alpha1.ChaosExperiment) (ctrl.Result, error) {
+	log := ctrl.LoggerFrom(ctx)
+	startTime := time.Now()
+
+	// Track active experiments
+	chaosmetrics.ActiveExperiments.WithLabelValues("pod-memory-stress").Inc()
+	defer chaosmetrics.ActiveExperiments.WithLabelValues("pod-memory-stress").Dec()
+
+	// Validate required fields
+	if exp.Spec.Duration == "" {
+		return r.handleExperimentFailure(ctx, exp, "Duration is required for pod-memory-stress action")
+	}
+	if exp.Spec.MemorySize == "" {
+		return r.handleExperimentFailure(ctx, exp, "MemorySize must be specified for pod-memory-stress action")
+	}
+
+	// Parse duration to seconds for stress-ng timeout
+	duration, err := r.parseDuration(exp.Spec.Duration)
+	if err != nil {
+		return r.handleExperimentFailure(ctx, exp, fmt.Sprintf("Invalid duration format: %v", err))
+	}
+	timeoutSeconds := int(duration.Seconds())
+
+	// Get eligible pods
+	eligiblePods, err := r.getEligiblePods(ctx, exp)
+	if err != nil {
+		return ctrl.Result{}, err
+	}
+
+	if len(eligiblePods) == 0 {
+		log.Info("No eligible pods found for selector", "selector", exp.Spec.Selector)
+		exp.Status.Message = "No eligible pods found matching selector"
+		_ = r.Status().Update(ctx, exp)
+		return ctrl.Result{RequeueAfter: time.Minute}, nil
+	}
+
+	// Handle dry-run mode
+	if exp.Spec.DryRun {
+		return r.handleDryRun(ctx, exp, eligiblePods, "pod-memory-stress")
+	}
+
+	// Shuffle the list of pods
+	rand.Shuffle(len(eligiblePods), func(i, j int) {
+		eligiblePods[i], eligiblePods[j] = eligiblePods[j], eligiblePods[i]
+	})
+
+	// Determine how many pods to stress
+	stressCount := exp.Spec.Count
+	if stressCount <= 0 {
+		stressCount = 1
+	}
+	if stressCount > len(eligiblePods) {
+		stressCount = len(eligiblePods)
+	}
+
+	// Set default memory workers if not specified
+	memoryWorkers := exp.Spec.MemoryWorkers
+	if memoryWorkers <= 0 {
+		memoryWorkers = 1
+	}
+
+	// Inject ephemeral containers to stress memory
+	stressedPods := []string{}
+	for i := 0; i < stressCount; i++ {
+		pod := eligiblePods[i]
+		log.Info("Injecting memory stress into pod", "pod", pod.Name, "namespace", pod.Namespace)
+
+		if err := r.injectMemoryStressContainer(ctx, &pod, memoryWorkers, exp.Spec.MemorySize, timeoutSeconds); err != nil {
+			log.Error(err, "Failed to inject memory stress container", "pod", pod.Name)
+			continue
+		}
+
+		stressedPods = append(stressedPods, pod.Name)
+	}
+
+	// Update status
+	now := metav1.Now()
+	exp.Status.LastRunTime = &now
+	status := statusSuccess
+	if len(stressedPods) > 0 {
+		exp.Status.Message = fmt.Sprintf("Successfully injected memory stress into %d pod(s) for %s", len(stressedPods), exp.Spec.Duration)
+	} else {
+		exp.Status.Message = "Failed to stress any pods"
+		status = statusFailure
+	}
+	if err := r.Status().Update(ctx, exp); err != nil {
+		log.Error(err, "Failed to update ChaosExperiment status")
+		return ctrl.Result{}, err
+	}
+
+	// Record metrics
+	duration = time.Since(startTime)
+	chaosmetrics.ExperimentsTotal.WithLabelValues("pod-memory-stress", exp.Spec.Namespace, status).Inc()
+	chaosmetrics.ExperimentDuration.WithLabelValues("pod-memory-stress", exp.Spec.Namespace).Observe(duration.Seconds())
+	chaosmetrics.ResourcesAffected.WithLabelValues("pod-memory-stress", exp.Spec.Namespace, exp.Name).Set(float64(len(stressedPods)))
+
+	return ctrl.Result{RequeueAfter: time.Minute}, nil
+}
+
+// injectCPUStressContainer injects an ephemeral container that stresses CPU
+func (r *ChaosExperimentReconciler) injectCPUStressContainer(ctx context.Context, pod *corev1.Pod, workers, cpuLoad, timeoutSeconds int) error {
+	log := ctrl.LoggerFrom(ctx)
+
+	// Build stress-ng command
+	stressCmd := fmt.Sprintf("stress-ng --cpu %d --cpu-load %d --timeout %ds --metrics-brief", workers, cpuLoad, timeoutSeconds)
+
+	// Create ephemeral container
+	ephemeralContainer := corev1.EphemeralContainer{
+		EphemeralContainerCommon: corev1.EphemeralContainerCommon{
+			Name:    fmt.Sprintf("cpu-stress-%d", time.Now().Unix()),
+			Image:   "ghcr.io/neogan74/stress-ng:latest",
+			Command: []string{"/bin/sh", "-c", stressCmd},
+		},
+	}
+
+	// Get the latest pod version
+	currentPod := &corev1.Pod{}
+	if err := r.Get(ctx, client.ObjectKey{Namespace: pod.Namespace, Name: pod.Name}, currentPod); err != nil {
+		return fmt.Errorf("failed to get current pod: %w", err)
+	}
+
+	// Add ephemeral container
+	currentPod.Spec.EphemeralContainers = append(currentPod.Spec.EphemeralContainers, ephemeralContainer)
+
+	// Update pod with ephemeral container
+	if err := r.Status().Update(ctx, currentPod); err != nil {
+		return fmt.Errorf("failed to inject ephemeral container: %w", err)
+	}
+
+	log.Info("Successfully injected CPU stress ephemeral container", "pod", pod.Name, "container", ephemeralContainer.Name)
+	return nil
+}
+
+// injectMemoryStressContainer injects an ephemeral container that stresses memory
+func (r *ChaosExperimentReconciler) injectMemoryStressContainer(ctx context.Context, pod *corev1.Pod, workers int, memorySize string, timeoutSeconds int) error {
+	log := ctrl.LoggerFrom(ctx)
+
+	// Build stress-ng command
+	stressCmd := fmt.Sprintf("stress-ng --vm %d --vm-bytes %s --timeout %ds --metrics-brief", workers, memorySize, timeoutSeconds)
+
+	// Create ephemeral container with resource limits
+	ephemeralContainer := corev1.EphemeralContainer{
+		EphemeralContainerCommon: corev1.EphemeralContainerCommon{
+			Name:    fmt.Sprintf("memory-stress-%d", time.Now().Unix()),
+			Image:   "ghcr.io/neogan74/stress-ng:latest",
+			Command: []string{"/bin/sh", "-c", stressCmd},
+		},
+	}
+
+	// Get the latest pod version
+	currentPod := &corev1.Pod{}
+	if err := r.Get(ctx, client.ObjectKey{Namespace: pod.Namespace, Name: pod.Name}, currentPod); err != nil {
+		return fmt.Errorf("failed to get current pod: %w", err)
+	}
+
+	// Add ephemeral container
+	currentPod.Spec.EphemeralContainers = append(currentPod.Spec.EphemeralContainers, ephemeralContainer)
+
+	// Update pod with ephemeral container
+	if err := r.Status().Update(ctx, currentPod); err != nil {
+		return fmt.Errorf("failed to inject ephemeral container: %w", err)
+	}
+
+	log.Info("Successfully injected memory stress ephemeral container", "pod", pod.Name, "container", ephemeralContainer.Name)
+	return nil
 }
 
 // SetupWithManager sets up the controller with the Manager.
