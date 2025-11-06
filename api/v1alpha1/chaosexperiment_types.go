@@ -23,6 +23,20 @@ import (
 // EDIT THIS FILE!  THIS IS SCAFFOLDING FOR YOU TO OWN!
 // NOTE: json tags are required.  Any new fields you add must have json tags for the fields to be serialized.
 
+const (
+	// ExclusionLabel is the label that protects resources from chaos experiments
+	ExclusionLabel = "chaos.gushchin.dev/exclude"
+
+	// ProductionAnnotation marks a namespace as production
+	ProductionAnnotation = "chaos.gushchin.dev/production"
+
+	// ProductionLabel alternative way to mark namespaces as production
+	ProductionLabel = "environment"
+
+	// ProductionLabelValue for environment label
+	ProductionLabelValue = "production"
+)
+
 // ChaosExperimentSpec defines the desired state of ChaosExperiment
 type ChaosExperimentSpec struct {
 	// INSERT ADDITIONAL SPEC FIELDS - desired state of cluster
@@ -32,7 +46,7 @@ type ChaosExperimentSpec struct {
 
 	// Action specifies the chaos action to perform
 	// +kubebuilder:validation:Required
-	// +kubebuilder:validation:Enum=pod-kill;pod-delay;node-drain
+	// +kubebuilder:validation:Enum=pod-kill;pod-delay;node-drain;pod-cpu-stress;pod-memory-stress
 	Action string `json:"action"`
 
 	// Namespace specifies the target namespace for chaos experiments
@@ -81,6 +95,39 @@ type ChaosExperimentSpec struct {
 	// +kubebuilder:default="30s"
 	// +optional
 	RetryDelay string `json:"retryDelay,omitempty"`
+
+	// CPULoad specifies the percentage of CPU to consume (for pod-cpu-stress)
+	// +kubebuilder:validation:Minimum=1
+	// +kubebuilder:validation:Maximum=100
+	// +optional
+	CPULoad int `json:"cpuLoad,omitempty"`
+
+	// CPUWorkers specifies the number of CPU workers (for pod-cpu-stress)
+	// +kubebuilder:validation:Minimum=1
+	// +kubebuilder:validation:Maximum=32
+	// +kubebuilder:default=1
+	// +optional
+	CPUWorkers int `json:"cpuWorkers,omitempty"`
+
+	// DryRun mode previews affected resources without executing chaos
+	// When enabled, the controller lists resources that would be affected and updates status without performing actions
+	// +kubebuilder:default=false
+	// +optional
+	DryRun bool `json:"dryRun,omitempty"`
+
+	// MaxPercentage limits the percentage of matching resources that can be affected
+	// If count would affect more than this percentage, the experiment fails validation
+	// Range: 1-100. If not specified, no percentage limit is enforced.
+	// +kubebuilder:validation:Minimum=1
+	// +kubebuilder:validation:Maximum=100
+	// +optional
+	MaxPercentage int `json:"maxPercentage,omitempty"`
+
+	// AllowProduction explicitly allows experiments in production namespaces
+	// Production namespaces are identified by annotations or labels (environment=production, env=prod)
+	// +kubebuilder:default=false
+	// +optional
+	AllowProduction bool `json:"allowProduction,omitempty"`
 }
 
 // ChaosExperimentStatus defines the observed state of ChaosExperiment.
