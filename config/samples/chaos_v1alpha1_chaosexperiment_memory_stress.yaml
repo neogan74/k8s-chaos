@@ -1,0 +1,51 @@
+apiVersion: chaos.gushchin.dev/v1alpha1
+kind: ChaosExperiment
+metadata:
+  labels:
+    app.kubernetes.io/name: k8s-chaos
+    app.kubernetes.io/managed-by: kustomize
+  name: chaosexperiment-memory-stress
+  namespace: staging
+spec:
+  # Stress memory resources in pods
+  action: "pod-memory-stress"
+
+  # Target namespace
+  namespace: "staging"
+
+  # Target web application pods
+  selector:
+    app: web-app
+    tier: frontend
+
+  # Stress 2 pods to test memory resilience
+  count: 2
+
+  # Duration of memory stress
+  # Format: combinations of numbers with units (s=seconds, m=minutes, h=hours)
+  # Examples: "30s", "5m", "1h30m"
+  duration: "5m"
+
+  # Memory size to allocate per worker
+  # Format: number followed by M (megabytes) or G (gigabytes)
+  # Examples: "256M", "512M", "1G", "2G"
+  memorySize: "512M"
+
+  # Number of memory workers (optional, default: 1)
+  # Total memory consumed = memorySize * memoryWorkers
+  # Example: 2 workers * 512M = 1GB total
+  memoryWorkers: 2
+
+  # Optional: ExperimentDuration defines how long the experiment runs before auto-stopping
+  # Uncomment to enable duration-based lifecycle (auto-stop after 15 minutes)
+  # experimentDuration: "15m"
+
+  # Optional: Retry configuration
+  # maxRetries: 3
+  # retryBackoff: "exponential"
+  # retryDelay: "30s"
+
+  # Optional: Safety features
+  # dryRun: false                # Preview affected resources without executing
+  # maxPercentage: 30            # Limit to 30% of matching pods
+  # allowProduction: false       # Require explicit approval for production namespaces

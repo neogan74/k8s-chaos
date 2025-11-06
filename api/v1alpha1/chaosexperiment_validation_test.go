@@ -128,7 +128,7 @@ func TestChaosExperimentInvalidCases(t *testing.T) {
 				Namespace: "default",
 				Selector:  map[string]string{"app": "test"},
 			},
-			errMsg: "action must be one of: pod-kill, pod-delay, node-drain",
+			errMsg: "action must be one of: pod-kill, pod-delay, node-drain, pod-cpu-stress, pod-memory-stress",
 		},
 		{
 			name: "empty action",
@@ -240,12 +240,14 @@ func validateChaosExperimentSpec(spec *ChaosExperimentSpec) error {
 		return &ValidationError{Field: "action", Message: "action is required"}
 	}
 	validActions := map[string]bool{
-		"pod-kill":   true,
-		"pod-delay":  true,
-		"node-drain": true,
+		"pod-kill":          true,
+		"pod-delay":         true,
+		"node-drain":        true,
+		"pod-cpu-stress":    true,
+		"pod-memory-stress": true,
 	}
 	if !validActions[spec.Action] {
-		return &ValidationError{Field: "action", Message: "action must be one of: pod-kill, pod-delay, node-drain"}
+		return &ValidationError{Field: "action", Message: "action must be one of: pod-kill, pod-delay, node-drain, pod-cpu-stress, pod-memory-stress"}
 	}
 
 	// Validate namespace (MinLength validation)
@@ -280,4 +282,77 @@ func validateChaosExperimentSpec(spec *ChaosExperimentSpec) error {
 	}
 
 	return nil
+}
+
+func TestValidateMemorySize(t *testing.T) {
+	tests := []struct {
+		name       string
+		memorySize string
+		wantErr    bool
+	}{
+		{
+			name:       "valid memory size in MB",
+			memorySize: "256M",
+			wantErr:    false,
+		},
+		{
+			name:       "valid memory size in GB",
+			memorySize: "1G",
+			wantErr:    false,
+		},
+		{
+			name:       "valid memory size 512M",
+			memorySize: "512M",
+			wantErr:    false,
+		},
+		{
+			name:       "valid memory size 2G",
+			memorySize: "2G",
+			wantErr:    false,
+		},
+		{
+			name:       "empty memory size - optional",
+			memorySize: "",
+			wantErr:    false,
+		},
+		{
+			name:       "invalid - lowercase m",
+			memorySize: "256m",
+			wantErr:    true,
+		},
+		{
+			name:       "invalid - lowercase g",
+			memorySize: "1g",
+			wantErr:    true,
+		},
+		{
+			name:       "invalid - no unit",
+			memorySize: "256",
+			wantErr:    true,
+		},
+		{
+			name:       "invalid - wrong unit KB",
+			memorySize: "256K",
+			wantErr:    true,
+		},
+		{
+			name:       "invalid - with space",
+			memorySize: "256 M",
+			wantErr:    true,
+		},
+		{
+			name:       "invalid - decimal number",
+			memorySize: "1.5G",
+			wantErr:    true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			err := ValidateMemorySize(tt.memorySize)
+			if (err != nil) != tt.wantErr {
+				t.Errorf("ValidateMemorySize() error = %v, wantErr %v", err, tt.wantErr)
+			}
+		})
+	}
 }

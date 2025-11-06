@@ -1,0 +1,50 @@
+apiVersion: chaos.gushchin.dev/v1alpha1
+kind: ChaosExperiment
+metadata:
+  labels:
+    app.kubernetes.io/name: k8s-chaos
+    app.kubernetes.io/managed-by: kustomize
+  name: chaosexperiment-cpu-stress
+  namespace: staging
+spec:
+  # Stress CPU resources in pods
+  action: "pod-cpu-stress"
+
+  # Target namespace
+  namespace: "staging"
+
+  # Target API service pods
+  selector:
+    app: api-service
+    tier: backend
+
+  # Stress 2 pods to test CPU resilience
+  count: 2
+
+  # Duration of CPU stress
+  # Format: combinations of numbers with units (s=seconds, m=minutes, h=hours)
+  # Examples: "30s", "5m", "1h30m"
+  duration: "5m"
+
+  # CPU load percentage (1-100)
+  # 80 means 80% CPU utilization per worker
+  cpuLoad: 80
+
+  # Number of CPU workers (optional, default: 1)
+  # Total CPU usage = cpuLoad * cpuWorkers / 100 cores
+  # Example: 2 workers at 80% = up to 1.6 cores
+  cpuWorkers: 2
+
+  # Optional: ExperimentDuration defines how long the experiment runs before auto-stopping
+  # Uncomment to enable duration-based lifecycle (auto-stop after 15 minutes)
+  # experimentDuration: "15m"
+
+  # Optional: Retry configuration
+  # maxRetries: 3
+  # retryBackoff: "exponential"
+  # retryDelay: "30s"
+
+  # Optional: Safety features
+  # dryRun: false                # Preview affected resources without executing
+  # maxPercentage: 30            # Limit to 30% of matching pods
+  # allowProduction: false       # Require explicit approval for production namespaces
