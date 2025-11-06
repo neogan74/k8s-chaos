@@ -33,20 +33,19 @@
 ### Monitoring
 - [x] **Add Prometheus Metrics**
   - [x] `chaos_experiments_total` - Total experiments run
-  - [x] `chaos_experiments_failed` - Failed experiments (via status label)
-  - [x] `chaos_resources_affected` - Total resources affected
+  - [x] `chaos_experiments_failed` - Failed experiments
+  - [x] `chaos_pods_deleted_total` - Total pods deleted
   - [x] `chaos_experiment_duration_seconds` - Experiment execution time
-  - [x] `chaos_active_experiments` - Currently running experiments
-- [ ] **Implement Structured Logging**
-  - [ ] Add correlation IDs for tracking experiments
-  - [ ] Log affected pod names and namespaces
-  - [ ] Add log levels (debug, info, warn, error)
+- [x] **Implement Structured Logging**
+  - [x] Add correlation IDs for tracking experiments
+  - [x] Log affected pod names and namespaces
+  - [x] Add log levels (debug, info, warn, error)
 
 ### Status Reporting
-- [ ] **Enhance Status Fields**
-  - [ ] Add `phase` field (Pending, Running, Completed, Failed)
+- [x] **Enhance Status Fields**
+  - [x] Add `phase` field (Pending, Running, Completed, Failed)
   - [ ] Add `affectedPods` list with pod names
-  - [ ] Add `startTime` and `endTime` timestamps
+  - [x] Add `startTime` and `endTime` timestamps
   - [ ] Add `conditions` array for detailed status
 - [ ] **Kubernetes Events** - Emit events on ChaosExperiment and affected pods
 
@@ -65,6 +64,7 @@
 - [ ] **node-taint** - Add taints to nodes
 - [ ] **node-cpu-stress** - Stress node CPU
 - [ ] **node-disk-fill** - Fill node disk space
+- [ ] **node-uncordon** - Auto-uncordon nodes after drain experiments complete
 
 ### Network Chaos
 - [ ] **network-partition** - Simulate network splits
@@ -154,6 +154,40 @@
 - [ ] **Coverage Threshold** - Fail builds if coverage drops
 - [ ] **Linting Rules** - Stricter linting configuration
 - [ ] **License Checking** - Ensure dependency license compliance
+
+## 🖥️ CLI Tool
+
+### Core Commands
+- [x] **list** - List all chaos experiments with compact/wide output
+- [x] **describe** - Show detailed experiment information
+- [x] **delete** - Delete experiments with confirmation prompt
+- [x] **stats** - Display aggregate statistics (success rates, action breakdown)
+- [x] **top** - Show top experiments by retries, age, and failures
+
+### Advanced Commands
+- [ ] **create** - Interactive wizard for creating experiments
+  - [ ] Guided prompts for action, namespace, selector
+  - [ ] Validation before creation
+  - [ ] Template selection
+- [ ] **validate** - Validate experiment YAML files
+  - [ ] Schema validation
+  - [ ] Cross-field validation
+  - [ ] Namespace and selector checks
+- [ ] **check** - Health check for cluster readiness
+  - [ ] Verify CRD installation
+  - [ ] Check RBAC permissions
+  - [ ] Test API connectivity
+- [ ] **logs** - Show experiment execution history
+  - [ ] View past executions
+  - [ ] Filter by date/status
+  - [ ] Export to file
+
+### Enhancements
+- [ ] **Watch mode** - Real-time updates with `--watch` flag
+- [ ] **Export formats** - JSON/CSV export for stats
+- [ ] **Dashboard** - Web-based UI integration
+- [ ] **Shell completion** - Bash/Zsh/Fish autocompletion
+- [ ] **Config file** - Support for `.k8s-chaos.yaml` config file
 
 ## 💡 Advanced Features
 
