@@ -125,14 +125,16 @@ spec:
                 type: integer
               memorySize:
                 description: |-
-                  MemorySize specifies the amount of memory to consume (for pod-memory-stress)
-                  Format: "256M", "1G", "512M", etc.
+                  MemorySize specifies the amount of memory to consume per worker (for pod-memory-stress)
+                  Format: number followed by M (megabytes) or G (gigabytes)
+                  Examples: "256M", "512M", "1G", "2G"
                 pattern: ^[0-9]+[MG]$
                 type: string
               memoryWorkers:
                 default: 1
-                description: MemoryWorkers specifies the number of memory workers
-                  (for pod-memory-stress)
+                description: |-
+                  MemoryWorkers specifies the number of memory workers (for pod-memory-stress)
+                  Total memory consumed = memorySize * memoryWorkers
                 maximum: 8
                 minimum: 1
                 type: integer

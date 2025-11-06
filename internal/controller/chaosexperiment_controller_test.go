@@ -188,7 +188,7 @@ var _ = Describe("ChaosExperiment Controller", func() {
 			Eventually(func() string {
 				_ = k8sClient.Get(ctx, typeNamespacedName, exp)
 				return exp.Status.Message
-			}, timeout, interval).Should(ContainSubstring("No pods found"))
+			}, timeout, interval).Should(ContainSubstring("No eligible pods found"))
 		})
 
 		It("Should handle pod-delay action", func() {
@@ -227,7 +227,7 @@ var _ = Describe("ChaosExperiment Controller", func() {
 			Eventually(func() string {
 				_ = k8sClient.Get(ctx, typeNamespacedName, exp)
 				return exp.Status.Message
-			}, timeout, interval).Should(ContainSubstring("No pods found matching selector"))
+			}, timeout, interval).Should(ContainSubstring("No eligible pods found"))
 		})
 
 		It("Should requeue after specified time", func() {
