@@ -65,6 +65,7 @@ spec:
                 - pod-delay
                 - node-drain
                 - pod-cpu-stress
+                - pod-memory-stress
                 type: string
               allowProduction:
                 default: false
@@ -121,6 +122,21 @@ spec:
                   for failed experiments
                 maximum: 10
                 minimum: 0
+                type: integer
+              memorySize:
+                description: |-
+                  MemorySize specifies the amount of memory to consume per worker (for pod-memory-stress)
+                  Format: number followed by M (megabytes) or G (gigabytes)
+                  Examples: "256M", "512M", "1G", "2G"
+                pattern: ^[0-9]+[MG]$
+                type: string
+              memoryWorkers:
+                default: 1
+                description: |-
+                  MemoryWorkers specifies the number of memory workers (for pod-memory-stress)
+                  Total memory consumed = memorySize * memoryWorkers
+                maximum: 8
+                minimum: 1
                 type: integer
               namespace:
                 description: Namespace specifies the target namespace for chaos experiments
