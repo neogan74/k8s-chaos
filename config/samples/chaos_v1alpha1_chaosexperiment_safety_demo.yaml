@@ -1,0 +1,161 @@
+apiVersion: chaos.gushchin.dev/v1alpha1
+kind: ChaosExperiment
+metadata:
+  name: chaosexperiment-safety-demo
+  namespace: chaos-testing
+spec:
+  # Action: pod-kill with ALL safety features enabled
+  action: pod-kill
+
+  # Target namespace (production namespace in this example)
+  namespace: production
+
+  # Selector: Target pods with matching labels
+  selector:
+    app: web-server
+    tier: frontend
+
+  # Number of pods to affect
+  count: 3
+
+  # ============================================
+  # SAFETY FEATURES DEMONSTRATION
+  # ============================================
+
+  # 1. DRY RUN MODE: Preview affected resources without executing chaos
+  # Set to true to see which pods would be affected without actually deleting them
+  # The status will show: "DRY RUN: Would delete N pod(s): [pod1, pod2, ...]"
+  dryRun: false  # Change to true for preview mode
+
+  # 2. MAX PERCENTAGE LIMIT: Prevent affecting too many resources
+  # Ensures count doesn't exceed N% of matching pods
+  # If count would affect more than 30% of pods, the webhook will reject the experiment
+  # Example: If 20 pods match, count=3 is 15% (allowed), count=10 is 50% (rejected)
+  maxPercentage: 30
+
+  # 3. PRODUCTION NAMESPACE PROTECTION: Require explicit approval
+  # Production namespaces require allowProduction: true
+  # Production is identified by:
+  # - Annotation: chaos.gushchin.dev/production: "true"
+  # - Label: environment: production or env: prod
+  # - Name patterns: production, prod-*, *-production, *-prod
+  allowProduction: true  # Required because namespace is "production"
+
+  # Optional: Auto-stop experiment after duration
+  experimentDuration: "10m"
+
+  # Optional: Retry configuration
+  maxRetries: 2
+  retryBackoff: exponential
+  retryDelay: "30s"
+
+---
+# Additional Examples: Different Safety Scenarios
+
+apiVersion: chaos.gushchin.dev/v1alpha1
+kind: ChaosExperiment
+metadata:
+  name: dry-run-preview
+  namespace: chaos-testing
+spec:
+  action: pod-cpu-stress
+  namespace: staging
+  selector:
+    app: api-server
+  count: 5
+  cpuLoad: 80
+  cpuWorkers: 2
+  duration: "5m"
+
+  # DRY RUN: Preview which pods would be affected
+  dryRun: true  # No actual chaos will be executed
+
+  # maxPercentage and allowProduction not needed for non-production namespace
+
+---
+apiVersion: chaos.gushchin.dev/v1alpha1
+kind: ChaosExperiment
+metadata:
+  name: percentage-limited-experiment
+  namespace: chaos-testing
+spec:
+  action: pod-delay
+  namespace: development
+  selector:
+    app: background-worker
+  count: 10
+  duration: "2m"
+
+  # MAX PERCENTAGE: Ensure we don't affect more than 20% of workers
+  maxPercentage: 20  # If 10 pods out of 50 total = 20% (allowed)
+                      # If 10 pods out of 30 total = 33% (rejected)
+
+---
+apiVersion: chaos.gushchin.dev/v1alpha1
+kind: ChaosExperiment
+metadata:
+  name: production-approved-experiment
+  namespace: chaos-testing
+spec:
+  action: node-drain
+  namespace: prod-us-west
+  selector:
+    node-role.kubernetes.io/worker: ""
+  count: 1
+
+  # PRODUCTION APPROVAL: Required for production namespace
+  allowProduction: true  # Explicit acknowledgment of production impact
+
+  # Dry run first to preview impact
+  dryRun: false  # Set to true first, then false after review
+
+---
+# EXCLUDED RESOURCES EXAMPLE
+# To exclude specific pods from chaos experiments, add the exclusion label:
+#
+# apiVersion: v1
+# kind: Pod
+# metadata:
+#   name: critical-pod
+#   labels:
+#     app: web-server
+#     chaos.gushchin.dev/exclude: "true"  # This pod will never be affected
+#
+# To exclude an entire namespace, add the annotation:
+#
+# apiVersion: v1
+# kind: Namespace
+# metadata:
+#   name: critical-namespace
+#   annotations:
+#     chaos.gushchin.dev/exclude: "true"  # All pods in this namespace are protected
+
+---
+# ALL SAFETY FEATURES COMBINED
+apiVersion: chaos.gushchin.dev/v1alpha1
+kind: ChaosExperiment
+metadata:
+  name: maximum-safety-experiment
+  namespace: chaos-testing
+spec:
+  action: pod-cpu-stress
+  namespace: production
+  selector:
+    app: payment-service
+    chaos.gushchin.dev/exclude: "false"  # Explicitly not excluded
+
+  count: 2
+  cpuLoad: 70
+  cpuWorkers: 1
+  duration: "3m"
+
+  # ALL SAFETY FEATURES ENABLED:
+  dryRun: false              # Start with true, then switch to false
+  maxPercentage: 25          # Max 25% of pods
+  allowProduction: true      # Required for production
+  experimentDuration: "10m"  # Auto-stop after 10 minutes
+
+  # Retry configuration
+  maxRetries: 3
+  retryBackoff: exponential
+  retryDelay: "30s"
