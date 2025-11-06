@@ -39,6 +39,11 @@ This directory contains sample ChaosExperiment resources to help you get started
 - Supports exponential and fixed backoff strategies
 - Configurable max retries and retry delays
 - Useful for transient failures (network issues, temporary resource constraints)
+### 7. Duration-Based Lifecycle (`chaos_v1alpha1_chaosexperiment_duration_lifecycle.yaml`)
+- Demonstrates automatic experiment termination after a specified duration
+- Shows how to use `experimentDuration` for time-limited chaos testing
+- Runs for 10 minutes then automatically completes
+- Includes retry configuration for robust testing
 
 ## Demo Deployment
 
@@ -89,10 +94,11 @@ Each sample includes comments explaining the fields:
 - **namespace**: Target namespace for pod-level chaos (not used for node-drain)
 - **selector**: Label selector to identify target pods/nodes
 - **count**: Number of pods/nodes to affect
-- **duration**: Duration for time-based actions (required for pod-delay)
-- **maxRetries**: Maximum retry attempts for failed experiments (0-10, default: 3)
-- **retryBackoff**: Backoff strategy - `"exponential"` or `"fixed"` (default: exponential)
-- **retryDelay**: Initial delay between retries (default: "30s")
+- **duration**: Duration for time-based actions (required for pod-delay, e.g., "30s")
+- **experimentDuration**: (Optional) How long the experiment should run before auto-stopping (e.g., "10m", "1h")
+- **maxRetries**: (Optional) Maximum retry attempts for failed experiments (default: 3)
+- **retryBackoff**: (Optional) Backoff strategy - "exponential" or "fixed" (default: exponential)
+- **retryDelay**: (Optional) Initial delay between retries (default: "30s")
 
 ## Safety Tips
 

@@ -64,24 +64,77 @@ spec:
                 - pod-kill
                 - pod-delay
                 - node-drain
+                - pod-cpu-stress
+                - pod-memory-stress
                 type: string
+              allowProduction:
+                default: false
+                description: |-
+                  AllowProduction explicitly allows experiments in production namespaces
+                  Production namespaces are identified by annotations or labels (environment=production, env=prod)
+                type: boolean
               count:
                 default: 1
                 description: Count specifies the number of resources to affect
                 maximum: 100
                 minimum: 1
                 type: integer
+              cpuLoad:
+                description: CPULoad specifies the percentage of CPU to consume (for
+                  pod-cpu-stress)
+                maximum: 100
+                minimum: 1
+                type: integer
+              cpuWorkers:
+                default: 1
+                description: CPUWorkers specifies the number of CPU workers (for pod-cpu-stress)
+                maximum: 32
+                minimum: 1
+                type: integer
+              dryRun:
+                default: false
+                description: |-
+                  DryRun mode previews affected resources without executing chaos
+                  When enabled, the controller lists resources that would be affected and updates status without performing actions
+                type: boolean
               duration:
                 description: Duration specifies how long the chaos action should last
                   (for pod-delay)
                 pattern: ^([0-9]+(s|m|h))+$
                 type: string
+              experimentDuration:
+                description: |-
+                  ExperimentDuration specifies how long the entire experiment should run before auto-stopping
+                  If not set, the experiment runs indefinitely until manually stopped
+                pattern: ^([0-9]+(s|m|h))+$
+                type: string
+              maxPercentage:
+                description: |-
+                  MaxPercentage limits the percentage of matching resources that can be affected
+                  If count would affect more than this percentage, the experiment fails validation
+                  Range: 1-100. If not specified, no percentage limit is enforced.
+                maximum: 100
+                minimum: 1
+                type: integer
               maxRetries:
                 default: 3
                 description: MaxRetries specifies the maximum number of retry attempts
                   for failed experiments
                 maximum: 10
                 minimum: 0
+                type: integer
+              memorySize:
+                description: |-
+                  MemorySize specifies the amount of memory to consume (for pod-memory-stress)
+                  Format: "256M", "1G", "512M", etc.
+                pattern: ^[0-9]+[MG]$
+                type: string
+              memoryWorkers:
+                default: 1
+                description: MemoryWorkers specifies the number of memory workers
+                  (for pod-memory-stress)
+                maximum: 8
+                minimum: 1
                 type: integer
               namespace:
                 description: Namespace specifies the target namespace for chaos experiments
@@ -115,6 +168,11 @@ spec:
           status:
             description: status defines the observed state of ChaosExperiment
             properties:
+              completedAt:
+                description: CompletedAt indicates when the experiment completed (either
+                  by duration or manually)
+                format: date-time
+                type: string
               lastError:
                 description: LastError stores the last error message encountered
                 type: string
@@ -140,6 +198,10 @@ spec:
               retryCount:
                 description: RetryCount tracks the current number of retry attempts
                 type: integer
+              startTime:
+                description: StartTime indicates when the experiment started running
+                format: date-time
+                type: string
             type: object
         required:
         - spec
