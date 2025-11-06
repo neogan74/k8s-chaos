@@ -22,7 +22,7 @@
 
 ### Error Handling
 - [x] **Improve Error Messages** - Add more descriptive error messages and status updates
-- [x] **Add Retry Logic** - Implement exponential backoff for transient failures
+- [x] **Add Retry Logic** - Implement exponential backoff for transient failures (completed with configurable strategies)
 - [x] **Handle Edge Cases**
   - [x] What if namespace doesn't exist? - Webhook validates this
   - [ ] What if pods are already terminating?
@@ -31,11 +31,12 @@
 ## 📊 Observability
 
 ### Monitoring
-- [x] **Add Prometheus Metrics**
+- [x] **Add Prometheus Metrics** - Completed (see docs/METRICS.md)
   - [x] `chaos_experiments_total` - Total experiments run
-  - [x] `chaos_experiments_failed` - Failed experiments
-  - [x] `chaos_pods_deleted_total` - Total pods deleted
+  - [x] `chaos_experiments_failed` - Failed experiments (via errors metric)
+  - [x] `chaos_pods_deleted_total` - Resources affected metric
   - [x] `chaos_experiment_duration_seconds` - Experiment execution time
+  - [x] `chaos_active_experiments` - Currently running experiments
 - [x] **Implement Structured Logging**
   - [x] Add correlation IDs for tracking experiments
   - [x] Log affected pod names and namespaces
@@ -45,8 +46,8 @@
 - [x] **Enhance Status Fields**
   - [x] Add `phase` field (Pending, Running, Completed, Failed)
   - [ ] Add `affectedPods` list with pod names
-  - [x] Add `startTime` and `endTime` timestamps
-  - [ ] Add `conditions` array for detailed status
+  - [x] Add `startTime` and `completedAt` timestamps
+  - [x] Add retry tracking fields (retryCount, nextRetryTime, lastError)
 - [ ] **Kubernetes Events** - Emit events on ChaosExperiment and affected pods
 
 ## 🚀 New Chaos Actions
@@ -107,7 +108,7 @@
 - [ ] **Troubleshooting Guide** - Common issues and solutions
 
 ### Developer Documentation
-- [x] **Architecture Decision Records (ADRs)**
+- [x] **Architecture Decision Records (ADRs)** - Created ADR for pod-cpu-stress implementation
 - [x] **API Documentation** - Detailed CRD field descriptions
 - [ ] **Contributing Guide** - How to add new chaos actions
 - [x] **Code Comments** - Translate Russian comments to English
