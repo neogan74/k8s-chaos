@@ -356,3 +356,136 @@ func TestValidateMemorySize(t *testing.T) {
 		})
 	}
 }
+
+func TestValidateSchedule(t *testing.T) {
+	tests := []struct {
+		name     string
+		schedule string
+		wantErr  bool
+	}{
+		{
+			name:     "valid cron - every minute",
+			schedule: "* * * * *",
+			wantErr:  false,
+		},
+		{
+			name:     "valid cron - every 30 minutes",
+			schedule: "*/30 * * * *",
+			wantErr:  false,
+		},
+		{
+			name:     "valid cron - daily at 2am",
+			schedule: "0 2 * * *",
+			wantErr:  false,
+		},
+		{
+			name:     "valid cron - hourly at minute 15",
+			schedule: "15 * * * *",
+			wantErr:  false,
+		},
+		{
+			name:     "valid cron - every 6 hours",
+			schedule: "0 */6 * * *",
+			wantErr:  false,
+		},
+		{
+			name:     "valid cron - business hours (9-5, Mon-Fri)",
+			schedule: "*/15 9-17 * * 1-5",
+			wantErr:  false,
+		},
+		{
+			name:     "valid cron - Monday at 9am",
+			schedule: "0 9 * * 1",
+			wantErr:  false,
+		},
+		{
+			name:     "valid predefined - @hourly",
+			schedule: "@hourly",
+			wantErr:  false,
+		},
+		{
+			name:     "valid predefined - @daily",
+			schedule: "@daily",
+			wantErr:  false,
+		},
+		{
+			name:     "valid predefined - @weekly",
+			schedule: "@weekly",
+			wantErr:  false,
+		},
+		{
+			name:     "valid predefined - @monthly",
+			schedule: "@monthly",
+			wantErr:  false,
+		},
+		{
+			name:     "valid predefined - @yearly",
+			schedule: "@yearly",
+			wantErr:  false,
+		},
+		{
+			name:     "empty schedule - optional field",
+			schedule: "",
+			wantErr:  false,
+		},
+		{
+			name:     "invalid - too few fields",
+			schedule: "* * * *",
+			wantErr:  true,
+		},
+		{
+			name:     "invalid - too many fields",
+			schedule: "* * * * * * *",
+			wantErr:  true,
+		},
+		{
+			name:     "invalid - wrong format",
+			schedule: "every 30 minutes",
+			wantErr:  true,
+		},
+		{
+			name:     "invalid - invalid minute value",
+			schedule: "60 * * * *",
+			wantErr:  true,
+		},
+		{
+			name:     "invalid - invalid hour value",
+			schedule: "0 24 * * *",
+			wantErr:  true,
+		},
+		{
+			name:     "invalid - invalid day of month",
+			schedule: "0 0 32 * *",
+			wantErr:  true,
+		},
+		{
+			name:     "invalid - invalid month",
+			schedule: "0 0 1 13 *",
+			wantErr:  true,
+		},
+		{
+			name:     "invalid - invalid day of week",
+			schedule: "0 0 * * 8",
+			wantErr:  true,
+		},
+		{
+			name:     "invalid - random string",
+			schedule: "not a cron schedule",
+			wantErr:  true,
+		},
+		{
+			name:     "invalid - @unknown predefined",
+			schedule: "@every-minute",
+			wantErr:  true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			err := ValidateSchedule(tt.schedule)
+			if (err != nil) != tt.wantErr {
+				t.Errorf("ValidateSchedule() error = %v, wantErr %v", err, tt.wantErr)
+			}
+		})
+	}
+}
