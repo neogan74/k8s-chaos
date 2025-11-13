@@ -19,6 +19,8 @@ package v1alpha1
 import (
 	"fmt"
 	"regexp"
+
+	"github.com/robfig/cron/v3"
 )
 
 // durationPattern matches the pattern used in the Duration field validation
@@ -71,5 +73,23 @@ func ValidateMemorySize(memorySize string) error {
 	if !memorySizePattern.MatchString(memorySize) {
 		return fmt.Errorf("memorySize must match pattern ^[0-9]+[MG]$, got: %s", memorySize)
 	}
+	return nil
+}
+
+// ValidateSchedule validates that a cron schedule expression is valid
+func ValidateSchedule(schedule string) error {
+	if schedule == "" {
+		return nil // Schedule is optional
+	}
+
+	// Create a cron parser that supports standard cron format and special strings (@hourly, @daily, etc.)
+	parser := cron.NewParser(cron.Minute | cron.Hour | cron.Dom | cron.Month | cron.Dow | cron.Descriptor)
+
+	// Try to parse the schedule
+	_, err := parser.Parse(schedule)
+	if err != nil {
+		return fmt.Errorf("invalid cron schedule %q: %w", schedule, err)
+	}
+
 	return nil
 }
