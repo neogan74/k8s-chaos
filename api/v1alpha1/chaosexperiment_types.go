@@ -143,6 +143,15 @@ type ChaosExperimentSpec struct {
 	// +kubebuilder:default=false
 	// +optional
 	AllowProduction bool `json:"allowProduction,omitempty"`
+
+	// Schedule defines a cron schedule for automatic experiment execution
+	// When set, the experiment will run automatically according to this schedule
+	// Format follows standard cron syntax: "minute hour day-of-month month day-of-week"
+	// Special strings: @hourly, @daily, @weekly, @monthly, @yearly
+	// Examples: "0 2 * * *" (daily at 2am), "*/30 * * * *" (every 30 minutes), "@hourly"
+	// If not set, the experiment runs once immediately after creation
+	// +optional
+	Schedule string `json:"schedule,omitempty"`
 }
 
 // ChaosExperimentStatus defines the observed state of ChaosExperiment.
@@ -185,6 +194,16 @@ type ChaosExperimentStatus struct {
 	// CompletedAt indicates when the experiment completed (either by duration or manually)
 	// +optional
 	CompletedAt *metav1.Time `json:"completedAt,omitempty"`
+
+	// LastScheduledTime indicates when the scheduled experiment was last triggered
+	// Only set when spec.schedule is defined
+	// +optional
+	LastScheduledTime *metav1.Time `json:"lastScheduledTime,omitempty"`
+
+	// NextScheduledTime indicates when the next scheduled run will occur
+	// Only set when spec.schedule is defined
+	// +optional
+	NextScheduledTime *metav1.Time `json:"nextScheduledTime,omitempty"`
 }
 
 // +kubebuilder:object:root=true
