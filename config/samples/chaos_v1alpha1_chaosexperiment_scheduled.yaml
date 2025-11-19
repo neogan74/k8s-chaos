@@ -1,0 +1,106 @@
+---
+# Example 1: Schedule chaos to run every 30 minutes
+apiVersion: chaos.gushchin.dev/v1alpha1
+kind: ChaosExperiment
+metadata:
+  name: scheduled-pod-kill-every-30min
+  namespace: default
+spec:
+  action: pod-kill
+  namespace: demo
+  selector:
+    app: demo
+  count: 1
+  schedule: "*/30 * * * *"  # Every 30 minutes
+---
+# Example 2: Schedule chaos to run daily at 2 AM
+apiVersion: chaos.gushchin.dev/v1alpha1
+kind: ChaosExperiment
+metadata:
+  name: scheduled-pod-kill-daily
+  namespace: default
+spec:
+  action: pod-kill
+  namespace: demo
+  selector:
+    app: demo
+  count: 2
+  schedule: "0 2 * * *"  # Daily at 2 AM
+---
+# Example 3: Using predefined schedule - hourly
+apiVersion: chaos.gushchin.dev/v1alpha1
+kind: ChaosExperiment
+metadata:
+  name: scheduled-pod-delay-hourly
+  namespace: default
+spec:
+  action: pod-delay
+  namespace: demo
+  selector:
+    app: demo
+  count: 1
+  duration: "30s"
+  schedule: "@hourly"  # Every hour
+---
+# Example 4: Weekly chaos on Monday mornings
+apiVersion: chaos.gushchin.dev/v1alpha1
+kind: ChaosExperiment
+metadata:
+  name: scheduled-node-drain-weekly
+  namespace: default
+spec:
+  action: node-drain
+  namespace: demo
+  selector:
+    app: demo
+  count: 1
+  schedule: "0 9 * * 1"  # Every Monday at 9 AM
+---
+# Example 5: CPU stress every 15 minutes during business hours
+apiVersion: chaos.gushchin.dev/v1alpha1
+kind: ChaosExperiment
+metadata:
+  name: scheduled-cpu-stress-business-hours
+  namespace: default
+spec:
+  action: pod-cpu-stress
+  namespace: demo
+  selector:
+    app: demo
+  count: 1
+  duration: "5m"
+  cpuLoad: 50
+  cpuWorkers: 2
+  schedule: "*/15 9-17 * * 1-5"  # Every 15 minutes, 9 AM to 5 PM, Monday to Friday
+---
+# Example 6: Scheduled chaos with experiment duration limit
+apiVersion: chaos.gushchin.dev/v1alpha1
+kind: ChaosExperiment
+metadata:
+  name: scheduled-pod-kill-with-duration
+  namespace: default
+spec:
+  action: pod-kill
+  namespace: demo
+  selector:
+    app: demo
+  count: 1
+  schedule: "@daily"  # Run daily
+  experimentDuration: "1h"  # But stop after 1 hour if still running
+---
+# Example 7: Scheduled chaos with retry logic
+apiVersion: chaos.gushchin.dev/v1alpha1
+kind: ChaosExperiment
+metadata:
+  name: scheduled-pod-kill-with-retry
+  namespace: default
+spec:
+  action: pod-kill
+  namespace: demo
+  selector:
+    app: demo
+  count: 2
+  schedule: "0 */6 * * *"  # Every 6 hours
+  maxRetries: 3
+  retryBackoff: exponential
+  retryDelay: "30s"
