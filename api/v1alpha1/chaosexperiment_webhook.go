@@ -183,6 +183,13 @@ func (w *ChaosExperimentWebhook) validateCrossFieldConstraints(spec *ChaosExperi
 		}
 	}
 
+	// Validate schedule format if provided
+	if spec.Schedule != "" {
+		if err := ValidateSchedule(spec.Schedule); err != nil {
+			return err
+		}
+	}
+
 	// pod-cpu-stress action requires duration and cpuLoad
 	if spec.Action == "pod-cpu-stress" {
 		if spec.Duration == "" {

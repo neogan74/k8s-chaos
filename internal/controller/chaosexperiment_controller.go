@@ -26,6 +26,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/robfig/cron/v3"
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -109,6 +110,19 @@ func (r *ChaosExperimentReconciler) Reconcile(ctx context.Context, req ctrl.Requ
 	if !shouldContinue {
 		// Experiment has completed its duration or is already completed
 		return ctrl.Result{}, nil
+	}
+
+	// Check if scheduled experiment should run now
+	shouldRun, requeueAfter, err := r.checkSchedule(ctx, &exp)
+	if err != nil {
+		log.Error(err, "Failed to check schedule")
+		exp.Status.Message = fmt.Sprintf("Schedule error: %v", err)
+		_ = r.Status().Update(ctx, &exp)
+		return ctrl.Result{}, err
+	}
+	if !shouldRun {
+		// Not time to run yet, requeue for the next scheduled time
+		return ctrl.Result{RequeueAfter: requeueAfter}, nil
 	}
 
 	switch exp.Spec.Action {
@@ -1229,6 +1243,85 @@ func (r *ChaosExperimentReconciler) injectMemoryStressContainer(ctx context.Cont
 
 	log.Info("Successfully injected memory stress ephemeral container", "pod", pod.Name, "container", ephemeralContainer.Name)
 	return nil
+}
+
+// checkSchedule determines if a scheduled experiment should run now
+// Returns: shouldRun (bool), requeueAfter (time.Duration), error
+func (r *ChaosExperimentReconciler) checkSchedule(ctx context.Context, exp *chaosv1alpha1.ChaosExperiment) (bool, time.Duration, error) {
+	log := ctrl.LoggerFrom(ctx)
+
+	// If no schedule is defined, always run (immediate execution)
+	if exp.Spec.Schedule == "" {
+		return true, time.Minute, nil // Requeue after 1 minute for continuous experiments
+	}
+
+	// Parse the cron schedule
+	parser := cron.NewParser(cron.Minute | cron.Hour | cron.Dom | cron.Month | cron.Dow | cron.Descriptor)
+	schedule, err := parser.Parse(exp.Spec.Schedule)
+	if err != nil {
+		log.Error(err, "Failed to parse cron schedule", "schedule", exp.Spec.Schedule)
+		return false, 0, fmt.Errorf("invalid schedule: %w", err)
+	}
+
+	now := time.Now()
+
+	// Calculate when the experiment should next run
+	nextScheduledTime := schedule.Next(now)
+
+	// Determine the reference time for checking if we should run
+	// Use LastScheduledTime if set, otherwise use StartTime or creation time
+	var lastScheduledTime time.Time
+	if exp.Status.LastScheduledTime != nil {
+		lastScheduledTime = exp.Status.LastScheduledTime.Time
+	} else if exp.Status.StartTime != nil {
+		lastScheduledTime = exp.Status.StartTime.Time
+	} else {
+		lastScheduledTime = exp.CreationTimestamp.Time
+	}
+
+	// Get the last time the schedule should have fired
+	lastScheduleShouldHaveFired := schedule.Next(lastScheduledTime.Add(-time.Second))
+
+	// Check if we've missed a scheduled run
+	// We should run if: the last time the schedule should have fired is in the past and
+	// we haven't run since then
+	shouldRun := !lastScheduleShouldHaveFired.After(now) && lastScheduleShouldHaveFired.After(lastScheduledTime)
+
+	// Update NextScheduledTime in status
+	nextTime := metav1.NewTime(nextScheduledTime)
+	if exp.Status.NextScheduledTime == nil || !exp.Status.NextScheduledTime.Equal(&nextTime) {
+		exp.Status.NextScheduledTime = &nextTime
+		if err := r.Status().Update(ctx, exp); err != nil {
+			log.Error(err, "Failed to update next scheduled time")
+			// Don't fail the reconciliation for this
+		}
+	}
+
+	if shouldRun {
+		log.Info("Scheduled experiment should run now",
+			"schedule", exp.Spec.Schedule,
+			"lastScheduledTime", lastScheduledTime,
+			"nextScheduledTime", nextScheduledTime)
+
+		// Update LastScheduledTime
+		nowTime := metav1.Now()
+		exp.Status.LastScheduledTime = &nowTime
+		if err := r.Status().Update(ctx, exp); err != nil {
+			log.Error(err, "Failed to update last scheduled time")
+			return false, 0, err
+		}
+
+		return true, 0, nil
+	}
+
+	// Calculate how long until the next scheduled run
+	untilNext := time.Until(nextScheduledTime)
+	log.Info("Scheduled experiment not due yet, requeuing",
+		"schedule", exp.Spec.Schedule,
+		"nextRun", nextScheduledTime,
+		"requeueAfter", untilNext)
+
+	return false, untilNext, nil
 }
 
 // SetupWithManager sets up the controller with the Manager.

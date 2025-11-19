@@ -156,6 +156,15 @@ spec:
                   (e.g., "30s", "1m")
                 pattern: ^([0-9]+(s|m|h))+$
                 type: string
+              schedule:
+                description: |-
+                  Schedule defines a cron schedule for automatic experiment execution
+                  When set, the experiment will run automatically according to this schedule
+                  Format follows standard cron syntax: "minute hour day-of-month month day-of-week"
+                  Special strings: @hourly, @daily, @weekly, @monthly, @yearly
+                  Examples: "0 2 * * *" (daily at 2am), "*/30 * * * *" (every 30 minutes), "@hourly"
+                  If not set, the experiment runs once immediately after creation
+                type: string
               selector:
                 additionalProperties:
                   type: string
@@ -182,11 +191,23 @@ spec:
                 description: LastRunTime indicates when the experiment was last executed
                 format: date-time
                 type: string
+              lastScheduledTime:
+                description: |-
+                  LastScheduledTime indicates when the scheduled experiment was last triggered
+                  Only set when spec.schedule is defined
+                format: date-time
+                type: string
               message:
                 description: Message provides human-readable status information
                 type: string
               nextRetryTime:
                 description: NextRetryTime indicates when the next retry will be attempted
+                format: date-time
+                type: string
+              nextScheduledTime:
+                description: |-
+                  NextScheduledTime indicates when the next scheduled run will occur
+                  Only set when spec.schedule is defined
                 format: date-time
                 type: string
               phase:
