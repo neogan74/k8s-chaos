@@ -66,6 +66,7 @@ spec:
                 - node-drain
                 - pod-cpu-stress
                 - pod-memory-stress
+                - pod-failure
                 type: string
               allowProduction:
                 default: false
