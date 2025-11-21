@@ -1,0 +1,99 @@
+---
+# Example 1: Basic pod-failure to crash and restart pods
+apiVersion: chaos.gushchin.dev/v1alpha1
+kind: ChaosExperiment
+metadata:
+  name: pod-failure-basic
+  namespace: default
+spec:
+  action: pod-failure
+  namespace: demo
+  selector:
+    app: demo
+  count: 1
+---
+# Example 2: Pod-failure with dry-run to preview impact
+apiVersion: chaos.gushchin.dev/v1alpha1
+kind: ChaosExperiment
+metadata:
+  name: pod-failure-dryrun
+  namespace: default
+spec:
+  action: pod-failure
+  namespace: demo
+  selector:
+    app: demo
+  count: 2
+  dryRun: true
+---
+# Example 3: Pod-failure with safety features
+apiVersion: chaos.gushchin.dev/v1alpha1
+kind: ChaosExperiment
+metadata:
+  name: pod-failure-with-safety
+  namespace: default
+spec:
+  action: pod-failure
+  namespace: demo
+  selector:
+    app: demo
+  count: 3
+  maxPercentage: 30  # Don't affect more than 30% of pods
+---
+# Example 4: Pod-failure with experiment duration
+apiVersion: chaos.gushchin.dev/v1alpha1
+kind: ChaosExperiment
+metadata:
+  name: pod-failure-with-duration
+  namespace: default
+spec:
+  action: pod-failure
+  namespace: demo
+  selector:
+    app: demo
+  count: 1
+  experimentDuration: "5m"  # Stop after 5 minutes
+---
+# Example 5: Pod-failure with retry logic
+apiVersion: chaos.gushchin.dev/v1alpha1
+kind: ChaosExperiment
+metadata:
+  name: pod-failure-with-retry
+  namespace: default
+spec:
+  action: pod-failure
+  namespace: demo
+  selector:
+    app: demo
+  count: 2
+  maxRetries: 3
+  retryBackoff: exponential
+  retryDelay: "30s"
+---
+# Example 6: Scheduled pod-failure to test resilience regularly
+apiVersion: chaos.gushchin.dev/v1alpha1
+kind: ChaosExperiment
+metadata:
+  name: pod-failure-scheduled
+  namespace: default
+spec:
+  action: pod-failure
+  namespace: demo
+  selector:
+    app: demo
+  count: 1
+  schedule: "@hourly"  # Test resilience every hour
+---
+# Example 7: Pod-failure avoiding production (will fail without allowProduction)
+apiVersion: chaos.gushchin.dev/v1alpha1
+kind: ChaosExperiment
+metadata:
+  name: pod-failure-production-protected
+  namespace: default
+spec:
+  action: pod-failure
+  namespace: production
+  selector:
+    app: api
+  count: 1
+  allowProduction: true  # Required for production namespaces
