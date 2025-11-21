@@ -136,6 +136,8 @@ func (r *ChaosExperimentReconciler) Reconcile(ctx context.Context, req ctrl.Requ
 		return r.handlePodCPUStress(ctx, &exp)
 	case "pod-memory-stress":
 		return r.handlePodMemoryStress(ctx, &exp)
+	case "pod-failure":
+		return r.handlePodFailure(ctx, &exp)
 	default:
 		log.Info("Unsupported action", "action", exp.Spec.Action)
 		exp.Status.Message = "Error: Unsupported action: " + exp.Spec.Action
@@ -1242,6 +1244,119 @@ func (r *ChaosExperimentReconciler) injectMemoryStressContainer(ctx context.Cont
 	}
 
 	log.Info("Successfully injected memory stress ephemeral container", "pod", pod.Name, "container", ephemeralContainer.Name)
+	return nil
+}
+
+// handlePodFailure kills the main process in pods to cause container crashes and restarts
+func (r *ChaosExperimentReconciler) handlePodFailure(ctx context.Context, exp *chaosv1alpha1.ChaosExperiment) (ctrl.Result, error) {
+	log := ctrl.LoggerFrom(ctx)
+	startTime := time.Now()
+
+	// Track active experiments
+	chaosmetrics.ActiveExperiments.WithLabelValues("pod-failure").Inc()
+	defer chaosmetrics.ActiveExperiments.WithLabelValues("pod-failure").Dec()
+
+	// Get eligible pods (includes namespace validation and exclusion filtering)
+	eligiblePods, err := r.getEligiblePods(ctx, exp)
+	if err != nil {
+		return r.handleExperimentFailure(ctx, exp, fmt.Sprintf("Failed to get eligible pods: %v", err))
+	}
+
+	if len(eligiblePods) == 0 {
+		log.Info("No eligible pods found")
+		exp.Status.Message = "No eligible pods found matching selector (or all are excluded)"
+		_ = r.Status().Update(ctx, exp)
+		return ctrl.Result{RequeueAfter: time.Minute}, nil
+	}
+
+	// Handle dry-run mode
+	if exp.Spec.DryRun {
+		return r.handleDryRun(ctx, exp, eligiblePods, "cause container failure in")
+	}
+
+	// Shuffle the list of eligible pods
+	rand.Shuffle(len(eligiblePods), func(i, j int) {
+		eligiblePods[i], eligiblePods[j] = eligiblePods[j], eligiblePods[i]
+	})
+
+	// Determine how many pods to affect
+	affectCount := exp.Spec.Count
+	if affectCount <= 0 {
+		affectCount = 1 // Default to 1 if not specified or invalid
+	}
+	if affectCount > len(eligiblePods) {
+		affectCount = len(eligiblePods)
+	}
+
+	// Kill main process in selected pods to cause container crashes
+	failedPods := []string{}
+	for i := 0; i < affectCount; i++ {
+		pod := eligiblePods[i]
+		log.Info("Causing container failure in pod", "pod", pod.Name, "namespace", pod.Namespace)
+
+		// Kill the main process (PID 1) in the first container
+		if err := r.killContainerProcess(ctx, &pod); err != nil {
+			log.Error(err, "Failed to kill container process", "pod", pod.Name)
+			chaosmetrics.ExperimentErrors.WithLabelValues("pod-failure", exp.Spec.Namespace).Inc()
+		} else {
+			failedPods = append(failedPods, pod.Name)
+		}
+	}
+
+	// Check if we failed any pods
+	if len(failedPods) == 0 {
+		return r.handleExperimentFailure(ctx, exp, "Failed to cause container failure in any pods")
+	}
+
+	// Update status - success
+	now := metav1.Now()
+	exp.Status.LastRunTime = &now
+	exp.Status.Message = fmt.Sprintf("Successfully caused container failure in %d pod(s)", len(failedPods))
+
+	// Reset retry counters on success
+	if err := r.handleExperimentSuccess(ctx, exp); err != nil {
+		log.Error(err, "Failed to update ChaosExperiment status")
+		return ctrl.Result{}, err
+	}
+
+	// Record metrics
+	duration := time.Since(startTime).Seconds()
+	chaosmetrics.ExperimentsTotal.WithLabelValues("pod-failure", exp.Spec.Namespace, statusSuccess).Inc()
+	chaosmetrics.ExperimentDuration.WithLabelValues("pod-failure", exp.Spec.Namespace).Observe(duration)
+	chaosmetrics.ResourcesAffected.WithLabelValues("pod-failure", exp.Spec.Namespace, exp.Name).Set(float64(len(failedPods)))
+
+	return ctrl.Result{RequeueAfter: time.Minute}, nil
+}
+
+// killContainerProcess kills the main process (PID 1) in the pod's first container to cause a crash
+func (r *ChaosExperimentReconciler) killContainerProcess(ctx context.Context, pod *corev1.Pod) error {
+	log := ctrl.LoggerFrom(ctx)
+
+	// Find the first container
+	if len(pod.Spec.Containers) == 0 {
+		return fmt.Errorf("no containers found in pod")
+	}
+	containerName := pod.Spec.Containers[0].Name
+
+	// Kill PID 1 (main process) to cause container crash
+	command := []string{"kill", "-9", "1"}
+
+	stdout, stderr, err := r.execInPod(ctx, pod.Namespace, pod.Name, containerName, command)
+	if err != nil {
+		log.Error(err, "Failed to kill main process in container",
+			"pod", pod.Name,
+			"container", containerName,
+			"stdout", stdout,
+			"stderr", stderr)
+		return err
+	}
+
+	log.Info("Successfully killed main process in container",
+		"pod", pod.Name,
+		"container", containerName,
+		"stdout", stdout,
+		"stderr", stderr)
+
 	return nil
 }
 
