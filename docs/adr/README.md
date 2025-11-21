@@ -18,6 +18,10 @@ An Architecture Decision Record (ADR) is a document that captures an important a
 |-----|-------|--------|------|
 | [0000](0000-adr-template.md) | ADR Template | Template | - |
 | [0001](0001-crd-validation-strategy.md) | CRD Validation Strategy | Accepted | 2025-10-10 |
+| [0001](0001-pod-cpu-stress-implementation.md) | Pod CPU Stress Implementation | Accepted | 2025-10-28 |
+| [0002](0002-safety-features-implementation.md) | Safety Features Implementation | Accepted | 2025-11-04 |
+| [0003](0003-pod-memory-stress-implementation.md) | Pod Memory Stress Implementation | Accepted | 2025-11-07 |
+| [0004](0004-pod-failure-implementation.md) | Pod Failure Implementation | Accepted | 2025-11-19 |
 
 ## ADR Lifecycle
 
