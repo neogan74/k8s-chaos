@@ -6,7 +6,7 @@
 
 ## Context
 
-Following the successful implementation of pod-cpu-stress (ADR 0001), we need to complete the resource stress testing suite by adding memory stress capabilities. This enables testing application behavior under memory pressure, OOMKiller scenarios, and memory leak simulations.
+Following the successful implementation of pod-cpu-stress (ADR 0005), we need to complete the resource stress testing suite by adding memory stress capabilities. This enables testing application behavior under memory pressure, OOMKiller scenarios, and memory leak simulations.
 
 ## Decision
 
@@ -198,7 +198,7 @@ Where `totalMemory = memorySize * memoryWorkers`
 
 ## References
 
-- [ADR 0001: pod-cpu-stress-implementation](./0001-pod-cpu-stress-implementation.md)
+- [ADR 0005: pod-cpu-stress-implementation](./0005-pod-cpu-stress-implementation.md)
 - [stress-ng memory stressors](https://wiki.ubuntu.com/Kernel/Reference/stress-ng)
 - [Kubernetes Resource Management](https://kubernetes.io/docs/concepts/configuration/manage-resources-containers/)
 - [Ephemeral Containers](https://kubernetes.io/docs/concepts/workloads/pods/ephemeral-containers/)

@@ -1,4 +1,4 @@
-# ADR 0001: Pod CPU Stress Implementation
+# ADR 0005: Pod CPU Stress Implementation
 
 **Status**: Accepted
 **Date**: 2025-10-28
