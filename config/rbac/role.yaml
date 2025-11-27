@@ -48,6 +48,16 @@ rules:
 - apiGroups:
   - chaos.gushchin.dev
   resources:
+  - chaosexperimenthistories
+  verbs:
+  - create
+  - delete
+  - get
+  - list
+  - watch
+- apiGroups:
+  - chaos.gushchin.dev
+  resources:
   - chaosexperiments
   verbs:
   - create
