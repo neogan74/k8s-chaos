@@ -1,0 +1,358 @@
+---
+apiVersion: apiextensions.k8s.io/v1
+kind: CustomResourceDefinition
+metadata:
+  annotations:
+    controller-gen.kubebuilder.io/version: v0.18.0
+  name: chaosexperimenthistories.chaos.gushchin.dev
+spec:
+  group: chaos.gushchin.dev
+  names:
+    kind: ChaosExperimentHistory
+    listKind: ChaosExperimentHistoryList
+    plural: chaosexperimenthistories
+    shortNames:
+    - cehist
+    - chaoshist
+    singular: chaosexperimenthistory
+  scope: Namespaced
+  versions:
+  - additionalPrinterColumns:
+    - jsonPath: .spec.experimentRef.name
+      name: Experiment
+      type: string
+    - jsonPath: .spec.experimentSpec.action
+      name: Action
+      type: string
+    - jsonPath: .spec.execution.status
+      name: Status
+      type: string
+    - jsonPath: .spec.execution.duration
+      name: Duration
+      type: string
+    - jsonPath: .spec.affectedResources[*]
+      name: Resources
+      priority: 1
+      type: integer
+    - jsonPath: .metadata.creationTimestamp
+      name: Age
+      type: date
+    name: v1alpha1
+    schema:
+      openAPIV3Schema:
+        description: |-
+          ChaosExperimentHistory is the Schema for the chaosexperimenthistories API
+          It provides an immutable audit log of chaos experiment executions
+        properties:
+          apiVersion:
+            description: |-
+              APIVersion defines the versioned schema of this representation of an object.
+              Servers should convert recognized schemas to the latest internal value, and
+              may reject unrecognized values.
+              More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#resources
+            type: string
+          kind:
+            description: |-
+              Kind is a string value representing the REST resource this object represents.
+              Servers may infer this from the endpoint the client submits requests to.
+              Cannot be updated.
+              In CamelCase.
+              More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#types-kinds
+            type: string
+          metadata:
+            type: object
+          spec:
+            description: ChaosExperimentHistorySpec defines the historical record
+              of a chaos experiment execution
+            properties:
+              affectedResources:
+                description: AffectedResources lists all resources that were affected
+                  by this execution
+                items:
+                  description: ResourceReference identifies a Kubernetes resource
+                    affected by an experiment
+                  properties:
+                    action:
+                      description: Action performed on the resource (e.g., deleted,
+                        delayed, stressed)
+                      minLength: 1
+                      type: string
+                    details:
+                      description: Details provides additional information about the
+                        action
+                      type: string
+                    kind:
+                      description: Kind of the resource (e.g., Pod, Node)
+                      minLength: 1
+                      type: string
+                    name:
+                      description: Name of the resource
+                      minLength: 1
+                      type: string
+                    namespace:
+                      description: Namespace of the resource (empty for cluster-scoped
+                        resources)
+                      type: string
+                  required:
+                  - action
+                  - kind
+                  - name
+                  type: object
+                type: array
+              audit:
+                description: Audit contains metadata for compliance and auditing
+                properties:
+                  creationTimestamp:
+                    description: CreationTimestamp is when the history record was
+                      created
+                    format: date-time
+                    type: string
+                  dryRun:
+                    description: DryRun indicates if this was a dry-run execution
+                    type: boolean
+                  initiatedBy:
+                    description: |-
+                      InitiatedBy identifies who or what triggered the experiment
+                      Typically a ServiceAccount for scheduled experiments or User for manual triggers
+                    type: string
+                  retryCount:
+                    description: RetryCount indicates which retry attempt this was
+                      (0 for first attempt)
+                    type: integer
+                  scheduledExecution:
+                    description: ScheduledExecution indicates if this was triggered
+                      by a schedule (true) or manual (false)
+                    type: boolean
+                type: object
+              error:
+                description: Error contains error information if the execution failed
+                properties:
+                  code:
+                    description: Code is an optional error code
+                    type: string
+                  failureReason:
+                    description: FailureReason categorizes the type of failure
+                    enum:
+                    - ValidationError
+                    - ResourceNotFound
+                    - PermissionDenied
+                    - ExecutionError
+                    - Timeout
+                    - Unknown
+                    type: string
+                  lastError:
+                    description: LastError is the last error encountered during retries
+                    type: string
+                  message:
+                    description: Message is the error message
+                    type: string
+                type: object
+              execution:
+                description: Execution contains details about the experiment execution
+                properties:
+                  duration:
+                    description: Duration is the total execution time (e.g., "3.5s",
+                      "2m")
+                    type: string
+                  endTime:
+                    description: EndTime is when the experiment execution completed
+                    format: date-time
+                    type: string
+                  message:
+                    description: Message provides human-readable status information
+                    type: string
+                  phase:
+                    description: Phase is the experiment phase during execution
+                    enum:
+                    - Pending
+                    - Running
+                    - Completed
+                    - Failed
+                    type: string
+                  startTime:
+                    description: StartTime is when the experiment execution began
+                    format: date-time
+                    type: string
+                  status:
+                    description: Status indicates the outcome of the execution
+                    enum:
+                    - success
+                    - failure
+                    - partial
+                    - cancelled
+                    type: string
+                required:
+                - startTime
+                - status
+                type: object
+              experimentRef:
+                description: ExperimentRef references the original ChaosExperiment
+                  resource
+                properties:
+                  name:
+                    description: Name of the referenced object
+                    minLength: 1
+                    type: string
+                  namespace:
+                    description: Namespace of the referenced object
+                    minLength: 1
+                    type: string
+                  uid:
+                    description: UID of the referenced object
+                    type: string
+                required:
+                - name
+                - namespace
+                type: object
+              experimentSpec:
+                description: ExperimentSpec captures the experiment configuration
+                  at execution time
+                properties:
+                  action:
+                    description: Action specifies the chaos action to perform
+                    enum:
+                    - pod-kill
+                    - pod-delay
+                    - node-drain
+                    - pod-cpu-stress
+                    - pod-memory-stress
+                    - pod-failure
+                    type: string
+                  allowProduction:
+                    default: false
+                    description: |-
+                      AllowProduction explicitly allows experiments in production namespaces
+                      Production namespaces are identified by annotations or labels (environment=production, env=prod)
+                    type: boolean
+                  count:
+                    default: 1
+                    description: Count specifies the number of resources to affect
+                    maximum: 100
+                    minimum: 1
+                    type: integer
+                  cpuLoad:
+                    description: CPULoad specifies the percentage of CPU to consume
+                      (for pod-cpu-stress)
+                    maximum: 100
+                    minimum: 1
+                    type: integer
+                  cpuWorkers:
+                    default: 1
+                    description: CPUWorkers specifies the number of CPU workers (for
+                      pod-cpu-stress)
+                    maximum: 32
+                    minimum: 1
+                    type: integer
+                  dryRun:
+                    default: false
+                    description: |-
+                      DryRun mode previews affected resources without executing chaos
+                      When enabled, the controller lists resources that would be affected and updates status without performing actions
+                    type: boolean
+                  duration:
+                    description: Duration specifies how long the chaos action should
+                      last (for pod-delay)
+                    pattern: ^([0-9]+(s|m|h))+$
+                    type: string
+                  experimentDuration:
+                    description: |-
+                      ExperimentDuration specifies how long the entire experiment should run before auto-stopping
+                      If not set, the experiment runs indefinitely until manually stopped
+                    pattern: ^([0-9]+(s|m|h))+$
+                    type: string
+                  maxPercentage:
+                    description: |-
+                      MaxPercentage limits the percentage of matching resources that can be affected
+                      If count would affect more than this percentage, the experiment fails validation
+                      Range: 1-100. If not specified, no percentage limit is enforced.
+                    maximum: 100
+                    minimum: 1
+                    type: integer
+                  maxRetries:
+                    default: 3
+                    description: MaxRetries specifies the maximum number of retry
+                      attempts for failed experiments
+                    maximum: 10
+                    minimum: 0
+                    type: integer
+                  memorySize:
+                    description: |-
+                      MemorySize specifies the amount of memory to consume per worker (for pod-memory-stress)
+                      Format: number followed by M (megabytes) or G (gigabytes)
+                      Examples: "256M", "512M", "1G", "2G"
+                    pattern: ^[0-9]+[MG]$
+                    type: string
+                  memoryWorkers:
+                    default: 1
+                    description: |-
+                      MemoryWorkers specifies the number of memory workers (for pod-memory-stress)
+                      Total memory consumed = memorySize * memoryWorkers
+                    maximum: 8
+                    minimum: 1
+                    type: integer
+                  namespace:
+                    description: Namespace specifies the target namespace for chaos
+                      experiments
+                    minLength: 1
+                    type: string
+                  retryBackoff:
+                    default: exponential
+                    description: RetryBackoff specifies the backoff strategy for retries
+                      (exponential or fixed)
+                    enum:
+                    - exponential
+                    - fixed
+                    type: string
+                  retryDelay:
+                    default: 30s
+                    description: RetryDelay specifies the initial delay between retries
+                      (e.g., "30s", "1m")
+                    pattern: ^([0-9]+(s|m|h))+$
+                    type: string
+                  schedule:
+                    description: |-
+                      Schedule defines a cron schedule for automatic experiment execution
+                      When set, the experiment will run automatically according to this schedule
+                      Format follows standard cron syntax: "minute hour day-of-month month day-of-week"
+                      Special strings: @hourly, @daily, @weekly, @monthly, @yearly
+                      Examples: "0 2 * * *" (daily at 2am), "*/30 * * * *" (every 30 minutes), "@hourly"
+                      If not set, the experiment runs once immediately after creation
+                    type: string
+                  selector:
+                    additionalProperties:
+                      type: string
+                    description: Selector specifies the label selector for target
+                      resources
+                    minProperties: 1
+                    type: object
+                required:
+                - action
+                - namespace
+                - selector
+                type: object
+            required:
+            - audit
+            - execution
+            - experimentRef
+            - experimentSpec
+            type: object
+          status:
+            description: |-
+              ChaosExperimentHistoryStatus defines the observed state of ChaosExperimentHistory
+              Note: History records are immutable, so status is minimal
+            properties:
+              archiveLocation:
+                description: ArchiveLocation is the external storage location if archived
+                type: string
+              archived:
+                description: Archived indicates if this record has been archived to
+                  external storage
+                type: boolean
+            type: object
+        required:
+        - spec
+        type: object
+    served: true
+    storage: true
+    subresources:
+      status: {}

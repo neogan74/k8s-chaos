@@ -63,14 +63,16 @@ const (
 // ChaosExperimentReconciler reconciles a ChaosExperiment object
 type ChaosExperimentReconciler struct {
 	client.Client
-	Scheme    *runtime.Scheme
-	Config    *rest.Config
-	Clientset *kubernetes.Clientset
+	Scheme        *runtime.Scheme
+	Config        *rest.Config
+	Clientset     *kubernetes.Clientset
+	HistoryConfig HistoryConfig
 }
 
 // +kubebuilder:rbac:groups=chaos.gushchin.dev,resources=chaosexperiments,verbs=get;list;watch;create;update;patch;delete
 // +kubebuilder:rbac:groups=chaos.gushchin.dev,resources=chaosexperiments/status,verbs=get;update;patch
 // +kubebuilder:rbac:groups=chaos.gushchin.dev,resources=chaosexperiments/finalizers,verbs=update
+// +kubebuilder:rbac:groups=chaos.gushchin.dev,resources=chaosexperimenthistories,verbs=create;get;list;watch;delete
 // +kubebuilder:rbac:groups="",resources=pods,verbs=get;list;delete;patch
 // +kubebuilder:rbac:groups="",resources=pods/exec,verbs=create
 // +kubebuilder:rbac:groups="",resources=pods/ephemeralcontainers,verbs=get;update;patch
@@ -219,6 +221,13 @@ func (r *ChaosExperimentReconciler) handlePodKill(ctx context.Context, exp *chao
 	chaosmetrics.ExperimentDuration.WithLabelValues("pod-kill", exp.Spec.Namespace).Observe(duration)
 	chaosmetrics.ResourcesAffected.WithLabelValues("pod-kill", exp.Spec.Namespace, exp.Name).Set(float64(len(killedPods)))
 
+	// Create history record
+	affectedResources := buildResourceReferences("deleted", exp.Spec.Namespace, killedPods, "Pod")
+	if err := r.createHistoryRecord(ctx, exp, statusSuccess, affectedResources, startTime, nil); err != nil {
+		log.Error(err, "Failed to create history record")
+		// Don't fail the experiment if history recording fails
+	}
+
 	return ctrl.Result{RequeueAfter: time.Minute}, nil
 }
 
@@ -324,6 +333,20 @@ func (r *ChaosExperimentReconciler) handlePodDelay(ctx context.Context, exp *cha
 	chaosmetrics.ExperimentsTotal.WithLabelValues("pod-delay", exp.Spec.Namespace, status).Inc()
 	chaosmetrics.ExperimentDuration.WithLabelValues("pod-delay", exp.Spec.Namespace).Observe(duration)
 	chaosmetrics.ResourcesAffected.WithLabelValues("pod-delay", exp.Spec.Namespace, exp.Name).Set(float64(len(affectedPods)))
+
+	// Create history record
+	affectedResources := buildResourceReferences(fmt.Sprintf("network-delay-%dms", delayMs), exp.Spec.Namespace, affectedPods, "Pod")
+	var errorDetails *chaosv1alpha1.ErrorDetails
+	if status == statusFailure {
+		errorDetails = &chaosv1alpha1.ErrorDetails{
+			Message:       exp.Status.Message,
+			FailureReason: "ExecutionError",
+		}
+	}
+	if err := r.createHistoryRecord(ctx, exp, status, affectedResources, startTime, errorDetails); err != nil {
+		log.Error(err, "Failed to create history record")
+		// Don't fail the experiment if history recording fails
+	}
 
 	return ctrl.Result{RequeueAfter: time.Minute}, nil
 }
@@ -440,6 +463,20 @@ func (r *ChaosExperimentReconciler) handlePodCPUStress(ctx context.Context, exp 
 	chaosmetrics.ExperimentsTotal.WithLabelValues("pod-cpu-stress", exp.Spec.Namespace, status).Inc()
 	chaosmetrics.ExperimentDuration.WithLabelValues("pod-cpu-stress", exp.Spec.Namespace).Observe(duration)
 	chaosmetrics.ResourcesAffected.WithLabelValues("pod-cpu-stress", exp.Spec.Namespace, exp.Name).Set(float64(len(affectedPods)))
+
+	// Create history record
+	affectedResources := buildResourceReferences(fmt.Sprintf("cpu-stress-%d%%", exp.Spec.CPULoad), exp.Spec.Namespace, affectedPods, "Pod")
+	var errorDetails *chaosv1alpha1.ErrorDetails
+	if status == statusFailure {
+		errorDetails = &chaosv1alpha1.ErrorDetails{
+			Message:       exp.Status.Message,
+			FailureReason: "ExecutionError",
+		}
+	}
+	if err := r.createHistoryRecord(ctx, exp, status, affectedResources, startTime, errorDetails); err != nil {
+		log.Error(err, "Failed to create history record")
+		// Don't fail the experiment if history recording fails
+	}
 
 	return ctrl.Result{RequeueAfter: time.Minute}, nil
 }
@@ -722,6 +759,20 @@ func (r *ChaosExperimentReconciler) handleNodeDrain(ctx context.Context, exp *ch
 	chaosmetrics.ExperimentsTotal.WithLabelValues("node-drain", exp.Spec.Namespace, status).Inc()
 	chaosmetrics.ExperimentDuration.WithLabelValues("node-drain", exp.Spec.Namespace).Observe(duration)
 	chaosmetrics.ResourcesAffected.WithLabelValues("node-drain", exp.Spec.Namespace, exp.Name).Set(float64(len(drainedNodes)))
+
+	// Create history record
+	affectedResources := buildResourceReferences("drained", "", drainedNodes, "Node")
+	var errorDetails *chaosv1alpha1.ErrorDetails
+	if status == statusFailure {
+		errorDetails = &chaosv1alpha1.ErrorDetails{
+			Message:       exp.Status.Message,
+			FailureReason: "ExecutionError",
+		}
+	}
+	if err := r.createHistoryRecord(ctx, exp, status, affectedResources, startTime, errorDetails); err != nil {
+		log.Error(err, "Failed to create history record")
+		// Don't fail the experiment if history recording fails
+	}
 
 	return ctrl.Result{RequeueAfter: time.Minute}, nil
 }
@@ -1210,6 +1261,20 @@ func (r *ChaosExperimentReconciler) handlePodMemoryStress(ctx context.Context, e
 	chaosmetrics.ExperimentDuration.WithLabelValues("pod-memory-stress", exp.Spec.Namespace).Observe(duration.Seconds())
 	chaosmetrics.ResourcesAffected.WithLabelValues("pod-memory-stress", exp.Spec.Namespace, exp.Name).Set(float64(len(stressedPods)))
 
+	// Create history record
+	affectedResources := buildResourceReferences("memory-stress", exp.Spec.Namespace, stressedPods, "Pod")
+	var errorDetails *chaosv1alpha1.ErrorDetails
+	if status == statusFailure {
+		errorDetails = &chaosv1alpha1.ErrorDetails{
+			Message:       exp.Status.Message,
+			FailureReason: "ExecutionError",
+		}
+	}
+	if err := r.createHistoryRecord(ctx, exp, status, affectedResources, startTime, errorDetails); err != nil {
+		log.Error(err, "Failed to create history record")
+		// Don't fail the experiment if history recording fails
+	}
+
 	return ctrl.Result{RequeueAfter: time.Minute}, nil
 }
 
@@ -1324,6 +1389,13 @@ func (r *ChaosExperimentReconciler) handlePodFailure(ctx context.Context, exp *c
 	chaosmetrics.ExperimentsTotal.WithLabelValues("pod-failure", exp.Spec.Namespace, statusSuccess).Inc()
 	chaosmetrics.ExperimentDuration.WithLabelValues("pod-failure", exp.Spec.Namespace).Observe(duration)
 	chaosmetrics.ResourcesAffected.WithLabelValues("pod-failure", exp.Spec.Namespace, exp.Name).Set(float64(len(failedPods)))
+
+	// Create history record
+	affectedResources := buildResourceReferences("process-killed", exp.Spec.Namespace, failedPods, "Pod")
+	if err := r.createHistoryRecord(ctx, exp, statusSuccess, affectedResources, startTime, nil); err != nil {
+		log.Error(err, "Failed to create history record")
+		// Don't fail the experiment if history recording fails
+	}
 
 	return ctrl.Result{RequeueAfter: time.Minute}, nil
 }
