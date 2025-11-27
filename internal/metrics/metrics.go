@@ -67,6 +67,33 @@ var (
 		},
 		[]string{"action"},
 	)
+
+	// HistoryRecordsTotal counts the total number of history records created
+	HistoryRecordsTotal = prometheus.NewCounterVec(
+		prometheus.CounterOpts{
+			Name: "chaosexperiment_history_records_total",
+			Help: "Total number of history records created",
+		},
+		[]string{"action", "status"},
+	)
+
+	// HistoryCleanupTotal counts the number of history records cleaned up
+	HistoryCleanupTotal = prometheus.NewCounterVec(
+		prometheus.CounterOpts{
+			Name: "chaosexperiment_history_cleanup_total",
+			Help: "Total number of history records deleted by retention policy",
+		},
+		[]string{"reason"},
+	)
+
+	// HistoryRecordsCount tracks the current number of history records per experiment
+	HistoryRecordsCount = prometheus.NewGaugeVec(
+		prometheus.GaugeOpts{
+			Name: "chaosexperiment_history_records_count",
+			Help: "Current number of history records per experiment",
+		},
+		[]string{"experiment", "namespace"},
+	)
 )
 
 func init() {
@@ -77,5 +104,8 @@ func init() {
 		ResourcesAffected,
 		ExperimentErrors,
 		ActiveExperiments,
+		HistoryRecordsTotal,
+		HistoryCleanupTotal,
+		HistoryRecordsCount,
 	)
 }
