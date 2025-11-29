@@ -1522,6 +1522,23 @@ func (r *ChaosExperimentReconciler) checkSchedule(ctx context.Context, exp *chao
 	return false, untilNext, nil
 }
 
+// isEphemeralContainerRunning checks if an ephemeral container is currently running in a pod
+func isEphemeralContainerRunning(pod *corev1.Pod, containerName string) bool {
+	// Check the pod's container statuses for the ephemeral container
+	for _, status := range pod.Status.EphemeralContainerStatuses {
+		if status.Name == containerName {
+			// Container is running if State.Running is not nil
+			if status.State.Running != nil {
+				return true
+			}
+			// Container is not running if it's terminated or waiting
+			return false
+		}
+	}
+	// Container status not found yet (might be starting), consider it as running to be safe
+	return true
+}
+
 // SetupWithManager sets up the controller with the Manager.
 func (r *ChaosExperimentReconciler) SetupWithManager(mgr ctrl.Manager) error {
 	return ctrl.NewControllerManagedBy(mgr).
