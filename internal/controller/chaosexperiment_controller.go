@@ -488,11 +488,28 @@ func (r *ChaosExperimentReconciler) injectCPUStressContainer(ctx context.Context
 	// Generate unique container name based on experiment
 	containerName := fmt.Sprintf("chaos-cpu-stress-%d", time.Now().Unix())
 
-	// Check if ephemeral container already exists
-	for _, ec := range pod.Spec.EphemeralContainers {
+	// Get the current pod to check container statuses
+	currentPod := &corev1.Pod{}
+	if err := r.Get(ctx, client.ObjectKeyFromObject(pod), currentPod); err != nil {
+		return fmt.Errorf("failed to get current pod state: %w", err)
+	}
+
+	// Check if a chaos-cpu-stress ephemeral container is still running
+	// We only want to prevent injection if there's an actively running stress container
+	for _, ec := range currentPod.Spec.EphemeralContainers {
 		if strings.HasPrefix(ec.Name, "chaos-cpu-stress") {
-			log.Info("Ephemeral container already exists", "pod", pod.Name, "container", ec.Name)
-			return nil
+			// Check if this container is still running
+			if isEphemeralContainerRunning(currentPod, ec.Name) {
+				log.Info("Chaos CPU stress container is already running, skipping injection",
+					"pod", pod.Name,
+					"container", ec.Name)
+				return nil
+			}
+			// Container exists but has completed, we can inject a new one
+			log.Info("Found completed chaos CPU stress container, will inject new one",
+				"pod", pod.Name,
+				"oldContainer", ec.Name,
+				"newContainer", containerName)
 		}
 	}
 
@@ -517,12 +534,6 @@ func (r *ChaosExperimentReconciler) injectCPUStressContainer(ctx context.Context
 				},
 			},
 		},
-	}
-
-	// Get the current pod to work with latest resource version
-	currentPod := &corev1.Pod{}
-	if err := r.Get(ctx, client.ObjectKeyFromObject(pod), currentPod); err != nil {
-		return fmt.Errorf("failed to get current pod state: %w", err)
 	}
 
 	// Append the ephemeral container
