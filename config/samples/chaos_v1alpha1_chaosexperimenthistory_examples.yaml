@@ -1,0 +1,264 @@
+---
+# Example 1: Successful pod-kill experiment history
+apiVersion: chaos.gushchin.dev/v1alpha1
+kind: ChaosExperimentHistory
+metadata:
+  name: pod-kill-test-20251121-143022-abc123
+  namespace: chaos-system
+  labels:
+    chaos.gushchin.dev/experiment: pod-kill-test
+    chaos.gushchin.dev/action: pod-kill
+    chaos.gushchin.dev/target-namespace: default
+    chaos.gushchin.dev/status: success
+spec:
+  experimentRef:
+    name: pod-kill-test
+    namespace: chaos-system
+    uid: "550e8400-e29b-41d4-a716-446655440000"
+
+  experimentSpec:
+    action: pod-kill
+    namespace: default
+    selector:
+      app: web-server
+    count: 2
+
+  execution:
+    startTime: "2025-11-21T14:30:22Z"
+    endTime: "2025-11-21T14:30:25Z"
+    duration: "3.2s"
+    status: "success"
+    message: "Successfully killed 2 pod(s)"
+    phase: "Completed"
+
+  affectedResources:
+    - kind: Pod
+      name: web-server-abc123
+      namespace: default
+      action: deleted
+    - kind: Pod
+      name: web-server-def456
+      namespace: default
+      action: deleted
+
+  audit:
+    initiatedBy: "system:serviceaccount:chaos-system:chaos-controller"
+    scheduledExecution: false
+    dryRun: false
+    retryCount: 0
+    creationTimestamp: "2025-11-21T14:30:25Z"
+
+---
+# Example 2: Failed pod-delay experiment history
+apiVersion: chaos.gushchin.dev/v1alpha1
+kind: ChaosExperimentHistory
+metadata:
+  name: pod-delay-test-20251121-150000-def456
+  namespace: chaos-system
+  labels:
+    chaos.gushchin.dev/experiment: pod-delay-test
+    chaos.gushchin.dev/action: pod-delay
+    chaos.gushchin.dev/target-namespace: production
+    chaos.gushchin.dev/status: failure
+spec:
+  experimentRef:
+    name: pod-delay-test
+    namespace: chaos-system
+    uid: "660e8400-e29b-41d4-a716-446655440001"
+
+  experimentSpec:
+    action: pod-delay
+    namespace: production
+    selector:
+      app: api-server
+    count: 1
+    duration: "5m"
+
+  execution:
+    startTime: "2025-11-21T15:00:00Z"
+    endTime: "2025-11-21T15:00:03Z"
+    duration: "3.1s"
+    status: "failure"
+    message: "Failed: No eligible pods found matching selector"
+    phase: "Failed"
+
+  affectedResources: []
+
+  audit:
+    initiatedBy: "user@example.com"
+    scheduledExecution: false
+    dryRun: false
+    retryCount: 2
+    creationTimestamp: "2025-11-21T15:00:03Z"
+
+  error:
+    message: "No eligible pods found matching selector"
+    code: "NO_PODS_FOUND"
+    failureReason: "ResourceNotFound"
+
+---
+# Example 3: Scheduled dry-run experiment history
+apiVersion: chaos.gushchin.dev/v1alpha1
+kind: ChaosExperimentHistory
+metadata:
+  name: scheduled-test-20251121-160000-ghi789
+  namespace: chaos-system
+  labels:
+    chaos.gushchin.dev/experiment: scheduled-chaos-test
+    chaos.gushchin.dev/action: pod-cpu-stress
+    chaos.gushchin.dev/target-namespace: staging
+    chaos.gushchin.dev/status: success
+spec:
+  experimentRef:
+    name: scheduled-chaos-test
+    namespace: chaos-system
+    uid: "770e8400-e29b-41d4-a716-446655440002"
+
+  experimentSpec:
+    action: pod-cpu-stress
+    namespace: staging
+    selector:
+      app: worker
+    count: 3
+    duration: "10m"
+    cpuLoad: 80
+    cpuWorkers: 2
+    schedule: "@hourly"
+    dryRun: true
+
+  execution:
+    startTime: "2025-11-21T16:00:00Z"
+    endTime: "2025-11-21T16:00:01Z"
+    duration: "1.2s"
+    status: "success"
+    message: "DRY RUN: Would apply 80% CPU stress to 3 pod(s): [worker-1, worker-2, worker-3]"
+    phase: "Completed"
+
+  affectedResources:
+    - kind: Pod
+      name: worker-1
+      namespace: staging
+      action: cpu-stress
+      details: "DRY RUN: Would apply 80% CPU stress with 2 workers"
+    - kind: Pod
+      name: worker-2
+      namespace: staging
+      action: cpu-stress
+      details: "DRY RUN: Would apply 80% CPU stress with 2 workers"
+    - kind: Pod
+      name: worker-3
+      namespace: staging
+      action: cpu-stress
+      details: "DRY RUN: Would apply 80% CPU stress with 2 workers"
+
+  audit:
+    initiatedBy: "system:serviceaccount:chaos-system:chaos-controller"
+    scheduledExecution: true
+    dryRun: true
+    retryCount: 0
+    creationTimestamp: "2025-11-21T16:00:01Z"
+
+---
+# Example 4: Node drain experiment history
+apiVersion: chaos.gushchin.dev/v1alpha1
+kind: ChaosExperimentHistory
+metadata:
+  name: node-drain-test-20251121-170000-jkl012
+  namespace: chaos-system
+  labels:
+    chaos.gushchin.dev/experiment: node-drain-test
+    chaos.gushchin.dev/action: node-drain
+    chaos.gushchin.dev/target-namespace: ""
+    chaos.gushchin.dev/status: success
+spec:
+  experimentRef:
+    name: node-drain-test
+    namespace: chaos-system
+    uid: "880e8400-e29b-41d4-a716-446655440003"
+
+  experimentSpec:
+    action: node-drain
+    namespace: default
+    selector:
+      node-role.kubernetes.io/worker: "true"
+    count: 1
+
+  execution:
+    startTime: "2025-11-21T17:00:00Z"
+    endTime: "2025-11-21T17:02:15Z"
+    duration: "2m15s"
+    status: "success"
+    message: "Successfully drained 1 node(s): [worker-node-2]"
+    phase: "Completed"
+
+  affectedResources:
+    - kind: Node
+      name: worker-node-2
+      action: drained
+      details: "Evicted 12 pods"
+
+  audit:
+    initiatedBy: "system:serviceaccount:chaos-system:chaos-controller"
+    scheduledExecution: false
+    dryRun: false
+    retryCount: 0
+    creationTimestamp: "2025-11-21T17:02:15Z"
+
+---
+# Example 5: Partial success with multiple retries
+apiVersion: chaos.gushchin.dev/v1alpha1
+kind: ChaosExperimentHistory
+metadata:
+  name: pod-failure-test-20251121-180000-mno345
+  namespace: chaos-system
+  labels:
+    chaos.gushchin.dev/experiment: pod-failure-test
+    chaos.gushchin.dev/action: pod-failure
+    chaos.gushchin.dev/target-namespace: default
+    chaos.gushchin.dev/status: partial
+spec:
+  experimentRef:
+    name: pod-failure-test
+    namespace: chaos-system
+    uid: "990e8400-e29b-41d4-a716-446655440004"
+
+  experimentSpec:
+    action: pod-failure
+    namespace: default
+    selector:
+      app: database
+    count: 3
+    maxRetries: 3
+    retryBackoff: exponential
+
+  execution:
+    startTime: "2025-11-21T18:00:00Z"
+    endTime: "2025-11-21T18:00:12Z"
+    duration: "12.5s"
+    status: "partial"
+    message: "Successfully caused container failure in 2 of 3 pod(s)"
+    phase: "Completed"
+
+  affectedResources:
+    - kind: Pod
+      name: database-primary
+      namespace: default
+      action: process-killed
+      details: "Successfully killed PID 1"
+    - kind: Pod
+      name: database-replica-1
+      namespace: default
+      action: process-killed
+      details: "Successfully killed PID 1"
+
+  audit:
+    initiatedBy: "user@example.com"
+    scheduledExecution: false
+    dryRun: false
+    retryCount: 2
+    creationTimestamp: "2025-11-21T18:00:12Z"
+
+  error:
+    message: "Failed to kill process in database-replica-2: exec failed"
+    lastError: "container not ready"
+    failureReason: "ExecutionError"
