@@ -731,14 +731,21 @@ func (r *ChaosExperimentReconciler) handleNodeDrain(ctx context.Context, exp *ch
 
 	// Cordon and drain selected nodes
 	drainedNodes := []string{}
+	newlyCordonedNodes := []string{}
 	for i := 0; i < drainCount; i++ {
 		node := &nodeList.Items[i]
 		log.Info("Cordoning and draining node", "node", node.Name)
 
 		// Cordon the node (mark as unschedulable)
-		if err := r.cordonNode(ctx, node); err != nil {
+		wasAlreadyCordoned, err := r.cordonNode(ctx, node)
+		if err != nil {
 			log.Error(err, "Failed to cordon node", "node", node.Name)
 			continue
+		}
+
+		// Track nodes that we cordoned (not ones that were already cordoned)
+		if !wasAlreadyCordoned {
+			newlyCordonedNodes = append(newlyCordonedNodes, node.Name)
 		}
 
 		// Drain the node (evict pods)
@@ -748,6 +755,20 @@ func (r *ChaosExperimentReconciler) handleNodeDrain(ctx context.Context, exp *ch
 		}
 
 		drainedNodes = append(drainedNodes, node.Name)
+	}
+
+	// Update status to track newly cordoned nodes for later uncordon
+	if len(newlyCordonedNodes) > 0 {
+		// Append newly cordoned nodes to the existing list (avoid duplicates)
+		existingNodes := make(map[string]bool)
+		for _, nodeName := range exp.Status.CordonedNodes {
+			existingNodes[nodeName] = true
+		}
+		for _, nodeName := range newlyCordonedNodes {
+			if !existingNodes[nodeName] {
+				exp.Status.CordonedNodes = append(exp.Status.CordonedNodes, nodeName)
+			}
+		}
 	}
 
 	// Update status
@@ -789,22 +810,49 @@ func (r *ChaosExperimentReconciler) handleNodeDrain(ctx context.Context, exp *ch
 }
 
 // cordonNode marks a node as unschedulable
-func (r *ChaosExperimentReconciler) cordonNode(ctx context.Context, node *corev1.Node) error {
+// Returns (wasAlreadyCordoned bool, error)
+func (r *ChaosExperimentReconciler) cordonNode(ctx context.Context, node *corev1.Node) (bool, error) {
 	log := ctrl.LoggerFrom(ctx)
 
 	// Check if already cordoned
 	if node.Spec.Unschedulable {
 		log.Info("Node is already cordoned", "node", node.Name)
-		return nil
+		return true, nil
 	}
 
 	// Mark as unschedulable
 	node.Spec.Unschedulable = true
 	if err := r.Update(ctx, node); err != nil {
-		return fmt.Errorf("failed to cordon node: %w", err)
+		return false, fmt.Errorf("failed to cordon node: %w", err)
 	}
 
 	log.Info("Successfully cordoned node", "node", node.Name)
+	return false, nil
+}
+
+// uncordonNode marks a node as schedulable
+func (r *ChaosExperimentReconciler) uncordonNode(ctx context.Context, nodeName string) error {
+	log := ctrl.LoggerFrom(ctx)
+
+	// Get the node
+	node := &corev1.Node{}
+	if err := r.Get(ctx, client.ObjectKey{Name: nodeName}, node); err != nil {
+		return fmt.Errorf("failed to get node: %w", err)
+	}
+
+	// Check if already uncordoned
+	if !node.Spec.Unschedulable {
+		log.Info("Node is already uncordoned", "node", nodeName)
+		return nil
+	}
+
+	// Mark as schedulable
+	node.Spec.Unschedulable = false
+	if err := r.Update(ctx, node); err != nil {
+		return fmt.Errorf("failed to uncordon node: %w", err)
+	}
+
+	log.Info("Successfully uncordoned node", "node", nodeName)
 	return nil
 }
 
