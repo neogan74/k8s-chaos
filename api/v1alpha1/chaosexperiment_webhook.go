@@ -30,6 +30,8 @@ import (
 	logf "sigs.k8s.io/controller-runtime/pkg/log"
 	"sigs.k8s.io/controller-runtime/pkg/webhook"
 	"sigs.k8s.io/controller-runtime/pkg/webhook/admission"
+
+	chaosmetrics "github.com/neogan74/k8s-chaos/internal/metrics"
 )
 
 // log is for logging in this package.
@@ -299,6 +301,9 @@ func (w *ChaosExperimentWebhook) validateProductionNamespace(ctx context.Context
 	}
 
 	if isProduction {
+		// Track production block in metrics
+		chaosmetrics.SafetyProductionBlocks.WithLabelValues(exp.Spec.Action, exp.Spec.Namespace).Inc()
+
 		return fmt.Errorf(
 			"chaos experiments in production namespace %q require explicit approval: set allowProduction: true",
 			exp.Spec.Namespace,
@@ -340,6 +345,9 @@ func (w *ChaosExperimentWebhook) validateMaxPercentage(exp *ChaosExperiment, eli
 	actualPercentage := (float64(count) / float64(totalPods)) * 100
 
 	if actualPercentage > float64(exp.Spec.MaxPercentage) {
+		// Track percentage violation in metrics
+		chaosmetrics.SafetyPercentageViolations.WithLabelValues(exp.Spec.Action, exp.Spec.Namespace).Inc()
+
 		return fmt.Errorf(
 			"count (%d) would affect %.1f%% of pods, exceeding maxPercentage limit of %d%%: reduce count to %d or lower",
 			count,
