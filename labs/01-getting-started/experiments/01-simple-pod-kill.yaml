@@ -1,0 +1,21 @@
+apiVersion: chaos.gushchin.dev/v1alpha1
+kind: ChaosExperiment
+metadata:
+  name: simple-pod-kill
+  namespace: chaos-demo
+spec:
+  # The chaos action to perform
+  action: pod-kill
+
+  # Target namespace for chaos
+  namespace: chaos-demo
+
+  # Selector to match pods
+  selector:
+    app: nginx
+
+  # Number of pods to affect (default: 1)
+  count: 1
+
+  # Optional: Run for a specific duration then auto-stop
+  # experimentDuration: "5m"
