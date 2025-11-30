@@ -409,3 +409,44 @@ mv $(1) $(1)-$(3) ;\
 } ;\
 ln -sf $$(realpath $(1)-$(3)) $(1)
 endef
+
+##@ Lab Infrastructure
+
+KIND_CLUSTER_NAME ?= k8s-chaos-lab
+KIND_VERSION ?= v0.20.0
+
+.PHONY: cluster-single-node
+cluster-single-node: ## Create a single-node Kind cluster for labs
+	@echo "Creating single-node Kind cluster: $(KIND_CLUSTER_NAME)"
+	@kind create cluster --name=$(KIND_CLUSTER_NAME) --config=labs/infra/kind-single-node.yaml || true
+	@kubectl cluster-info --context kind-$(KIND_CLUSTER_NAME)
+	@echo "✅ Single-node cluster ready!"
+
+.PHONY: cluster-multi-node
+cluster-multi-node: ## Create a 3-node Kind cluster for labs (1 control plane + 2 workers)
+	@echo "Creating multi-node Kind cluster: $(KIND_CLUSTER_NAME)"
+	@kind create cluster --name=$(KIND_CLUSTER_NAME) --config=labs/infra/kind-multi-node.yaml || true
+	@kubectl cluster-info --context kind-$(KIND_CLUSTER_NAME)
+	@kubectl get nodes
+	@echo "✅ Multi-node cluster ready!"
+
+.PHONY: cluster-delete
+cluster-delete: ## Delete the Kind cluster
+	@echo "Deleting Kind cluster: $(KIND_CLUSTER_NAME)"
+	@kind delete cluster --name=$(KIND_CLUSTER_NAME)
+	@echo "✅ Cluster deleted!"
+
+.PHONY: cluster-info
+cluster-info: ## Show cluster information
+	@echo "Cluster: $(KIND_CLUSTER_NAME)"
+	@kubectl cluster-info --context kind-$(KIND_CLUSTER_NAME) || echo "Cluster not found"
+	@kubectl get nodes --context kind-$(KIND_CLUSTER_NAME) 2>/dev/null || echo "No nodes found"
+
+.PHONY: labs-setup
+labs-setup: cluster-single-node install deploy ## Complete labs setup (cluster + operator)
+	@echo "✅ Labs environment ready! Navigate to labs/ directory to start."
+	@echo "   cd labs/01-getting-started"
+
+.PHONY: labs-teardown
+labs-teardown: undeploy uninstall cluster-delete ## Teardown complete labs environment
+	@echo "✅ Labs environment cleaned up!"
