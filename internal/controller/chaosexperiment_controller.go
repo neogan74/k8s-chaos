@@ -488,11 +488,28 @@ func (r *ChaosExperimentReconciler) injectCPUStressContainer(ctx context.Context
 	// Generate unique container name based on experiment
 	containerName := fmt.Sprintf("chaos-cpu-stress-%d", time.Now().Unix())
 
-	// Check if ephemeral container already exists
-	for _, ec := range pod.Spec.EphemeralContainers {
+	// Get the current pod to check container statuses
+	currentPod := &corev1.Pod{}
+	if err := r.Get(ctx, client.ObjectKeyFromObject(pod), currentPod); err != nil {
+		return fmt.Errorf("failed to get current pod state: %w", err)
+	}
+
+	// Check if a chaos-cpu-stress ephemeral container is still running
+	// We only want to prevent injection if there's an actively running stress container
+	for _, ec := range currentPod.Spec.EphemeralContainers {
 		if strings.HasPrefix(ec.Name, "chaos-cpu-stress") {
-			log.Info("Ephemeral container already exists", "pod", pod.Name, "container", ec.Name)
-			return nil
+			// Check if this container is still running
+			if isEphemeralContainerRunning(currentPod, ec.Name) {
+				log.Info("Chaos CPU stress container is already running, skipping injection",
+					"pod", pod.Name,
+					"container", ec.Name)
+				return nil
+			}
+			// Container exists but has completed, we can inject a new one
+			log.Info("Found completed chaos CPU stress container, will inject new one",
+				"pod", pod.Name,
+				"oldContainer", ec.Name,
+				"newContainer", containerName)
 		}
 	}
 
@@ -517,12 +534,6 @@ func (r *ChaosExperimentReconciler) injectCPUStressContainer(ctx context.Context
 				},
 			},
 		},
-	}
-
-	// Get the current pod to work with latest resource version
-	currentPod := &corev1.Pod{}
-	if err := r.Get(ctx, client.ObjectKeyFromObject(pod), currentPod); err != nil {
-		return fmt.Errorf("failed to get current pod state: %w", err)
 	}
 
 	// Append the ephemeral container
@@ -720,14 +731,21 @@ func (r *ChaosExperimentReconciler) handleNodeDrain(ctx context.Context, exp *ch
 
 	// Cordon and drain selected nodes
 	drainedNodes := []string{}
+	newlyCordonedNodes := []string{}
 	for i := 0; i < drainCount; i++ {
 		node := &nodeList.Items[i]
 		log.Info("Cordoning and draining node", "node", node.Name)
 
 		// Cordon the node (mark as unschedulable)
-		if err := r.cordonNode(ctx, node); err != nil {
+		wasAlreadyCordoned, err := r.cordonNode(ctx, node)
+		if err != nil {
 			log.Error(err, "Failed to cordon node", "node", node.Name)
 			continue
+		}
+
+		// Track nodes that we cordoned (not ones that were already cordoned)
+		if !wasAlreadyCordoned {
+			newlyCordonedNodes = append(newlyCordonedNodes, node.Name)
 		}
 
 		// Drain the node (evict pods)
@@ -737,6 +755,20 @@ func (r *ChaosExperimentReconciler) handleNodeDrain(ctx context.Context, exp *ch
 		}
 
 		drainedNodes = append(drainedNodes, node.Name)
+	}
+
+	// Update status to track newly cordoned nodes for later uncordon
+	if len(newlyCordonedNodes) > 0 {
+		// Append newly cordoned nodes to the existing list (avoid duplicates)
+		existingNodes := make(map[string]bool)
+		for _, nodeName := range exp.Status.CordonedNodes {
+			existingNodes[nodeName] = true
+		}
+		for _, nodeName := range newlyCordonedNodes {
+			if !existingNodes[nodeName] {
+				exp.Status.CordonedNodes = append(exp.Status.CordonedNodes, nodeName)
+			}
+		}
 	}
 
 	// Update status
@@ -778,22 +810,49 @@ func (r *ChaosExperimentReconciler) handleNodeDrain(ctx context.Context, exp *ch
 }
 
 // cordonNode marks a node as unschedulable
-func (r *ChaosExperimentReconciler) cordonNode(ctx context.Context, node *corev1.Node) error {
+// Returns (wasAlreadyCordoned bool, error)
+func (r *ChaosExperimentReconciler) cordonNode(ctx context.Context, node *corev1.Node) (bool, error) {
 	log := ctrl.LoggerFrom(ctx)
 
 	// Check if already cordoned
 	if node.Spec.Unschedulable {
 		log.Info("Node is already cordoned", "node", node.Name)
-		return nil
+		return true, nil
 	}
 
 	// Mark as unschedulable
 	node.Spec.Unschedulable = true
 	if err := r.Update(ctx, node); err != nil {
-		return fmt.Errorf("failed to cordon node: %w", err)
+		return false, fmt.Errorf("failed to cordon node: %w", err)
 	}
 
 	log.Info("Successfully cordoned node", "node", node.Name)
+	return false, nil
+}
+
+// uncordonNode marks a node as schedulable
+func (r *ChaosExperimentReconciler) uncordonNode(ctx context.Context, nodeName string) error {
+	log := ctrl.LoggerFrom(ctx)
+
+	// Get the node
+	node := &corev1.Node{}
+	if err := r.Get(ctx, client.ObjectKey{Name: nodeName}, node); err != nil {
+		return fmt.Errorf("failed to get node: %w", err)
+	}
+
+	// Check if already uncordoned
+	if !node.Spec.Unschedulable {
+		log.Info("Node is already uncordoned", "node", nodeName)
+		return nil
+	}
+
+	// Mark as schedulable
+	node.Spec.Unschedulable = false
+	if err := r.Update(ctx, node); err != nil {
+		return fmt.Errorf("failed to uncordon node: %w", err)
+	}
+
+	log.Info("Successfully uncordoned node", "node", nodeName)
 	return nil
 }
 
@@ -1042,6 +1101,9 @@ func (r *ChaosExperimentReconciler) handleDryRun(ctx context.Context, exp *chaos
 
 	log.Info("Dry run completed", "action", actionType, "wouldAffect", count, "pods", podNames)
 
+	// Track dry-run execution in metrics
+	chaosmetrics.SafetyDryRunExecutions.WithLabelValues(exp.Spec.Action, exp.Spec.Namespace).Inc()
+
 	// Don't requeue for dry-run experiments
 	return ctrl.Result{}, nil
 }
@@ -1092,6 +1154,20 @@ func (r *ChaosExperimentReconciler) checkExperimentLifecycle(ctx context.Context
 			"startTime", exp.Status.StartTime,
 			"duration", duration,
 			"endTime", endTime)
+
+		// Uncordon nodes that were cordoned by this experiment (for node-drain action)
+		if exp.Spec.Action == "node-drain" && len(exp.Status.CordonedNodes) > 0 {
+			log.Info("Uncordoning nodes that were cordoned by this experiment",
+				"nodes", exp.Status.CordonedNodes)
+			for _, nodeName := range exp.Status.CordonedNodes {
+				if err := r.uncordonNode(ctx, nodeName); err != nil {
+					log.Error(err, "Failed to uncordon node", "node", nodeName)
+					// Continue with other nodes even if one fails
+				}
+			}
+			// Clear the list after uncordoning
+			exp.Status.CordonedNodes = nil
+		}
 
 		// Mark as completed
 		completedAt := metav1.Now()
@@ -1144,21 +1220,42 @@ func (r *ChaosExperimentReconciler) getEligiblePods(ctx context.Context, exp *ch
 		}
 	}
 
-	// Filter out excluded pods
+	// Filter out excluded pods and track exclusions in metrics
 	eligiblePods := []corev1.Pod{}
+	excludedByNamespace := 0
+	excludedByLabel := 0
+
 	for _, pod := range podList.Items {
 		// Skip if namespace is excluded
 		if namespaceExcluded {
+			excludedByNamespace++
 			continue
 		}
 
 		// Skip if pod has exclusion label
 		if val, exists := pod.Labels[chaosv1alpha1.ExclusionLabel]; exists && val == "true" {
 			log.Info("Skipping excluded pod", "pod", pod.Name, "namespace", pod.Namespace)
+			excludedByLabel++
 			continue
 		}
 
 		eligiblePods = append(eligiblePods, pod)
+	}
+
+	// Track excluded resources in metrics
+	if excludedByNamespace > 0 {
+		chaosmetrics.SafetyExcludedResources.WithLabelValues(
+			exp.Spec.Action,
+			exp.Spec.Namespace,
+			"namespace",
+		).Add(float64(excludedByNamespace))
+	}
+	if excludedByLabel > 0 {
+		chaosmetrics.SafetyExcludedResources.WithLabelValues(
+			exp.Spec.Action,
+			exp.Spec.Namespace,
+			"pod",
+		).Add(float64(excludedByLabel))
 	}
 
 	return eligiblePods, nil
@@ -1509,6 +1606,23 @@ func (r *ChaosExperimentReconciler) checkSchedule(ctx context.Context, exp *chao
 		"requeueAfter", untilNext)
 
 	return false, untilNext, nil
+}
+
+// isEphemeralContainerRunning checks if an ephemeral container is currently running in a pod
+func isEphemeralContainerRunning(pod *corev1.Pod, containerName string) bool {
+	// Check the pod's container statuses for the ephemeral container
+	for _, status := range pod.Status.EphemeralContainerStatuses {
+		if status.Name == containerName {
+			// Container is running if State.Running is not nil
+			if status.State.Running != nil {
+				return true
+			}
+			// Container is not running if it's terminated or waiting
+			return false
+		}
+	}
+	// Container status not found yet (might be starting), consider it as running to be safe
+	return true
 }
 
 // SetupWithManager sets up the controller with the Manager.

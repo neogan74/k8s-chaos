@@ -204,6 +204,11 @@ type ChaosExperimentStatus struct {
 	// Only set when spec.schedule is defined
 	// +optional
 	NextScheduledTime *metav1.Time `json:"nextScheduledTime,omitempty"`
+
+	// CordonedNodes tracks nodes that were cordoned by this experiment
+	// Used for auto-uncordon when the experiment completes
+	// +optional
+	CordonedNodes []string `json:"cordonedNodes,omitempty"`
 }
 
 // +kubebuilder:object:root=true
