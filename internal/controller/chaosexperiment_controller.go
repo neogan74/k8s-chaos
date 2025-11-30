@@ -1101,6 +1101,9 @@ func (r *ChaosExperimentReconciler) handleDryRun(ctx context.Context, exp *chaos
 
 	log.Info("Dry run completed", "action", actionType, "wouldAffect", count, "pods", podNames)
 
+	// Track dry-run execution in metrics
+	chaosmetrics.SafetyDryRunExecutions.WithLabelValues(exp.Spec.Action, exp.Spec.Namespace).Inc()
+
 	// Don't requeue for dry-run experiments
 	return ctrl.Result{}, nil
 }
@@ -1151,6 +1154,20 @@ func (r *ChaosExperimentReconciler) checkExperimentLifecycle(ctx context.Context
 			"startTime", exp.Status.StartTime,
 			"duration", duration,
 			"endTime", endTime)
+
+		// Uncordon nodes that were cordoned by this experiment (for node-drain action)
+		if exp.Spec.Action == "node-drain" && len(exp.Status.CordonedNodes) > 0 {
+			log.Info("Uncordoning nodes that were cordoned by this experiment",
+				"nodes", exp.Status.CordonedNodes)
+			for _, nodeName := range exp.Status.CordonedNodes {
+				if err := r.uncordonNode(ctx, nodeName); err != nil {
+					log.Error(err, "Failed to uncordon node", "node", nodeName)
+					// Continue with other nodes even if one fails
+				}
+			}
+			// Clear the list after uncordoning
+			exp.Status.CordonedNodes = nil
+		}
 
 		// Mark as completed
 		completedAt := metav1.Now()
@@ -1203,21 +1220,42 @@ func (r *ChaosExperimentReconciler) getEligiblePods(ctx context.Context, exp *ch
 		}
 	}
 
-	// Filter out excluded pods
+	// Filter out excluded pods and track exclusions in metrics
 	eligiblePods := []corev1.Pod{}
+	excludedByNamespace := 0
+	excludedByLabel := 0
+
 	for _, pod := range podList.Items {
 		// Skip if namespace is excluded
 		if namespaceExcluded {
+			excludedByNamespace++
 			continue
 		}
 
 		// Skip if pod has exclusion label
 		if val, exists := pod.Labels[chaosv1alpha1.ExclusionLabel]; exists && val == "true" {
 			log.Info("Skipping excluded pod", "pod", pod.Name, "namespace", pod.Namespace)
+			excludedByLabel++
 			continue
 		}
 
 		eligiblePods = append(eligiblePods, pod)
+	}
+
+	// Track excluded resources in metrics
+	if excludedByNamespace > 0 {
+		chaosmetrics.SafetyExcludedResources.WithLabelValues(
+			exp.Spec.Action,
+			exp.Spec.Namespace,
+			"namespace",
+		).Add(float64(excludedByNamespace))
+	}
+	if excludedByLabel > 0 {
+		chaosmetrics.SafetyExcludedResources.WithLabelValues(
+			exp.Spec.Action,
+			exp.Spec.Namespace,
+			"pod",
+		).Add(float64(excludedByLabel))
 	}
 
 	return eligiblePods, nil
