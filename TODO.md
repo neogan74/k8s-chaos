@@ -62,10 +62,10 @@
 
 ### Node Chaos
 - [x] **node-drain** - Drain nodes temporarily
+- [x] **node-uncordon** - Auto-uncordon nodes after drain experiments complete ✅
 - [ ] **node-taint** - Add taints to nodes
 - [ ] **node-cpu-stress** - Stress node CPU
 - [ ] **node-disk-fill** - Fill node disk space
-- [ ] **node-uncordon** - Auto-uncordon nodes after drain experiments complete
 
 ### Network Chaos
 - [ ] **network-partition** - Simulate network splits
@@ -266,3 +266,40 @@ Pick items from the High Priority section first, then move to features that alig
 - **RBAC**: Added namespace get/list permissions
 - **Validation**: Code compiles successfully (`go vet` passed)
 - **Impact**: Operator is now production-ready with multiple protection layers
+
+## Recent Completions (2025-11-30)
+
+### Quality-of-Life Improvements ✅
+- **Status**: Fully implemented and tested
+- **Features Implemented**:
+  1. **Auto-Cleanup of Ephemeral Containers** ✅
+     - Smart lifecycle management for CPU stress ephemeral containers
+     - Checks container runtime status (not just existence)
+     - Allows repeated experiments when previous containers complete
+     - Prevents accumulation while providing audit trail
+     - Location: `internal/controller/chaosexperiment_controller.go:484-556, 1590-1605`
+
+  2. **Auto-Uncordon Nodes After Drain** ✅
+     - Tracks nodes cordoned by experiments in `status.cordonedNodes`
+     - Automatically uncordons when `experimentDuration` completes
+     - Respects pre-existing cordoned state (only uncordons what we cordoned)
+     - Graceful handling of individual node failures
+     - New status field: `cordonedNodes []string`
+     - New functions: `cordonNode()` returns bool, `uncordonNode()`
+     - Location: `api/v1alpha1/chaosexperiment_types.go:208-211`
+     - Location: `internal/controller/chaosexperiment_controller.go:812-857, 1158-1170`
+
+  3. **Safety Metrics** ✅
+     - Four new Prometheus metrics for observability:
+       - `chaosexperiment_safety_dryrun_total` - Dry-run executions count
+       - `chaosexperiment_safety_production_blocks_total` - Production blocks count
+       - `chaosexperiment_safety_percentage_violations_total` - Percentage violations count
+       - `chaosexperiment_safety_excluded_resources_total` - Excluded resources count (by type)
+     - Tracked in webhook (production blocks, percentage violations)
+     - Tracked in controller (dry-run, excluded resources)
+     - Location: `internal/metrics/metrics.go:98-149`
+     - Location: `api/v1alpha1/chaosexperiment_webhook.go:305, 349`
+     - Location: `internal/controller/chaosexperiment_controller.go:1105, 1246-1259`
+
+- **Testing**: All tests passing, code properly formatted
+- **Impact**: Enhanced production readiness with better cleanup, automatic recovery, and comprehensive safety monitoring
