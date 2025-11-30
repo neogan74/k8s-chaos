@@ -185,6 +185,13 @@ spec:
                   by duration or manually)
                 format: date-time
                 type: string
+              cordonedNodes:
+                description: |-
+                  CordonedNodes tracks nodes that were cordoned by this experiment
+                  Used for auto-uncordon when the experiment completes
+                items:
+                  type: string
+                type: array
               lastError:
                 description: LastError stores the last error message encountered
                 type: string
