@@ -1,0 +1,20 @@
+apiVersion: chaos.gushchin.dev/v1alpha1
+kind: ChaosExperiment
+metadata:
+  name: dry-run-test
+  namespace: chaos-demo
+spec:
+  action: pod-kill
+  namespace: chaos-demo
+  selector:
+    app: nginx
+  count: 2
+
+  # DRY RUN MODE: Preview impact without executing chaos
+  dryRun: true
+
+# This experiment will show in its status message which pods
+# would be affected, but won't actually delete them.
+#
+# Example status message:
+# "DRY RUN: Would delete 2 pod(s): [nginx-demo-abc123, nginx-demo-def456]"
