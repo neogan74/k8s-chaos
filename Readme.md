@@ -269,6 +269,20 @@ make docker-push IMG=myrepo/k8s-chaos:tag
 3. **Testing**: Run `make test lint` before committing
 4. **Documentation**: Update README and API docs as needed
 
+## 📚 Documentation
+
+- **[Getting Started](docs/GETTING-STARTED.md)** - Complete installation and first experiment tutorial
+- **[Best Practices](docs/BEST-PRACTICES.md)** - Safety-first principles and progressive adoption
+- **[Troubleshooting](docs/TROUBLESHOOTING.md)** - Common issues and solutions
+- **[Real-World Scenarios](docs/SCENARIOS.md)** - 13 ready-to-use examples
+- **[API Reference](docs/API.md)** - Complete CRD specification
+- **[CLI Tool](docs/CLI.md)** - Command-line interface documentation
+- **[Metrics Guide](docs/METRICS.md)** - Prometheus metrics and monitoring
+- **[Grafana Dashboards](docs/GRAFANA.md)** - Dashboard setup and usage
+- **[Experiment History](docs/HISTORY.md)** - Audit logging and history tracking
+- **[Hands-on Labs](labs/README.md)** - Interactive learning tutorials
+- **[Roadmap](ROADMAP.md)** - Future development plans
+
 ## 📊 Comparison with Other Solutions
 
 | Feature | k8s-chaos | Chaos Mesh | Litmus Chaos |
@@ -276,15 +290,16 @@ make docker-push IMG=myrepo/k8s-chaos:tag
 | Lightweight | ✅ | ❌ | ❌ |
 | Simple CRDs | ✅ | ❌ | ❌ |
 | Pod Chaos | ✅ | ✅ | ✅ |
-| Network Chaos | 🚧 | ✅ | ✅ |
-| UI Dashboard | ❌ | ✅ | ✅ |
-| Scheduling | 🚧 | ✅ | ✅ |
-| Multi-tenancy | ✅ | ✅ | ✅ |
+| Node Chaos | ✅ | ✅ | ✅ |
+| Network Chaos | 🚧 Planned | ✅ | ✅ |
+| Scheduling | ✅ Cron | ✅ | ✅ |
+| Safety Features | ✅ Comprehensive | ✅ | ✅ |
+| Metrics & Dashboards | ✅ | ✅ | ✅ |
+| Audit History | ✅ | ✅ | ✅ |
+| UI Dashboard | 🚧 Planned | ✅ | ✅ |
+| Learning Curve | Easy | Moderate | Moderate |
 
-## 🐛 Known Issues
-
-- Pod-delay action is not yet fully implemented
-- Network chaos features are planned for future releases
+**k8s-chaos** excels at being lightweight, simple to deploy, and production-ready with comprehensive safety features while maintaining an easy learning curve.
 
 ## 📄 License
 
