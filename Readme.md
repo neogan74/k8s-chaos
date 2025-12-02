@@ -1,22 +1,75 @@
 # k8s-chaos: Kubernetes Chaos Engineering Operator
 
-A lightweight, extensible Kubernetes Chaos Engineering operator built with Kubebuilder v4. This operator provides controlled chaos testing capabilities through Custom Resource Definitions (CRDs) to help identify weaknesses and improve the resilience of your Kubernetes applications.
+ [![Go Version](https://img.shields.io/badge/Go-1.24.5+-blue.svg)](https://golang.org)
+[![Kubernetes](https://img.shields.io/badge/Kubernetes-1.24+-blue.svg)](https://kubernetes.io)
+[![License](https://img.shields.io/badge/License-Apache%202.0-blue.svg)](LICENSE)
+
+A **production-ready**, lightweight Kubernetes Chaos Engineering operator built with Kubebuilder v4. Test your application's resilience through controlled chaos injection with comprehensive safety features.
+
+## ✨ Highlights
+
+- 🛡️ **Safety First**: Dry-run mode, percentage limits, exclusion labels, production protection
+- 🎯 **6 Chaos Actions**: Pod kill, delay, CPU/memory stress, failure, node drain
+- ⏰ **Smart Scheduling**: Cron-based recurring experiments with duration control
+- 📊 **Full Observability**: Prometheus metrics, Grafana dashboards, audit history
+- 🔄 **Automatic Retry**: Configurable backoff strategies for transient failures
+- 📚 **Comprehensive Docs**: Getting started guide, best practices, real-world scenarios
+- 🧪 **Hands-on Labs**: Interactive learning environment with automated setup
 
 ## 🚀 Features
 
-### Current (MVP)
-- **Pod Chaos**: Randomly delete pods matching specific selectors
-- **Flexible Targeting**: Use label selectors to target specific workloads
-- **Status Tracking**: Monitor experiment execution through CRD status
-- **Validation**: Built-in CRD validation for safe chaos experiments
-- **RBAC**: Fine-grained permissions for chaos operations
+### Chaos Actions
 
-### Planned
-- **Pod Delay**: Introduce network latency to pods
-- **Node Drain**: Simulate node failures
-- **Network Chaos**: Packet loss, bandwidth limitations
-- **Scheduling**: Cron-based experiment execution
-- **Metrics**: Prometheus metrics for experiment tracking
+**Pod Chaos**
+- ✅ **pod-kill**: Delete pods to test deployment resilience
+- ✅ **pod-delay**: Inject network latency (50ms-5s)
+- ✅ **pod-cpu-stress**: Consume CPU resources (1-100%)
+- ✅ **pod-memory-stress**: Consume memory resources
+- ✅ **pod-failure**: Kill main process to test restart behavior
+
+**Node Chaos**
+- ✅ **node-drain**: Drain nodes with automatic uncordon
+
+### Safety & Control
+
+- ✅ **Dry-Run Mode**: Preview affected resources without execution
+- ✅ **Max Percentage Limits**: Prevent affecting too many resources (e.g., max 30%)
+- ✅ **Production Protection**: Explicit approval required for production namespaces
+- ✅ **Exclusion Labels**: Protect critical pods/namespaces
+- ✅ **Experiment Duration**: Auto-stop after specified time
+- ✅ **Cron Scheduling**: Recurring experiments (`*/30 * * * *`)
+- ✅ **Retry Logic**: Exponential or fixed backoff strategies
+
+### Observability
+
+- ✅ **Prometheus Metrics**: Experiments, duration, resources affected, errors, safety metrics
+- ✅ **Grafana Dashboards**: 3 comprehensive dashboards (overview, detailed, safety)
+- ✅ **Experiment History**: Full audit trail with configurable retention
+- ✅ **Safety Metrics**: Track dry-runs, production blocks, percentage violations
+
+### Developer Experience
+
+- ✅ **CLI Tool**: Rich commands for listing, describing, stats, and top experiments
+- ✅ **Comprehensive Docs**: Getting Started, Best Practices, Troubleshooting, Scenarios
+- ✅ **Hands-on Labs**: Step-by-step tutorials with automated cluster setup
+- ✅ **Validation**: Multi-layer validation (OpenAPI + admission webhooks)
+
+## 🚀 Quick Start
+
+**New to k8s-chaos?** Follow our [Getting Started Guide](docs/GETTING-STARTED.md) for a complete tutorial.
+
+```bash
+# 1. Create a local cluster (optional)
+make cluster-single-node
+
+# 2. Install k8s-chaos
+make install deploy IMG=ghcr.io/neogan74/k8s-chaos:latest
+
+# 3. Try Lab 01
+cd labs/01-getting-started
+make setup
+kubectl apply -f experiments/01-simple-pod-kill.yaml
+```
 
 ## 📋 Prerequisites
 
@@ -24,6 +77,7 @@ A lightweight, extensible Kubernetes Chaos Engineering operator built with Kubeb
 - kubectl configured to access your cluster
 - Go 1.24.5+ (for development)
 - Docker (for building images)
+- Kind or Minikube (for local testing)
 
 ## 🛠️ Installation
 
