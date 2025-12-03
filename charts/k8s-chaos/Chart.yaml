@@ -1,0 +1,45 @@
+apiVersion: v2
+name: k8s-chaos
+description: A lightweight Kubernetes Chaos Engineering operator with comprehensive safety features
+type: application
+version: 0.1.0
+appVersion: "0.1.0"
+kubeVersion: ">=1.24.0-0"
+
+keywords:
+  - chaos-engineering
+  - chaos
+  - testing
+  - reliability
+  - kubernetes
+  - operator
+  - resilience
+
+home: https://github.com/neogan74/k8s-chaos
+sources:
+  - https://github.com/neogan74/k8s-chaos
+
+maintainers:
+  - name: neogan74
+    email: your-email@example.com
+
+annotations:
+  # Category for Artifact Hub
+  artifacthub.io/category: integration-delivery
+  artifacthub.io/license: Apache-2.0
+  artifacthub.io/operator: "true"
+  artifacthub.io/operatorCapabilities: Full Lifecycle
+  artifacthub.io/prerelease: "true"
+  artifacthub.io/recommendations: |
+    - url: https://prometheus.io
+    - url: https://grafana.com
+  artifacthub.io/containsSecurityUpdates: "false"
+  artifacthub.io/changes: |
+    - kind: added
+      description: Initial release with 6 chaos actions
+    - kind: added
+      description: Comprehensive safety features (dry-run, maxPercentage, exclusions)
+    - kind: added
+      description: Prometheus metrics and Grafana dashboards
+    - kind: added
+      description: Experiment history and audit logging
