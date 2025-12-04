@@ -54,7 +54,7 @@ git --version
 # Kind (for local testing)
 kind version
 
-# Helm (if using Helm installation - coming soon)
+# Helm (recommended for installation)
 helm version
 ```
 
@@ -77,14 +77,64 @@ minikube start --cpus 4 --memory 8192
 
 ## Installation
 
-### Step 1: Clone the Repository
+You can install k8s-chaos using either Helm (recommended) or manually.
+
+### Option A: Helm Installation (Recommended)
+
+The easiest way to get started:
+
+```bash
+# Clone repository
+git clone https://github.com/neogan74/k8s-chaos.git
+cd k8s-chaos
+
+# Install with Helm
+helm install k8s-chaos charts/k8s-chaos \
+  --namespace k8s-chaos-system \
+  --create-namespace
+
+# Verify installation
+kubectl get pods -n k8s-chaos-system
+
+# Wait for the operator to be ready
+kubectl wait --for=condition=ready pod \
+  -l control-plane=controller-manager \
+  -n k8s-chaos-system \
+  --timeout=120s
+```
+
+**That's it!** Skip to [Your First Chaos Experiment](#your-first-chaos-experiment).
+
+**Custom Configuration:**
+```bash
+# Development setup
+helm install k8s-chaos charts/k8s-chaos \
+  -n k8s-chaos-system --create-namespace \
+  --set controller.logLevel=debug
+
+# Production setup with cert-manager
+helm install k8s-chaos charts/k8s-chaos \
+  -n k8s-chaos-system --create-namespace \
+  --set webhook.certificate.certManager=true \
+  --set metrics.serviceMonitor.enabled=true
+```
+
+See [Helm Chart Documentation](../charts/k8s-chaos/README.md) for all options.
+
+---
+
+### Option B: Manual Installation
+
+For more control over the installation:
+
+#### Step 1: Clone the Repository
 
 ```bash
 git clone https://github.com/neogan74/k8s-chaos.git
 cd k8s-chaos
 ```
 
-### Step 2: Install CRDs
+#### Step 2: Install CRDs
 
 Install the Custom Resource Definitions:
 
