@@ -62,8 +62,8 @@ A **production-ready**, lightweight Kubernetes Chaos Engineering operator built 
 # 1. Create a local cluster (optional)
 make cluster-single-node
 
-# 2. Install k8s-chaos
-make install deploy IMG=ghcr.io/neogan74/k8s-chaos:latest
+# 2. Install k8s-chaos with Helm
+helm install k8s-chaos charts/k8s-chaos -n k8s-chaos-system --create-namespace
 
 # 3. Try Lab 01
 cd labs/01-getting-started
@@ -81,21 +81,47 @@ kubectl apply -f experiments/01-simple-pod-kill.yaml
 
 ## 🛠️ Installation
 
-### Install CRDs
+### Helm (Recommended)
+
+The easiest way to install k8s-chaos is using Helm:
 
 ```bash
-make install
+# Install from local chart
+helm install k8s-chaos charts/k8s-chaos \
+  --namespace k8s-chaos-system \
+  --create-namespace
+
+# Verify installation
+kubectl get pods -n k8s-chaos-system
 ```
 
-### Deploy Controller
+**Custom Configuration:**
+```bash
+# Development setup
+helm install k8s-chaos charts/k8s-chaos \
+  -n k8s-chaos-system --create-namespace \
+  --set controller.logLevel=debug \
+  --set history.retentionLimit=50
+
+# Production setup with cert-manager
+helm install k8s-chaos charts/k8s-chaos \
+  -n k8s-chaos-system --create-namespace \
+  --set webhook.certificate.certManager=true \
+  --set metrics.serviceMonitor.enabled=true
+```
+
+See [Helm Chart Documentation](charts/k8s-chaos/README.md) for all configuration options.
+
+### Manual Installation (Alternative)
+
+If you prefer to install manually:
 
 ```bash
-# Using pre-built image
-make deploy IMG=ghcr.io/neogan74/k8s-chaos:latest
+# Install CRDs
+make install
 
-# Or build and deploy your own
-make docker-build docker-push IMG=<your-registry>/k8s-chaos:tag
-make deploy IMG=<your-registry>/k8s-chaos:tag
+# Deploy controller
+make deploy IMG=ghcr.io/neogan74/k8s-chaos:latest
 ```
 
 ## 📝 Usage
