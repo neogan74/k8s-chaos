@@ -49,12 +49,15 @@ k8s-chaos aims to be the go-to lightweight chaos engineering operator that balan
 
 #### High Priority
 
-**Helm Chart** 🎯
-- Create official Helm chart
-- Customizable values for enterprise deployments
-- Support for different installation modes (dev/staging/prod)
-- One-command installation experience
-- **Impact:** Removes major adoption barrier
+**Helm Chart** ✅ **COMPLETED**
+- ✅ Official Helm chart created (`charts/k8s-chaos/`)
+- ✅ Comprehensive values.yaml with 50+ parameters
+- ✅ Support for dev/staging/prod configurations
+- ✅ One-command installation
+- ✅ Production-ready security defaults
+- ✅ cert-manager integration
+- ✅ ServiceMonitor support
+- **Impact:** Major adoption barrier removed!
 
 **Test Coverage** 🧪
 - Increase unit test coverage to 80%
