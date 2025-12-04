@@ -138,7 +138,7 @@
 - [ ] **Batch Operations** - Efficient handling of multiple experiments
 
 ### Operations
-- [ ] **Helm Chart** - Create Helm chart for easier deployment
+- [x] **Helm Chart** - Create Helm chart for easier deployment ✅ COMPLETED (charts/k8s-chaos/)
 - [ ] **Operator Lifecycle Manager (OLM)** - Support for OLM
 - [ ] **Multi-tenancy** - Support for multiple teams/projects
 - [ ] **Backup/Restore** - Experiment history backup
@@ -325,3 +325,24 @@ Pick items from the High Priority section first, then move to features that alig
     - `make labs-teardown` - Clean teardown
 
 - **Impact**: Users can now easily get started, learn best practices, troubleshoot issues, and use real-world examples. Labs provide hands-on learning experience.
+
+### Production-Ready Helm Chart ✅
+- **Status**: Complete and tested
+- **Features Implemented**:
+  - **Official Helm Chart** (`charts/k8s-chaos/`) - Production-ready installation
+  - **Comprehensive values.yaml** - 50+ configurable parameters
+  - **Complete Templates** - Deployment, RBAC, Service, Webhook, ServiceMonitor
+  - **Multiple Installation Modes** - Dev, staging, production configurations
+  - **Security Defaults** - Non-root, read-only filesystem, dropped capabilities
+  - **Certificate Management** - Self-signed and cert-manager support
+  - **Observability** - Optional ServiceMonitor for Prometheus Operator
+  - **Helm README** (`charts/k8s-chaos/README.md`) - Comprehensive documentation with examples
+  - **Post-install Notes** - Helpful NOTES.txt with next steps
+
+- **Documentation Updates**:
+  - Main README updated with Helm as primary installation method
+  - GETTING-STARTED.md updated with Option A (Helm) and Option B (Manual)
+  - ROADMAP.md marked Helm chart as complete in Q1 2026
+
+- **Testing**: Helm lint passed, template rendering successful
+- **Impact**: Major adoption barrier removed - one-command installation now available!
