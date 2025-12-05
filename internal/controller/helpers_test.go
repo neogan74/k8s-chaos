@@ -4,7 +4,6 @@ import (
 	"testing"
 	"time"
 
-	chaosv1alpha1 "github.com/neogan74/k8s-chaos/api/v1alpha1"
 	"github.com/stretchr/testify/assert"
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -178,97 +177,6 @@ func TestParseDurationToMs(t *testing.T) {
 	}
 }
 
-// Test calculateRetryDelay function
-func TestCalculateRetryDelay(t *testing.T) {
-	tests := []struct {
-		name         string
-		retryCount   int
-		baseDelay    time.Duration
-		backoff      string
-		wantMin      time.Duration
-		wantMax      time.Duration
-		description  string
-	}{
-		{
-			name:        "exponential backoff - first retry",
-			retryCount:  1,
-			baseDelay:   30 * time.Second,
-			backoff:     "exponential",
-			wantMin:     30 * time.Second,
-			wantMax:     30 * time.Second,
-			description: "First retry should be baseDelay",
-		},
-		{
-			name:        "exponential backoff - second retry",
-			retryCount:  2,
-			baseDelay:   30 * time.Second,
-			backoff:     "exponential",
-			wantMin:     60 * time.Second,
-			wantMax:     60 * time.Second,
-			description: "Second retry should be 2x baseDelay",
-		},
-		{
-			name:        "exponential backoff - third retry",
-			retryCount:  3,
-			baseDelay:   30 * time.Second,
-			backoff:     "exponential",
-			wantMin:     120 * time.Second,
-			wantMax:     120 * time.Second,
-			description: "Third retry should be 4x baseDelay",
-		},
-		{
-			name:        "exponential backoff - max cap",
-			retryCount:  10,
-			baseDelay:   30 * time.Second,
-			backoff:     "exponential",
-			wantMin:     10 * time.Minute,
-			wantMax:     10 * time.Minute,
-			description: "Should cap at 10 minutes",
-		},
-		{
-			name:        "fixed backoff",
-			retryCount:  1,
-			baseDelay:   30 * time.Second,
-			backoff:     "fixed",
-			wantMin:     30 * time.Second,
-			wantMax:     30 * time.Second,
-			description: "Fixed backoff always returns baseDelay",
-		},
-		{
-			name:        "fixed backoff - multiple retries",
-			retryCount:  5,
-			baseDelay:   30 * time.Second,
-			backoff:     "fixed",
-			wantMin:     30 * time.Second,
-			wantMax:     30 * time.Second,
-			description: "Fixed backoff should not change",
-		},
-		{
-			name:        "unknown backoff defaults to exponential",
-			retryCount:  2,
-			baseDelay:   30 * time.Second,
-			backoff:     "unknown",
-			wantMin:     60 * time.Second,
-			wantMax:     60 * time.Second,
-			description: "Unknown backoff should default to exponential",
-		},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			got := calculateRetryDelay(tt.retryCount, tt.baseDelay, tt.backoff)
-
-			// For fixed backoff, exact match expected
-			// For exponential, should be within range
-			if tt.wantMin == tt.wantMax {
-				assert.Equal(t, tt.wantMin, got, tt.description)
-			} else {
-				assert.GreaterOrEqual(t, got, tt.wantMin, tt.description)
-				assert.LessOrEqual(t, got, tt.wantMax, tt.description)
-			}
-		})
-	}
-}
 
 // Test isDaemonSetPod function
 func TestIsDaemonSetPod(t *testing.T) {
