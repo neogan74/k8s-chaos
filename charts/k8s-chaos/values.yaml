@@ -1,0 +1,223 @@
+# Default values for k8s-chaos
+# This is a YAML-formatted file.
+# Declare variables to be passed into your templates.
+
+## @section Global parameters
+
+## @param nameOverride String to partially override k8s-chaos.fullname
+nameOverride: ""
+
+## @param fullnameOverride String to fully override k8s-chaos.fullname
+fullnameOverride: ""
+
+## @section Controller parameters
+
+## Controller image configuration
+image:
+  ## @param image.repository k8s-chaos controller image repository
+  repository: ghcr.io/neogan74/k8s-chaos
+  ## @param image.pullPolicy Image pull policy
+  pullPolicy: IfNotPresent
+  ## @param image.tag Overrides the image tag (default is the chart appVersion)
+  tag: ""
+
+## @param imagePullSecrets Specify image pull secrets
+imagePullSecrets: []
+
+## Controller deployment configuration
+controller:
+  ## @param controller.replicaCount Number of controller replicas (only 1 supported with leader election)
+  replicaCount: 1
+
+  ## @param controller.logLevel Controller log level (debug, info, warn, error)
+  logLevel: info
+
+  ## Resource limits and requests
+  resources:
+    ## @param controller.resources.limits.cpu CPU limit for controller
+    ## @param controller.resources.limits.memory Memory limit for controller
+    limits:
+      cpu: 500m
+      memory: 512Mi
+    ## @param controller.resources.requests.cpu CPU request for controller
+    ## @param controller.resources.requests.memory Memory request for controller
+    requests:
+      cpu: 100m
+      memory: 128Mi
+
+  ## @param controller.nodeSelector Node labels for pod assignment
+  nodeSelector: {}
+
+  ## @param controller.tolerations Tolerations for pod assignment
+  tolerations: []
+
+  ## @param controller.affinity Affinity for pod assignment
+  affinity: {}
+
+  ## @param controller.podAnnotations Additional pod annotations
+  podAnnotations: {}
+
+  ## @param controller.podLabels Additional pod labels
+  podLabels: {}
+
+  ## Security context for controller pod
+  podSecurityContext:
+    ## @param controller.podSecurityContext.runAsNonRoot Run container as non-root user
+    runAsNonRoot: true
+    ## @param controller.podSecurityContext.runAsUser User ID to run the container
+    runAsUser: 65532
+    ## @param controller.podSecurityContext.fsGroup Group ID for the filesystem
+    fsGroup: 65532
+
+  ## Security context for controller container
+  securityContext:
+    ## @param controller.securityContext.allowPrivilegeEscalation Allow privilege escalation
+    allowPrivilegeEscalation: false
+    ## @param controller.securityContext.readOnlyRootFilesystem Use read-only root filesystem
+    readOnlyRootFilesystem: true
+    ## @param controller.securityContext.runAsNonRoot Run as non-root
+    runAsNonRoot: true
+    ## @param controller.securityContext.runAsUser User ID
+    runAsUser: 65532
+    capabilities:
+      ## @param controller.securityContext.capabilities.drop Capabilities to drop
+      drop:
+        - ALL
+
+## @section Webhook parameters
+
+## Webhook configuration
+webhook:
+  ## @param webhook.enabled Enable admission webhook
+  enabled: true
+
+  ## @param webhook.port Webhook server port
+  port: 9443
+
+  ## Certificate configuration
+  certificate:
+    ## @param webhook.certificate.generate Auto-generate self-signed certificate
+    generate: true
+    ## @param webhook.certificate.certManager Use cert-manager for certificate
+    certManager: false
+    ## @param webhook.certificate.duration Certificate duration (only for cert-manager)
+    duration: 2160h # 90 days
+    ## @param webhook.certificate.renewBefore Renew certificate before expiry (only for cert-manager)
+    renewBefore: 360h # 15 days
+
+## @section Metrics parameters
+
+## Metrics configuration
+metrics:
+  ## @param metrics.enabled Enable Prometheus metrics
+  enabled: true
+
+  ## @param metrics.port Metrics server port
+  port: 8080
+
+  ## @param metrics.secure Use HTTPS for metrics endpoint
+  secure: false
+
+  ## ServiceMonitor configuration (requires Prometheus Operator)
+  serviceMonitor:
+    ## @param metrics.serviceMonitor.enabled Create ServiceMonitor resource
+    enabled: false
+    ## @param metrics.serviceMonitor.interval Scrape interval
+    interval: 30s
+    ## @param metrics.serviceMonitor.scrapeTimeout Scrape timeout
+    scrapeTimeout: 10s
+    ## @param metrics.serviceMonitor.labels Additional labels for ServiceMonitor
+    labels: {}
+    ## @param metrics.serviceMonitor.annotations Additional annotations for ServiceMonitor
+    annotations: {}
+
+## @section History parameters
+
+## Experiment history configuration
+history:
+  ## @param history.enabled Enable experiment history tracking
+  enabled: true
+
+  ## @param history.namespace Namespace to store history records
+  namespace: "{{ .Release.Namespace }}"
+
+  ## @param history.retentionLimit Maximum history records per experiment
+  retentionLimit: 100
+
+## @section RBAC parameters
+
+## RBAC configuration
+rbac:
+  ## @param rbac.create Create RBAC resources
+  create: true
+
+## ServiceAccount configuration
+serviceAccount:
+  ## @param serviceAccount.create Create service account
+  create: true
+  ## @param serviceAccount.annotations Annotations for service account
+  annotations: {}
+  ## @param serviceAccount.name Name of service account (generated if not set)
+  name: ""
+
+## @section CRD parameters
+
+## CRD configuration
+crds:
+  ## @param crds.install Install CRDs with chart
+  install: true
+
+  ## @param crds.keep Keep CRDs on chart uninstall
+  keep: true
+
+## @section Advanced parameters
+
+## Leader election configuration
+leaderElection:
+  ## @param leaderElection.enabled Enable leader election
+  enabled: true
+  ## @param leaderElection.namespace Namespace for leader election
+  namespace: "{{ .Release.Namespace }}"
+
+## Health probes
+healthProbe:
+  ## @param healthProbe.enabled Enable health probes
+  enabled: true
+  ## @param healthProbe.livenessProbe.initialDelaySeconds Initial delay for liveness probe
+  ## @param healthProbe.livenessProbe.periodSeconds Period for liveness probe
+  ## @param healthProbe.livenessProbe.timeoutSeconds Timeout for liveness probe
+  ## @param healthProbe.livenessProbe.failureThreshold Failure threshold for liveness probe
+  livenessProbe:
+    initialDelaySeconds: 15
+    periodSeconds: 20
+    timeoutSeconds: 1
+    failureThreshold: 3
+  ## @param healthProbe.readinessProbe.initialDelaySeconds Initial delay for readiness probe
+  ## @param healthProbe.readinessProbe.periodSeconds Period for readiness probe
+  ## @param healthProbe.readinessProbe.timeoutSeconds Timeout for readiness probe
+  ## @param healthProbe.readinessProbe.failureThreshold Failure threshold for readiness probe
+  readinessProbe:
+    initialDelaySeconds: 5
+    periodSeconds: 10
+    timeoutSeconds: 1
+    failureThreshold: 3
+
+## Extra arguments to pass to the controller
+## @param extraArgs Extra arguments for controller
+extraArgs: []
+  # - --zap-log-level=debug
+  # - --history-retention-limit=50
+
+## Extra environment variables
+## @param extraEnv Extra environment variables
+extraEnv: []
+  # - name: FEATURE_FLAG
+  #   value: "true"
+
+## Extra volumes
+## @param extraVolumes Extra volumes
+extraVolumes: []
+
+## Extra volume mounts
+## @param extraVolumeMounts Extra volume mounts
+extraVolumeMounts: []

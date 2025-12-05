@@ -1,0 +1,17 @@
+{{- if and .Values.rbac.create .Values.leaderElection.enabled -}}
+apiVersion: {{ include "k8s-chaos.rbacApiVersion" . }}
+kind: RoleBinding
+metadata:
+  name: {{ include "k8s-chaos.fullname" . }}-leader-election-rolebinding
+  namespace: {{ tpl .Values.leaderElection.namespace . }}
+  labels:
+    {{- include "k8s-chaos.labels" . | nindent 4 }}
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: {{ include "k8s-chaos.fullname" . }}-leader-election-role
+subjects:
+- kind: ServiceAccount
+  name: {{ include "k8s-chaos.serviceAccountName" . }}
+  namespace: {{ .Release.Namespace }}
+{{- end }}
