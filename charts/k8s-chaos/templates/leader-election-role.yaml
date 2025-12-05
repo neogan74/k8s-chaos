@@ -1,0 +1,41 @@
+{{- if and .Values.rbac.create .Values.leaderElection.enabled -}}
+apiVersion: {{ include "k8s-chaos.rbacApiVersion" . }}
+kind: Role
+metadata:
+  name: {{ include "k8s-chaos.fullname" . }}-leader-election-role
+  namespace: {{ tpl .Values.leaderElection.namespace . }}
+  labels:
+    {{- include "k8s-chaos.labels" . | nindent 4 }}
+rules:
+- apiGroups:
+  - ""
+  resources:
+  - configmaps
+  verbs:
+  - get
+  - list
+  - watch
+  - create
+  - update
+  - patch
+  - delete
+- apiGroups:
+  - coordination.k8s.io
+  resources:
+  - leases
+  verbs:
+  - get
+  - list
+  - watch
+  - create
+  - update
+  - patch
+  - delete
+- apiGroups:
+  - ""
+  resources:
+  - events
+  verbs:
+  - create
+  - patch
+{{- end }}

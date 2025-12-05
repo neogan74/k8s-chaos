@@ -1,0 +1,137 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "k8s-chaos.fullname" . }}-controller-manager
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "k8s-chaos.labels" . | nindent 4 }}
+spec:
+  replicas: {{ .Values.controller.replicaCount }}
+  selector:
+    matchLabels:
+      {{- include "k8s-chaos.selectorLabels" . | nindent 6 }}
+  template:
+    metadata:
+      annotations:
+        kubectl.kubernetes.io/default-container: manager
+        {{- with .Values.controller.podAnnotations }}
+        {{- toYaml . | nindent 8 }}
+        {{- end }}
+      labels:
+        {{- include "k8s-chaos.selectorLabels" . | nindent 8 }}
+        {{- with .Values.controller.podLabels }}
+        {{- toYaml . | nindent 8 }}
+        {{- end }}
+    spec:
+      {{- with .Values.imagePullSecrets }}
+      imagePullSecrets:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      serviceAccountName: {{ include "k8s-chaos.serviceAccountName" . }}
+      securityContext:
+        {{- toYaml .Values.controller.podSecurityContext | nindent 8 }}
+      containers:
+      - name: manager
+        image: {{ include "k8s-chaos.image" . }}
+        imagePullPolicy: {{ .Values.image.pullPolicy }}
+        command:
+        - /manager
+        args:
+        {{- if .Values.leaderElection.enabled }}
+        - --leader-elect
+        - --leader-elect-namespace={{ tpl .Values.leaderElection.namespace . }}
+        {{- end }}
+        {{- if .Values.metrics.enabled }}
+        - --metrics-bind-address=:{{ .Values.metrics.port }}
+        {{- if .Values.metrics.secure }}
+        - --metrics-secure=true
+        {{- else }}
+        - --metrics-secure=false
+        {{- end }}
+        {{- end }}
+        {{- if .Values.history.enabled }}
+        - --history-enabled=true
+        - --history-namespace={{ include "k8s-chaos.historyNamespace" . }}
+        - --history-retention-limit={{ .Values.history.retentionLimit }}
+        {{- else }}
+        - --history-enabled=false
+        {{- end }}
+        {{- if .Values.webhook.enabled }}
+        - --webhook-port={{ .Values.webhook.port }}
+        {{- end }}
+        - --zap-log-level={{ .Values.controller.logLevel }}
+        {{- with .Values.extraArgs }}
+        {{- toYaml . | nindent 8 }}
+        {{- end }}
+        env:
+        {{- with .Values.extraEnv }}
+        {{- toYaml . | nindent 8 }}
+        {{- end }}
+        ports:
+        {{- if .Values.metrics.enabled }}
+        - name: metrics
+          containerPort: {{ .Values.metrics.port }}
+          protocol: TCP
+        {{- end }}
+        {{- if .Values.webhook.enabled }}
+        - name: webhook
+          containerPort: {{ .Values.webhook.port }}
+          protocol: TCP
+        {{- end }}
+        - name: health
+          containerPort: 8081
+          protocol: TCP
+        securityContext:
+          {{- toYaml .Values.controller.securityContext | nindent 10 }}
+        {{- if .Values.healthProbe.enabled }}
+        livenessProbe:
+          httpGet:
+            path: /healthz
+            port: health
+          initialDelaySeconds: {{ .Values.healthProbe.livenessProbe.initialDelaySeconds }}
+          periodSeconds: {{ .Values.healthProbe.livenessProbe.periodSeconds }}
+          timeoutSeconds: {{ .Values.healthProbe.livenessProbe.timeoutSeconds }}
+          failureThreshold: {{ .Values.healthProbe.livenessProbe.failureThreshold }}
+        readinessProbe:
+          httpGet:
+            path: /readyz
+            port: health
+          initialDelaySeconds: {{ .Values.healthProbe.readinessProbe.initialDelaySeconds }}
+          periodSeconds: {{ .Values.healthProbe.readinessProbe.periodSeconds }}
+          timeoutSeconds: {{ .Values.healthProbe.readinessProbe.timeoutSeconds }}
+          failureThreshold: {{ .Values.healthProbe.readinessProbe.failureThreshold }}
+        {{- end }}
+        resources:
+          {{- toYaml .Values.controller.resources | nindent 10 }}
+        volumeMounts:
+        {{- if .Values.webhook.enabled }}
+        - name: cert
+          mountPath: /tmp/k8s-webhook-server/serving-certs
+          readOnly: true
+        {{- end }}
+        {{- with .Values.extraVolumeMounts }}
+        {{- toYaml . | nindent 8 }}
+        {{- end }}
+      volumes:
+      {{- if .Values.webhook.enabled }}
+      - name: cert
+        secret:
+          secretName: {{ include "k8s-chaos.webhookCertSecretName" . }}
+          defaultMode: 420
+      {{- end }}
+      {{- with .Values.extraVolumes }}
+      {{- toYaml . | nindent 6 }}
+      {{- end }}
+      {{- with .Values.controller.nodeSelector }}
+      nodeSelector:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.controller.affinity }}
+      affinity:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.controller.tolerations }}
+      tolerations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      terminationGracePeriodSeconds: 10
