@@ -94,42 +94,6 @@ var (
 		},
 		[]string{"experiment", "namespace"},
 	)
-
-	// SafetyDryRunExecutions counts experiments executed in dry-run mode
-	SafetyDryRunExecutions = prometheus.NewCounterVec(
-		prometheus.CounterOpts{
-			Name: "chaosexperiment_safety_dryrun_total",
-			Help: "Total number of experiments executed in dry-run mode",
-		},
-		[]string{"action", "namespace"},
-	)
-
-	// SafetyProductionBlocks counts experiments blocked due to production protection
-	SafetyProductionBlocks = prometheus.NewCounterVec(
-		prometheus.CounterOpts{
-			Name: "chaosexperiment_safety_production_blocks_total",
-			Help: "Total number of experiments blocked due to production namespace protection",
-		},
-		[]string{"action", "namespace"},
-	)
-
-	// SafetyPercentageViolations counts experiments blocked due to maxPercentage violations
-	SafetyPercentageViolations = prometheus.NewCounterVec(
-		prometheus.CounterOpts{
-			Name: "chaosexperiment_safety_percentage_violations_total",
-			Help: "Total number of experiments blocked due to maxPercentage limit violations",
-		},
-		[]string{"action", "namespace"},
-	)
-
-	// SafetyExcludedResources tracks resources excluded from experiments via exclusion labels
-	SafetyExcludedResources = prometheus.NewCounterVec(
-		prometheus.CounterOpts{
-			Name: "chaosexperiment_safety_excluded_resources_total",
-			Help: "Total number of resources excluded from experiments via exclusion labels",
-		},
-		[]string{"action", "namespace", "resource_type"},
-	)
 )
 
 func init() {
@@ -143,9 +107,5 @@ func init() {
 		HistoryRecordsTotal,
 		HistoryCleanupTotal,
 		HistoryRecordsCount,
-		SafetyDryRunExecutions,
-		SafetyProductionBlocks,
-		SafetyPercentageViolations,
-		SafetyExcludedResources,
 	)
 }
