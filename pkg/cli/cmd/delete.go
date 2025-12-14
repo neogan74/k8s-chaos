@@ -76,7 +76,11 @@ func runDelete(cmd *cobra.Command, args []string) error {
 	if !force {
 		fmt.Printf("Are you sure you want to delete experiment '%s' in namespace '%s'? (y/N): ", experimentName, namespace)
 		var response string
-		fmt.Scanln(&response)
+		if _, err := fmt.Scanln(&response); err != nil {
+			// Ignore scan errors (e.g., empty input), treat as "no"
+			fmt.Println("Deletion cancelled")
+			return nil
+		}
 		if response != "y" && response != "Y" && response != "yes" {
 			fmt.Println("Deletion cancelled")
 			return nil

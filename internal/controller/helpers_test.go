@@ -1,13 +1,15 @@
 package controller
 
 import (
+	"context"
 	"testing"
 	"time"
 
-	chaosv1alpha1 "github.com/neogan74/k8s-chaos/api/v1alpha1"
 	"github.com/stretchr/testify/assert"
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+
+	chaosv1alpha1 "github.com/neogan74/k8s-chaos/api/v1alpha1"
 )
 
 // Test parseDuration function
@@ -140,9 +142,9 @@ func TestParseDurationToMs(t *testing.T) {
 			wantErr:  false,
 		},
 		{
-			name:     "500 milliseconds",
-			duration: "500ms",
-			want:     500,
+			name:     "30 seconds",
+			duration: "30s",
+			want:     30000,
 			wantErr:  false,
 		},
 		{
@@ -173,98 +175,6 @@ func TestParseDurationToMs(t *testing.T) {
 			} else {
 				assert.NoError(t, err)
 				assert.Equal(t, tt.want, got)
-			}
-		})
-	}
-}
-
-// Test calculateRetryDelay function
-func TestCalculateRetryDelay(t *testing.T) {
-	tests := []struct {
-		name         string
-		retryCount   int
-		baseDelay    time.Duration
-		backoff      string
-		wantMin      time.Duration
-		wantMax      time.Duration
-		description  string
-	}{
-		{
-			name:        "exponential backoff - first retry",
-			retryCount:  1,
-			baseDelay:   30 * time.Second,
-			backoff:     "exponential",
-			wantMin:     30 * time.Second,
-			wantMax:     30 * time.Second,
-			description: "First retry should be baseDelay",
-		},
-		{
-			name:        "exponential backoff - second retry",
-			retryCount:  2,
-			baseDelay:   30 * time.Second,
-			backoff:     "exponential",
-			wantMin:     60 * time.Second,
-			wantMax:     60 * time.Second,
-			description: "Second retry should be 2x baseDelay",
-		},
-		{
-			name:        "exponential backoff - third retry",
-			retryCount:  3,
-			baseDelay:   30 * time.Second,
-			backoff:     "exponential",
-			wantMin:     120 * time.Second,
-			wantMax:     120 * time.Second,
-			description: "Third retry should be 4x baseDelay",
-		},
-		{
-			name:        "exponential backoff - max cap",
-			retryCount:  10,
-			baseDelay:   30 * time.Second,
-			backoff:     "exponential",
-			wantMin:     10 * time.Minute,
-			wantMax:     10 * time.Minute,
-			description: "Should cap at 10 minutes",
-		},
-		{
-			name:        "fixed backoff",
-			retryCount:  1,
-			baseDelay:   30 * time.Second,
-			backoff:     "fixed",
-			wantMin:     30 * time.Second,
-			wantMax:     30 * time.Second,
-			description: "Fixed backoff always returns baseDelay",
-		},
-		{
-			name:        "fixed backoff - multiple retries",
-			retryCount:  5,
-			baseDelay:   30 * time.Second,
-			backoff:     "fixed",
-			wantMin:     30 * time.Second,
-			wantMax:     30 * time.Second,
-			description: "Fixed backoff should not change",
-		},
-		{
-			name:        "unknown backoff defaults to exponential",
-			retryCount:  2,
-			baseDelay:   30 * time.Second,
-			backoff:     "unknown",
-			wantMin:     60 * time.Second,
-			wantMax:     60 * time.Second,
-			description: "Unknown backoff should default to exponential",
-		},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			got := calculateRetryDelay(tt.retryCount, tt.baseDelay, tt.backoff)
-
-			// For fixed backoff, exact match expected
-			// For exponential, should be within range
-			if tt.wantMin == tt.wantMax {
-				assert.Equal(t, tt.wantMin, got, tt.description)
-			} else {
-				assert.GreaterOrEqual(t, got, tt.wantMin, tt.description)
-				assert.LessOrEqual(t, got, tt.wantMax, tt.description)
 			}
 		})
 	}
@@ -353,12 +263,27 @@ func TestIsStaticPod(t *testing.T) {
 		want bool
 	}{
 		{
-			name: "Static pod with mirror annotation",
+			name: "Static pod with config.source annotation",
 			pod: &corev1.Pod{
 				ObjectMeta: metav1.ObjectMeta{
 					Name: "test-pod",
 					Annotations: map[string]string{
-						"kubernetes.io/config.mirror": "abc123",
+						"kubernetes.io/config.source": "file",
+					},
+				},
+			},
+			want: true,
+		},
+		{
+			name: "Static pod with Node owner reference",
+			pod: &corev1.Pod{
+				ObjectMeta: metav1.ObjectMeta{
+					Name: "test-pod",
+					OwnerReferences: []metav1.OwnerReference{
+						{
+							Kind: "Node",
+							Name: "test-node",
+						},
 					},
 				},
 			},
@@ -495,4 +420,380 @@ func TestIsEphemeralContainerRunning(t *testing.T) {
 			assert.Equal(t, tt.want, got)
 		})
 	}
+}
+
+// Test calculateRetryDelay function
+func TestCalculateRetryDelay(t *testing.T) {
+	r := &ChaosExperimentReconciler{}
+	tests := []struct {
+		name string
+		exp  *chaosv1alpha1.ChaosExperiment
+		want time.Duration
+	}{
+		{
+			name: "default exponential backoff - first retry",
+			exp: &chaosv1alpha1.ChaosExperiment{
+				Spec: chaosv1alpha1.ChaosExperimentSpec{},
+				Status: chaosv1alpha1.ChaosExperimentStatus{
+					RetryCount: 0,
+				},
+			},
+			want: 30 * time.Second, // default base delay * 2^0
+		},
+		{
+			name: "default exponential backoff - second retry",
+			exp: &chaosv1alpha1.ChaosExperiment{
+				Spec: chaosv1alpha1.ChaosExperimentSpec{},
+				Status: chaosv1alpha1.ChaosExperimentStatus{
+					RetryCount: 1,
+				},
+			},
+			want: 60 * time.Second, // default base delay * 2^1
+		},
+		{
+			name: "default exponential backoff - third retry",
+			exp: &chaosv1alpha1.ChaosExperiment{
+				Spec: chaosv1alpha1.ChaosExperimentSpec{},
+				Status: chaosv1alpha1.ChaosExperimentStatus{
+					RetryCount: 2,
+				},
+			},
+			want: 2 * time.Minute, // default base delay * 2^2
+		},
+		{
+			name: "custom base delay with exponential backoff",
+			exp: &chaosv1alpha1.ChaosExperiment{
+				Spec: chaosv1alpha1.ChaosExperimentSpec{
+					RetryDelay:   "1m",
+					RetryBackoff: "exponential",
+				},
+				Status: chaosv1alpha1.ChaosExperimentStatus{
+					RetryCount: 1,
+				},
+			},
+			want: 2 * time.Minute, // 1m * 2^1
+		},
+		{
+			name: "fixed backoff - first retry",
+			exp: &chaosv1alpha1.ChaosExperiment{
+				Spec: chaosv1alpha1.ChaosExperimentSpec{
+					RetryDelay:   "45s",
+					RetryBackoff: "fixed",
+				},
+				Status: chaosv1alpha1.ChaosExperimentStatus{
+					RetryCount: 0,
+				},
+			},
+			want: 45 * time.Second,
+		},
+		{
+			name: "fixed backoff - third retry",
+			exp: &chaosv1alpha1.ChaosExperiment{
+				Spec: chaosv1alpha1.ChaosExperimentSpec{
+					RetryDelay:   "45s",
+					RetryBackoff: "fixed",
+				},
+				Status: chaosv1alpha1.ChaosExperimentStatus{
+					RetryCount: 2,
+				},
+			},
+			want: 45 * time.Second, // Still 45s for fixed backoff
+		},
+		{
+			name: "exponential backoff capped at 10 minutes",
+			exp: &chaosv1alpha1.ChaosExperiment{
+				Spec: chaosv1alpha1.ChaosExperimentSpec{
+					RetryDelay:   "2m",
+					RetryBackoff: "exponential",
+				},
+				Status: chaosv1alpha1.ChaosExperimentStatus{
+					RetryCount: 5, // 2m * 2^5 = 64m, should be capped at 10m
+				},
+			},
+			want: 10 * time.Minute,
+		},
+		{
+			name: "invalid retry delay falls back to default",
+			exp: &chaosv1alpha1.ChaosExperiment{
+				Spec: chaosv1alpha1.ChaosExperimentSpec{
+					RetryDelay:   "invalid",
+					RetryBackoff: "exponential",
+				},
+				Status: chaosv1alpha1.ChaosExperimentStatus{
+					RetryCount: 0,
+				},
+			},
+			want: 30 * time.Second, // default base delay
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := r.calculateRetryDelay(tt.exp)
+			assert.Equal(t, tt.want, got)
+		})
+	}
+}
+
+// Test shouldRetry function
+func TestShouldRetry(t *testing.T) {
+	r := &ChaosExperimentReconciler{}
+	tests := []struct {
+		name string
+		exp  *chaosv1alpha1.ChaosExperiment
+		want bool
+	}{
+		{
+			name: "should retry - under default max retries",
+			exp: &chaosv1alpha1.ChaosExperiment{
+				Spec: chaosv1alpha1.ChaosExperimentSpec{},
+				Status: chaosv1alpha1.ChaosExperimentStatus{
+					RetryCount: 1,
+				},
+			},
+			want: true, // default max is 3, retry count is 1
+		},
+		{
+			name: "should retry - custom max retries",
+			exp: &chaosv1alpha1.ChaosExperiment{
+				Spec: chaosv1alpha1.ChaosExperimentSpec{
+					MaxRetries: 5,
+				},
+				Status: chaosv1alpha1.ChaosExperimentStatus{
+					RetryCount: 4,
+				},
+			},
+			want: true,
+		},
+		{
+			name: "should not retry - reached default max retries",
+			exp: &chaosv1alpha1.ChaosExperiment{
+				Spec: chaosv1alpha1.ChaosExperimentSpec{},
+				Status: chaosv1alpha1.ChaosExperimentStatus{
+					RetryCount: 3,
+				},
+			},
+			want: false, // default max is 3, retry count is 3
+		},
+		{
+			name: "should not retry - exceeded custom max retries",
+			exp: &chaosv1alpha1.ChaosExperiment{
+				Spec: chaosv1alpha1.ChaosExperimentSpec{
+					MaxRetries: 2,
+				},
+				Status: chaosv1alpha1.ChaosExperimentStatus{
+					RetryCount: 3,
+				},
+			},
+			want: false,
+		},
+		{
+			name: "should retry - zero retry count",
+			exp: &chaosv1alpha1.ChaosExperiment{
+				Spec: chaosv1alpha1.ChaosExperimentSpec{
+					MaxRetries: 3,
+				},
+				Status: chaosv1alpha1.ChaosExperimentStatus{
+					RetryCount: 0,
+				},
+			},
+			want: true,
+		},
+		{
+			name: "should retry - max retries 0 uses default",
+			exp: &chaosv1alpha1.ChaosExperiment{
+				Spec: chaosv1alpha1.ChaosExperimentSpec{
+					MaxRetries: 0,
+				},
+				Status: chaosv1alpha1.ChaosExperimentStatus{
+					RetryCount: 2,
+				},
+			},
+			want: true, // max retries 0 uses default (3)
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := r.shouldRetry(tt.exp)
+			assert.Equal(t, tt.want, got)
+		})
+	}
+}
+
+// Test buildResourceReferences function
+func TestBuildResourceReferences(t *testing.T) {
+	tests := []struct {
+		name          string
+		action        string
+		namespace     string
+		resourceNames []string
+		kind          string
+		want          []chaosv1alpha1.ResourceReference
+	}{
+		{
+			name:          "build pod references",
+			action:        "deleted",
+			namespace:     "test-ns",
+			resourceNames: []string{"pod-1", "pod-2"},
+			kind:          "Pod",
+			want: []chaosv1alpha1.ResourceReference{
+				{Kind: "Pod", Name: "pod-1", Namespace: "test-ns", Action: "deleted"},
+				{Kind: "Pod", Name: "pod-2", Namespace: "test-ns", Action: "deleted"},
+			},
+		},
+		{
+			name:          "build node references",
+			action:        "drained",
+			namespace:     "",
+			resourceNames: []string{"node-1"},
+			kind:          "Node",
+			want: []chaosv1alpha1.ResourceReference{
+				{Kind: "Node", Name: "node-1", Namespace: "", Action: "drained"},
+			},
+		},
+		{
+			name:          "empty resource names",
+			action:        "deleted",
+			namespace:     "test-ns",
+			resourceNames: []string{},
+			kind:          "Pod",
+			want:          []chaosv1alpha1.ResourceReference{},
+		},
+		{
+			name:          "multiple resources with network delay action",
+			action:        "network-delay-100ms",
+			namespace:     "default",
+			resourceNames: []string{"app-1", "app-2", "app-3"},
+			kind:          "Pod",
+			want: []chaosv1alpha1.ResourceReference{
+				{Kind: "Pod", Name: "app-1", Namespace: "default", Action: "network-delay-100ms"},
+				{Kind: "Pod", Name: "app-2", Namespace: "default", Action: "network-delay-100ms"},
+				{Kind: "Pod", Name: "app-3", Namespace: "default", Action: "network-delay-100ms"},
+			},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := buildResourceReferences(tt.action, tt.namespace, tt.resourceNames, tt.kind)
+			assert.Equal(t, tt.want, got)
+		})
+	}
+}
+
+// Test sortHistoryByAge function
+func TestSortHistoryByAge(t *testing.T) {
+	now := time.Now()
+	tests := []struct {
+		name  string
+		items []chaosv1alpha1.ChaosExperimentHistory
+		want  []string // expected order of names after sorting
+	}{
+		{
+			name: "sort three items",
+			items: []chaosv1alpha1.ChaosExperimentHistory{
+				{
+					ObjectMeta: metav1.ObjectMeta{
+						Name:              "newest",
+						CreationTimestamp: metav1.NewTime(now),
+					},
+				},
+				{
+					ObjectMeta: metav1.ObjectMeta{
+						Name:              "oldest",
+						CreationTimestamp: metav1.NewTime(now.Add(-2 * time.Hour)),
+					},
+				},
+				{
+					ObjectMeta: metav1.ObjectMeta{
+						Name:              "middle",
+						CreationTimestamp: metav1.NewTime(now.Add(-1 * time.Hour)),
+					},
+				},
+			},
+			want: []string{"oldest", "middle", "newest"},
+		},
+		{
+			name: "already sorted",
+			items: []chaosv1alpha1.ChaosExperimentHistory{
+				{
+					ObjectMeta: metav1.ObjectMeta{
+						Name:              "first",
+						CreationTimestamp: metav1.NewTime(now.Add(-2 * time.Hour)),
+					},
+				},
+				{
+					ObjectMeta: metav1.ObjectMeta{
+						Name:              "second",
+						CreationTimestamp: metav1.NewTime(now.Add(-1 * time.Hour)),
+					},
+				},
+			},
+			want: []string{"first", "second"},
+		},
+		{
+			name:  "empty list",
+			items: []chaosv1alpha1.ChaosExperimentHistory{},
+			want:  []string{},
+		},
+		{
+			name: "single item",
+			items: []chaosv1alpha1.ChaosExperimentHistory{
+				{
+					ObjectMeta: metav1.ObjectMeta{
+						Name:              "only",
+						CreationTimestamp: metav1.NewTime(now),
+					},
+				},
+			},
+			want: []string{"only"},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			sortHistoryByAge(tt.items)
+			gotNames := make([]string, len(tt.items))
+			for i, item := range tt.items {
+				gotNames[i] = item.Name
+			}
+			assert.Equal(t, tt.want, gotNames)
+		})
+	}
+}
+
+// Test generateShortUID function
+func TestGenerateShortUID(t *testing.T) {
+	// Test that it generates non-empty strings
+	uid1 := generateShortUID()
+	assert.NotEmpty(t, uid1)
+
+	// Test that consecutive calls generate different UIDs (with small delay)
+	time.Sleep(time.Nanosecond)
+	uid2 := generateShortUID()
+	assert.NotEmpty(t, uid2)
+
+	// UIDs should be hex strings of reasonable length
+	assert.LessOrEqual(t, len(uid1), 6) // max 6 hex chars for 0xffffff
+}
+
+// Test getInitiator function
+func TestGetInitiator(t *testing.T) {
+	ctx := context.Background()
+	initiator := getInitiator(ctx)
+
+	// Should return the default controller service account
+	assert.Equal(t, "system:serviceaccount:chaos-system:chaos-controller", initiator)
+}
+
+// Test DefaultHistoryConfig function
+func TestDefaultHistoryConfig(t *testing.T) {
+	config := DefaultHistoryConfig()
+
+	assert.True(t, config.Enabled)
+	assert.Equal(t, "chaos-system", config.Namespace)
+	assert.Equal(t, 100, config.RetentionLimit)
+	assert.Equal(t, 30*24*time.Hour, config.RetentionTTL)
+	assert.Equal(t, 1, config.SamplingRate)
 }

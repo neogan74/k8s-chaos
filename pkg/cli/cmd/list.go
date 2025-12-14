@@ -82,9 +82,9 @@ func runList(cmd *cobra.Command, args []string) error {
 	w := tabwriter.NewWriter(os.Stdout, 0, 0, 3, ' ', 0)
 
 	if wideOutput {
-		fmt.Fprintln(w, "NAMESPACE\tNAME\tACTION\tTARGET-NS\tSELECTOR\tCOUNT\tPHASE\tRETRIES\tDURATION\tAGE")
+		_, _ = fmt.Fprintln(w, "NAMESPACE\tNAME\tACTION\tTARGET-NS\tSELECTOR\tCOUNT\tPHASE\tRETRIES\tDURATION\tAGE")
 	} else {
-		fmt.Fprintln(w, "NAMESPACE\tNAME\tACTION\tTARGET-NS\tPHASE\tAGE")
+		_, _ = fmt.Fprintln(w, "NAMESPACE\tNAME\tACTION\tTARGET-NS\tPHASE\tAGE")
 	}
 
 	for _, exp := range expList.Items {
@@ -96,7 +96,7 @@ func runList(cmd *cobra.Command, args []string) error {
 			if duration == "" {
 				duration = "∞"
 			}
-			fmt.Fprintf(w, "%s\t%s\t%s\t%s\t%s\t%d\t%s\t%d\t%s\t%s\n",
+			_, _ = fmt.Fprintf(w, "%s\t%s\t%s\t%s\t%s\t%d\t%s\t%d\t%s\t%s\n",
 				exp.Namespace,
 				exp.Name,
 				exp.Spec.Action,
@@ -109,7 +109,7 @@ func runList(cmd *cobra.Command, args []string) error {
 				age,
 			)
 		} else {
-			fmt.Fprintf(w, "%s\t%s\t%s\t%s\t%s\t%s\n",
+			_, _ = fmt.Fprintf(w, "%s\t%s\t%s\t%s\t%s\t%s\n",
 				exp.Namespace,
 				exp.Name,
 				exp.Spec.Action,
@@ -120,7 +120,7 @@ func runList(cmd *cobra.Command, args []string) error {
 		}
 	}
 
-	w.Flush()
+	_ = w.Flush()
 	return nil
 }
 
