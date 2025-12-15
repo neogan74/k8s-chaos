@@ -430,10 +430,13 @@ func (r *ChaosExperimentReconciler) handlePodCPUStress(ctx context.Context, exp 
 			"duration", durationSeconds)
 
 		// Inject ephemeral container with stress-ng
-		if err := r.injectCPUStressContainer(ctx, &pod, exp.Spec.CPULoad, cpuWorkers, durationSeconds); err != nil {
+		containerName, err := r.injectCPUStressContainer(ctx, &pod, exp.Spec.CPULoad, cpuWorkers, durationSeconds)
+		if err != nil {
 			log.Error(err, "Failed to inject CPU stress container", "pod", pod.Name)
 			chaosmetrics.ExperimentErrors.WithLabelValues("pod-cpu-stress", exp.Spec.Namespace).Inc()
-		} else {
+		} else if containerName != "" {
+			// Track the affected pod for cleanup later
+			r.trackAffectedPod(exp, pod.Namespace, pod.Name, containerName)
 			affectedPods = append(affectedPods, pod.Name)
 		}
 	}
@@ -482,7 +485,8 @@ func (r *ChaosExperimentReconciler) handlePodCPUStress(ctx context.Context, exp 
 }
 
 // injectCPUStressContainer adds an ephemeral container with stress-ng to the pod
-func (r *ChaosExperimentReconciler) injectCPUStressContainer(ctx context.Context, pod *corev1.Pod, cpuLoad, cpuWorkers, durationSeconds int) error {
+// Returns the container name for tracking purposes
+func (r *ChaosExperimentReconciler) injectCPUStressContainer(ctx context.Context, pod *corev1.Pod, cpuLoad, cpuWorkers, durationSeconds int) (string, error) {
 	log := ctrl.LoggerFrom(ctx)
 
 	// Generate unique container name based on experiment
@@ -491,7 +495,7 @@ func (r *ChaosExperimentReconciler) injectCPUStressContainer(ctx context.Context
 	// Get the current pod to check container statuses
 	currentPod := &corev1.Pod{}
 	if err := r.Get(ctx, client.ObjectKeyFromObject(pod), currentPod); err != nil {
-		return fmt.Errorf("failed to get current pod state: %w", err)
+		return "", fmt.Errorf("failed to get current pod state: %w", err)
 	}
 
 	// Check if a chaos-cpu-stress ephemeral container is still running
@@ -503,7 +507,7 @@ func (r *ChaosExperimentReconciler) injectCPUStressContainer(ctx context.Context
 				log.Info("Chaos CPU stress container is already running, skipping injection",
 					"pod", pod.Name,
 					"container", ec.Name)
-				return nil
+				return "", nil // Return empty name to indicate skipped
 			}
 			// Container exists but has completed, we can inject a new one
 			log.Info("Found completed chaos CPU stress container, will inject new one",
@@ -542,7 +546,7 @@ func (r *ChaosExperimentReconciler) injectCPUStressContainer(ctx context.Context
 	// Update the pod with the ephemeral container
 	// Use SubResource to update ephemeralcontainers
 	if err := r.Client.SubResource("ephemeralcontainers").Update(ctx, currentPod); err != nil {
-		return fmt.Errorf("failed to inject ephemeral container: %w", err)
+		return "", fmt.Errorf("failed to inject ephemeral container: %w", err)
 	}
 
 	log.Info("Successfully injected CPU stress ephemeral container",
@@ -552,7 +556,7 @@ func (r *ChaosExperimentReconciler) injectCPUStressContainer(ctx context.Context
 		"cpuWorkers", cpuWorkers,
 		"duration", durationSeconds)
 
-	return nil
+	return containerName, nil
 }
 
 // parseDurationToSeconds converts duration string to seconds
@@ -1169,6 +1173,16 @@ func (r *ChaosExperimentReconciler) checkExperimentLifecycle(ctx context.Context
 			exp.Status.CordonedNodes = nil
 		}
 
+		// Cleanup ephemeral containers for stress experiments (pod-cpu-stress, pod-memory-stress)
+		if (exp.Spec.Action == "pod-cpu-stress" || exp.Spec.Action == "pod-memory-stress") && len(exp.Status.AffectedPods) > 0 {
+			log.Info("Cleaning up ephemeral containers injected by this experiment",
+				"affectedPods", len(exp.Status.AffectedPods))
+			if err := r.cleanupEphemeralContainers(ctx, exp); err != nil {
+				log.Error(err, "Failed to cleanup ephemeral containers")
+				// Continue with completion even if cleanup fails
+			}
+		}
+
 		// Mark as completed
 		completedAt := metav1.Now()
 		exp.Status.CompletedAt = &completedAt
@@ -1329,11 +1343,14 @@ func (r *ChaosExperimentReconciler) handlePodMemoryStress(ctx context.Context, e
 		pod := eligiblePods[i]
 		log.Info("Injecting memory stress into pod", "pod", pod.Name, "namespace", pod.Namespace)
 
-		if err := r.injectMemoryStressContainer(ctx, &pod, memoryWorkers, exp.Spec.MemorySize, timeoutSeconds); err != nil {
+		containerName, err := r.injectMemoryStressContainer(ctx, &pod, memoryWorkers, exp.Spec.MemorySize, timeoutSeconds)
+		if err != nil {
 			log.Error(err, "Failed to inject memory stress container", "pod", pod.Name)
 			continue
 		}
 
+		// Track the affected pod for cleanup later
+		r.trackAffectedPod(exp, pod.Namespace, pod.Name, containerName)
 		stressedPods = append(stressedPods, pod.Name)
 	}
 
@@ -1376,16 +1393,20 @@ func (r *ChaosExperimentReconciler) handlePodMemoryStress(ctx context.Context, e
 }
 
 // injectMemoryStressContainer injects an ephemeral container that stresses memory
-func (r *ChaosExperimentReconciler) injectMemoryStressContainer(ctx context.Context, pod *corev1.Pod, workers int, memorySize string, timeoutSeconds int) error {
+// Returns the container name for tracking purposes
+func (r *ChaosExperimentReconciler) injectMemoryStressContainer(ctx context.Context, pod *corev1.Pod, workers int, memorySize string, timeoutSeconds int) (string, error) {
 	log := ctrl.LoggerFrom(ctx)
 
 	// Build stress-ng command
 	stressCmd := fmt.Sprintf("stress-ng --vm %d --vm-bytes %s --timeout %ds --metrics-brief", workers, memorySize, timeoutSeconds)
 
+	// Generate unique container name
+	containerName := fmt.Sprintf("memory-stress-%d", time.Now().Unix())
+
 	// Create ephemeral container with resource limits
 	ephemeralContainer := corev1.EphemeralContainer{
 		EphemeralContainerCommon: corev1.EphemeralContainerCommon{
-			Name:    fmt.Sprintf("memory-stress-%d", time.Now().Unix()),
+			Name:    containerName,
 			Image:   "ghcr.io/neogan74/stress-ng:latest",
 			Command: []string{"/bin/sh", "-c", stressCmd},
 		},
@@ -1394,19 +1415,19 @@ func (r *ChaosExperimentReconciler) injectMemoryStressContainer(ctx context.Cont
 	// Get the latest pod version
 	currentPod := &corev1.Pod{}
 	if err := r.Get(ctx, client.ObjectKey{Namespace: pod.Namespace, Name: pod.Name}, currentPod); err != nil {
-		return fmt.Errorf("failed to get current pod: %w", err)
+		return "", fmt.Errorf("failed to get current pod: %w", err)
 	}
 
 	// Add ephemeral container
 	currentPod.Spec.EphemeralContainers = append(currentPod.Spec.EphemeralContainers, ephemeralContainer)
 
 	// Update pod with ephemeral container
-	if err := r.Status().Update(ctx, currentPod); err != nil {
-		return fmt.Errorf("failed to inject ephemeral container: %w", err)
+	if err := r.Client.SubResource("ephemeralcontainers").Update(ctx, currentPod); err != nil {
+		return "", fmt.Errorf("failed to inject ephemeral container: %w", err)
 	}
 
-	log.Info("Successfully injected memory stress ephemeral container", "pod", pod.Name, "container", ephemeralContainer.Name)
-	return nil
+	log.Info("Successfully injected memory stress ephemeral container", "pod", pod.Name, "container", containerName)
+	return containerName, nil
 }
 
 // handlePodFailure kills the main process in pods to cause container crashes and restarts
@@ -1623,6 +1644,119 @@ func isEphemeralContainerRunning(pod *corev1.Pod, containerName string) bool {
 	}
 	// Container status not found yet (might be starting), consider it as running to be safe
 	return true
+}
+
+// cleanupEphemeralContainers cleans up ephemeral containers that were injected by this experiment
+// Note: Kubernetes doesn't support removing ephemeral containers directly, but we can track them
+// and log their completion status. The containers will remain in the pod spec but stop consuming resources.
+func (r *ChaosExperimentReconciler) cleanupEphemeralContainers(ctx context.Context, exp *chaosv1alpha1.ChaosExperiment) error {
+	log := ctrl.LoggerFrom(ctx)
+
+	if len(exp.Status.AffectedPods) == 0 {
+		log.Info("No affected pods to clean up")
+		return nil
+	}
+
+	log.Info("Cleaning up ephemeral containers", "affectedPods", len(exp.Status.AffectedPods))
+
+	cleanedUp := 0
+	stillRunning := 0
+	errors := 0
+
+	for _, podRef := range exp.Status.AffectedPods {
+		// Parse the pod reference format: "namespace/podName:containerName"
+		parts := strings.SplitN(podRef, ":", 2)
+		if len(parts) != 2 {
+			log.Error(nil, "Invalid pod reference format", "ref", podRef)
+			errors++
+			continue
+		}
+
+		podKey := parts[0]
+		containerName := parts[1]
+
+		nsPod := strings.SplitN(podKey, "/", 2)
+		if len(nsPod) != 2 {
+			log.Error(nil, "Invalid pod key format", "key", podKey)
+			errors++
+			continue
+		}
+
+		namespace := nsPod[0]
+		podName := nsPod[1]
+
+		// Get the pod
+		pod := &corev1.Pod{}
+		if err := r.Get(ctx, client.ObjectKey{Namespace: namespace, Name: podName}, pod); err != nil {
+			if client.IgnoreNotFound(err) != nil {
+				log.Error(err, "Failed to get pod for cleanup", "pod", podName, "namespace", namespace)
+				errors++
+			} else {
+				// Pod was deleted, consider it cleaned up
+				log.Info("Pod no longer exists, cleanup not needed", "pod", podName, "namespace", namespace)
+				cleanedUp++
+			}
+			continue
+		}
+
+		// Check if the ephemeral container has terminated
+		containerTerminated := false
+		for _, status := range pod.Status.EphemeralContainerStatuses {
+			if status.Name == containerName {
+				if status.State.Terminated != nil {
+					containerTerminated = true
+					log.Info("Ephemeral container has terminated",
+						"pod", podName,
+						"namespace", namespace,
+						"container", containerName,
+						"exitCode", status.State.Terminated.ExitCode,
+						"reason", status.State.Terminated.Reason)
+					cleanedUp++
+				} else if status.State.Running != nil {
+					log.Info("Ephemeral container is still running",
+						"pod", podName,
+						"namespace", namespace,
+						"container", containerName)
+					stillRunning++
+				}
+				break
+			}
+		}
+
+		if !containerTerminated && stillRunning == 0 {
+			// Container status not found, might be starting or already cleaned up
+			log.Info("Ephemeral container status not found",
+				"pod", podName,
+				"namespace", namespace,
+				"container", containerName)
+			cleanedUp++
+		}
+	}
+
+	log.Info("Ephemeral container cleanup summary",
+		"cleanedUp", cleanedUp,
+		"stillRunning", stillRunning,
+		"errors", errors,
+		"total", len(exp.Status.AffectedPods))
+
+	// Clear the affected pods list after cleanup attempt
+	exp.Status.AffectedPods = nil
+
+	return nil
+}
+
+// trackAffectedPod adds a pod to the affected pods list in the experiment status
+func (r *ChaosExperimentReconciler) trackAffectedPod(exp *chaosv1alpha1.ChaosExperiment, namespace, podName, containerName string) {
+	podRef := fmt.Sprintf("%s/%s:%s", namespace, podName, containerName)
+
+	// Check if already tracked (avoid duplicates)
+	for _, existing := range exp.Status.AffectedPods {
+		if existing == podRef {
+			return
+		}
+	}
+
+	exp.Status.AffectedPods = append(exp.Status.AffectedPods, podRef)
 }
 
 // SetupWithManager sets up the controller with the Manager.
