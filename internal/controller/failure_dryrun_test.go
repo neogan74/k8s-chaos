@@ -30,7 +30,7 @@ func TestHandleExperimentFailureRetries(t *testing.T) {
 
 	result, err := r.handleExperimentFailure(ctx, exp, "boom")
 	require.NoError(t, err)
-	assert.Equal(t, 30*time.Second, result.RequeueAfter)
+	assert.Equal(t, time.Minute, result.RequeueAfter)
 
 	refreshed := &chaosv1alpha1.ChaosExperiment{}
 	require.NoError(t, r.Get(ctx, clientKey(exp), refreshed))
