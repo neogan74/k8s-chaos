@@ -180,6 +180,14 @@ spec:
           status:
             description: status defines the observed state of ChaosExperiment
             properties:
+              affectedPods:
+                description: |-
+                  AffectedPods tracks pods that have ephemeral containers injected by this experiment
+                  Used for cleanup when the experiment completes (pod-cpu-stress, pod-memory-stress)
+                  Format: "namespace/podName:containerName"
+                items:
+                  type: string
+                type: array
               completedAt:
                 description: CompletedAt indicates when the experiment completed (either
                   by duration or manually)
