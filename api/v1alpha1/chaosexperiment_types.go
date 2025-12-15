@@ -209,6 +209,12 @@ type ChaosExperimentStatus struct {
 	// Used for auto-uncordon when the experiment completes
 	// +optional
 	CordonedNodes []string `json:"cordonedNodes,omitempty"`
+
+	// AffectedPods tracks pods that have ephemeral containers injected by this experiment
+	// Used for cleanup when the experiment completes (pod-cpu-stress, pod-memory-stress)
+	// Format: "namespace/podName:containerName"
+	// +optional
+	AffectedPods []string `json:"affectedPods,omitempty"`
 }
 
 // +kubebuilder:object:root=true
