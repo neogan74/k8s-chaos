@@ -156,3 +156,17 @@ ADRs should be reviewed as part of the normal PR process. When reviewing:
 - Suggest improvements to clarity and completeness
 
 ADRs are living documents - update implementation status as work progresses!
+
+
+Not-yet-implemented/high-priority features (good ADR subjects):
+
+- Network chaos actions (pod-network-loss, network-partition, dns-chaos).
+- Infrastructure chaos (node-disk-fill, node-taint, node CPU stress).
+- Time windows/maintenance windows for experiments.
+- Event emission for experiments/pods.
+- Experiment orchestration/linked scenarios.
+- Notifications/integrations (Alertmanager, Slack/PagerDuty/webhooks).
+- Service mesh-aware chaos (Istio/Linkerd).
+- Multi-tenancy/quota and fine-grained RBAC.
+- Policy integration (OPA) and approval workflows.
+- Performance tuning (rate limiting, batching, memory/CPU profiling).

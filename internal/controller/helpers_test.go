@@ -57,6 +57,12 @@ func TestParseDuration(t *testing.T) {
 			want:     0,
 			wantErr:  true,
 		},
+		{
+			name:     "minutes and seconds",
+			duration: "2m15s",
+			want:     135 * time.Second,
+			wantErr:  false,
+		},
 	}
 
 	for _, tt := range tests {
@@ -111,6 +117,12 @@ func TestParseDurationToSeconds(t *testing.T) {
 			want:     0,
 			wantErr:  true,
 		},
+		{
+			name:     "minutes and seconds",
+			duration: "2m15s",
+			want:     135,
+			wantErr:  false,
+		},
 	}
 
 	for _, tt := range tests {
@@ -164,6 +176,12 @@ func TestParseDurationToMs(t *testing.T) {
 			duration: "invalid",
 			want:     0,
 			wantErr:  true,
+		},
+		{
+			name:     "minutes and seconds",
+			duration: "2m15s",
+			want:     135000,
+			wantErr:  false,
 		},
 	}
 
@@ -472,6 +490,19 @@ func TestCalculateRetryDelay(t *testing.T) {
 				},
 			},
 			want: 2 * time.Minute, // 1m * 2^1
+		},
+		{
+			name: "custom invalid base delay falls back to default",
+			exp: &chaosv1alpha1.ChaosExperiment{
+				Spec: chaosv1alpha1.ChaosExperimentSpec{
+					RetryDelay:   "not-a-duration",
+					RetryBackoff: "exponential",
+				},
+				Status: chaosv1alpha1.ChaosExperimentStatus{
+					RetryCount: 1,
+				},
+			},
+			want: defaultRetryDelay * 2, // default base (30s) * 2^1
 		},
 		{
 			name: "fixed backoff - first retry",
