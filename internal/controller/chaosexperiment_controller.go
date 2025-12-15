@@ -1343,11 +1343,14 @@ func (r *ChaosExperimentReconciler) handlePodMemoryStress(ctx context.Context, e
 		pod := eligiblePods[i]
 		log.Info("Injecting memory stress into pod", "pod", pod.Name, "namespace", pod.Namespace)
 
-		if err := r.injectMemoryStressContainer(ctx, &pod, memoryWorkers, exp.Spec.MemorySize, timeoutSeconds); err != nil {
+		containerName, err := r.injectMemoryStressContainer(ctx, &pod, memoryWorkers, exp.Spec.MemorySize, timeoutSeconds)
+		if err != nil {
 			log.Error(err, "Failed to inject memory stress container", "pod", pod.Name)
 			continue
 		}
 
+		// Track the affected pod for cleanup later
+		r.trackAffectedPod(exp, pod.Namespace, pod.Name, containerName)
 		stressedPods = append(stressedPods, pod.Name)
 	}
 
@@ -1390,16 +1393,20 @@ func (r *ChaosExperimentReconciler) handlePodMemoryStress(ctx context.Context, e
 }
 
 // injectMemoryStressContainer injects an ephemeral container that stresses memory
-func (r *ChaosExperimentReconciler) injectMemoryStressContainer(ctx context.Context, pod *corev1.Pod, workers int, memorySize string, timeoutSeconds int) error {
+// Returns the container name for tracking purposes
+func (r *ChaosExperimentReconciler) injectMemoryStressContainer(ctx context.Context, pod *corev1.Pod, workers int, memorySize string, timeoutSeconds int) (string, error) {
 	log := ctrl.LoggerFrom(ctx)
 
 	// Build stress-ng command
 	stressCmd := fmt.Sprintf("stress-ng --vm %d --vm-bytes %s --timeout %ds --metrics-brief", workers, memorySize, timeoutSeconds)
 
+	// Generate unique container name
+	containerName := fmt.Sprintf("memory-stress-%d", time.Now().Unix())
+
 	// Create ephemeral container with resource limits
 	ephemeralContainer := corev1.EphemeralContainer{
 		EphemeralContainerCommon: corev1.EphemeralContainerCommon{
-			Name:    fmt.Sprintf("memory-stress-%d", time.Now().Unix()),
+			Name:    containerName,
 			Image:   "ghcr.io/neogan74/stress-ng:latest",
 			Command: []string{"/bin/sh", "-c", stressCmd},
 		},
@@ -1408,19 +1415,19 @@ func (r *ChaosExperimentReconciler) injectMemoryStressContainer(ctx context.Cont
 	// Get the latest pod version
 	currentPod := &corev1.Pod{}
 	if err := r.Get(ctx, client.ObjectKey{Namespace: pod.Namespace, Name: pod.Name}, currentPod); err != nil {
-		return fmt.Errorf("failed to get current pod: %w", err)
+		return "", fmt.Errorf("failed to get current pod: %w", err)
 	}
 
 	// Add ephemeral container
 	currentPod.Spec.EphemeralContainers = append(currentPod.Spec.EphemeralContainers, ephemeralContainer)
 
 	// Update pod with ephemeral container
-	if err := r.Status().Update(ctx, currentPod); err != nil {
-		return fmt.Errorf("failed to inject ephemeral container: %w", err)
+	if err := r.Client.SubResource("ephemeralcontainers").Update(ctx, currentPod); err != nil {
+		return "", fmt.Errorf("failed to inject ephemeral container: %w", err)
 	}
 
-	log.Info("Successfully injected memory stress ephemeral container", "pod", pod.Name, "container", ephemeralContainer.Name)
-	return nil
+	log.Info("Successfully injected memory stress ephemeral container", "pod", pod.Name, "container", containerName)
+	return containerName, nil
 }
 
 // handlePodFailure kills the main process in pods to cause container crashes and restarts
