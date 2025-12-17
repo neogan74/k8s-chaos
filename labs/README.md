@@ -76,17 +76,29 @@ make --version
 ## Quick Start
 
 ```bash
-# 1. Create a local Kubernetes cluster
-make cluster-single-node    # Single node cluster
-# or
-make cluster-multi-node     # 3-node cluster
+# Navigate to labs directory
+cd labs
 
-# 2. Install k8s-chaos operator
-make install deploy
+# Option 1: Full setup in one command (recommended)
+make all                    # Creates cluster + installs CRDs + deploys operator
 
-# 3. Start with Lab 01
-cd labs/01-getting-started
+# Option 2: Step by step
+make cluster-single-node    # Create single-node Kind cluster
+make install                # Install CRDs
+make deploy                 # Deploy operator
+
+# Check status
+make status
+
+# Start with Lab 01
+cd 01-getting-started
+make setup
 cat README.md
+```
+
+For node chaos experiments (Lab 04), use multi-node cluster:
+```bash
+make all-multi              # Creates 3-node cluster + full setup
 ```
 
 ## Lab Setup Commands
