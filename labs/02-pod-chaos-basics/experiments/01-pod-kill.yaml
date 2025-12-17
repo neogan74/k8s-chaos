@@ -1,0 +1,14 @@
+# Pod Kill Experiment
+# Deletes pods completely, testing how your system handles pod loss
+apiVersion: chaos.gushchin.dev/v1alpha1
+kind: ChaosExperiment
+metadata:
+  name: pod-kill-demo
+  namespace: chaos-lab
+spec:
+  action: pod-kill
+  namespace: chaos-lab
+  selector:
+    app: nginx
+  # Kill 1 pod at a time
+  count: 1

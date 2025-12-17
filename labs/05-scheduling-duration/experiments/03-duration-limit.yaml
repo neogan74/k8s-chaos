@@ -1,0 +1,16 @@
+# Experiment with Duration Limit
+# Auto-stops after 2 minutes
+apiVersion: chaos.gushchin.dev/v1alpha1
+kind: ChaosExperiment
+metadata:
+  name: duration-limited
+  namespace: chaos-lab
+spec:
+  action: pod-kill
+  namespace: chaos-lab
+  selector:
+    app: nginx
+  count: 1
+
+  # Auto-stop after 2 minutes
+  experimentDuration: "2m"

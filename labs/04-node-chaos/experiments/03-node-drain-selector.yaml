@@ -1,0 +1,24 @@
+# Node Drain - With Label Selector
+# Target specific nodes using multiple labels
+apiVersion: chaos.gushchin.dev/v1alpha1
+kind: ChaosExperiment
+metadata:
+  name: node-drain-labeled
+  namespace: chaos-lab
+spec:
+  action: node-drain
+
+  # Namespace is required by API but not used for node-drain
+  namespace: chaos-lab
+
+  # Target nodes with specific labels
+  # The Kind multi-node config sets these labels on workers
+  selector:
+    chaos-test: enabled
+    environment: lab
+
+  # Drain 1 node
+  count: 1
+
+  # Use dry-run first
+  dryRun: true

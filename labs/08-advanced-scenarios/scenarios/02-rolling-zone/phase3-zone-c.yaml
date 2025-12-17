@@ -1,0 +1,20 @@
+# Rolling Zone Failure - Phase 3: Zone C CPU Pressure
+apiVersion: chaos.gushchin.dev/v1alpha1
+kind: ChaosExperiment
+metadata:
+  name: zone-failure-phase3
+  namespace: chaos-lab
+  labels:
+    scenario: zone-failure
+    phase: "3"
+    zone: zone-c
+spec:
+  action: pod-cpu-stress
+  namespace: chaos-lab
+  selector:
+    zone: zone-c
+  count: 2
+  duration: "2m"
+  cpuLoad: 70
+  cpuWorkers: 1
+  experimentDuration: "3m"

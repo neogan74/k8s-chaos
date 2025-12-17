@@ -1,0 +1,39 @@
+# Combined Chaos Experiments
+# Run multiple chaos types simultaneously on different pods
+---
+apiVersion: chaos.gushchin.dev/v1alpha1
+kind: ChaosExperiment
+metadata:
+  name: combined-kill
+  namespace: chaos-lab
+spec:
+  action: pod-kill
+  namespace: chaos-lab
+  selector:
+    app: nginx
+  count: 1
+---
+apiVersion: chaos.gushchin.dev/v1alpha1
+kind: ChaosExperiment
+metadata:
+  name: combined-delay
+  namespace: chaos-lab
+spec:
+  action: pod-delay
+  namespace: chaos-lab
+  selector:
+    app: nginx
+  count: 1
+  duration: "300ms"
+---
+apiVersion: chaos.gushchin.dev/v1alpha1
+kind: ChaosExperiment
+metadata:
+  name: combined-failure
+  namespace: chaos-lab
+spec:
+  action: pod-failure
+  namespace: chaos-lab
+  selector:
+    app: nginx
+  count: 1

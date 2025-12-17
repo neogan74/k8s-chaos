@@ -1,0 +1,21 @@
+# Full Resilience - Phase 3: Database CPU Stress
+apiVersion: chaos.gushchin.dev/v1alpha1
+kind: ChaosExperiment
+metadata:
+  name: full-resilience-database
+  namespace: chaos-lab
+  labels:
+    scenario: full-resilience
+    phase: "3"
+    component: database
+spec:
+  action: pod-cpu-stress
+  namespace: chaos-lab
+  selector:
+    app: database
+  count: 1
+  duration: "2m"
+  cpuLoad: 60
+  cpuWorkers: 1
+  experimentDuration: "3m"
+  maxPercentage: 50

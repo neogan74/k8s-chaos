@@ -1,0 +1,23 @@
+# Exponential Backoff
+# Delay doubles with each retry: 30s, 1m, 2m, 4m, 8m (max 10m)
+apiVersion: chaos.gushchin.dev/v1alpha1
+kind: ChaosExperiment
+metadata:
+  name: exponential-retry
+  namespace: chaos-lab
+spec:
+  action: pod-kill
+  namespace: chaos-lab
+  selector:
+    app: nginx
+  count: 1
+
+  # 5 retry attempts
+  maxRetries: 5
+
+  # Exponential backoff - delay doubles each time
+  retryBackoff: exponential
+
+  # Starting delay of 30 seconds
+  # Sequence: 30s -> 1m -> 2m -> 4m -> 8m
+  retryDelay: "30s"

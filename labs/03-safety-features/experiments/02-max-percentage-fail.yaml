@@ -1,0 +1,19 @@
+# Max Percentage - WILL FAIL
+# This experiment will be rejected by the admission webhook
+# because count=5 out of 10 pods = 50%, which exceeds maxPercentage=30
+apiVersion: chaos.gushchin.dev/v1alpha1
+kind: ChaosExperiment
+metadata:
+  name: percentage-too-high
+  namespace: chaos-lab
+spec:
+  action: pod-kill
+  namespace: chaos-lab
+  selector:
+    app: nginx
+  # 5 out of 10 pods = 50%
+  count: 5
+
+  # Only allow affecting 30% of pods
+  # This will REJECT the experiment (50% > 30%)
+  maxPercentage: 30

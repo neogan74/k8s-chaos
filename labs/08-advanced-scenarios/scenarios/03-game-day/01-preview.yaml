@@ -1,0 +1,21 @@
+# Game Day - Step 1: Preview Impact (Dry Run)
+apiVersion: chaos.gushchin.dev/v1alpha1
+kind: ChaosExperiment
+metadata:
+  name: game-day-preview
+  namespace: chaos-lab
+  labels:
+    scenario: game-day
+    phase: preview
+spec:
+  action: pod-kill
+  namespace: chaos-lab
+  selector:
+    app: api
+  count: 2
+
+  # PREVIEW MODE - see what would happen
+  dryRun: true
+
+  # Safety limits
+  maxPercentage: 30

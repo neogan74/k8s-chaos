@@ -1,0 +1,18 @@
+# Rolling Zone Failure - Phase 1: Zone A Network Issues
+apiVersion: chaos.gushchin.dev/v1alpha1
+kind: ChaosExperiment
+metadata:
+  name: zone-failure-phase1
+  namespace: chaos-lab
+  labels:
+    scenario: zone-failure
+    phase: "1"
+    zone: zone-a
+spec:
+  action: pod-delay
+  namespace: chaos-lab
+  selector:
+    zone: zone-a
+  count: 2
+  duration: "300ms"
+  experimentDuration: "3m"

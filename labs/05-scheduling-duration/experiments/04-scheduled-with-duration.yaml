@@ -1,0 +1,19 @@
+# Combined Schedule + Duration
+# Runs every 3 minutes, but each run lasts only 1 minute
+apiVersion: chaos.gushchin.dev/v1alpha1
+kind: ChaosExperiment
+metadata:
+  name: scheduled-duration
+  namespace: chaos-lab
+spec:
+  action: pod-kill
+  namespace: chaos-lab
+  selector:
+    app: nginx
+  count: 1
+
+  # Trigger every 3 minutes
+  schedule: "*/3 * * * *"
+
+  # But only run for 1 minute each time
+  experimentDuration: "1m"

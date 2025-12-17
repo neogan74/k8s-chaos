@@ -1,0 +1,19 @@
+# Exclusion Labels - Pods
+# Pods with chaos.gushchin.dev/exclude: "true" are automatically filtered
+apiVersion: chaos.gushchin.dev/v1alpha1
+kind: ChaosExperiment
+metadata:
+  name: exclusion-test
+  namespace: chaos-lab
+spec:
+  action: pod-kill
+  namespace: chaos-lab
+  # This selector would match ALL pods including the critical one
+  # But the critical pod has chaos.gushchin.dev/exclude: "true"
+  # so it will be automatically filtered out
+  selector:
+    tier: frontend
+  count: 2
+
+  # Use dry-run to see which pods are affected
+  dryRun: true

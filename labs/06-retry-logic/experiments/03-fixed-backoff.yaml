@@ -1,0 +1,22 @@
+# Fixed Backoff
+# Constant delay between retries: 1m, 1m, 1m
+apiVersion: chaos.gushchin.dev/v1alpha1
+kind: ChaosExperiment
+metadata:
+  name: fixed-retry
+  namespace: chaos-lab
+spec:
+  action: pod-kill
+  namespace: chaos-lab
+  selector:
+    app: nginx
+  count: 1
+
+  # 3 retry attempts
+  maxRetries: 3
+
+  # Fixed backoff - constant delay
+  retryBackoff: fixed
+
+  # Always wait 1 minute between retries
+  retryDelay: "1m"

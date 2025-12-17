@@ -1,0 +1,24 @@
+# Scheduled Experiment with Retry Logic
+# Combines scheduling with automatic retry on failure
+apiVersion: chaos.gushchin.dev/v1alpha1
+kind: ChaosExperiment
+metadata:
+  name: scheduled-retry
+  namespace: chaos-lab
+spec:
+  action: pod-kill
+  namespace: chaos-lab
+  selector:
+    app: nginx
+  count: 1
+
+  # Run every 5 minutes
+  schedule: "*/5 * * * *"
+
+  # Each run lasts up to 2 minutes
+  experimentDuration: "2m"
+
+  # Retry configuration for each scheduled run
+  maxRetries: 3
+  retryBackoff: exponential
+  retryDelay: "20s"

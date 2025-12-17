@@ -1,0 +1,16 @@
+# Scheduled Experiment - Hourly
+# Uses predefined @hourly schedule
+apiVersion: chaos.gushchin.dev/v1alpha1
+kind: ChaosExperiment
+metadata:
+  name: scheduled-hourly
+  namespace: chaos-lab
+spec:
+  action: pod-kill
+  namespace: chaos-lab
+  selector:
+    app: nginx
+  count: 1
+
+  # Run every hour using predefined schedule
+  schedule: "@hourly"

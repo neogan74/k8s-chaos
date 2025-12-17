@@ -1,0 +1,19 @@
+# Full Resilience - Phase 2: API Latency
+apiVersion: chaos.gushchin.dev/v1alpha1
+kind: ChaosExperiment
+metadata:
+  name: full-resilience-api
+  namespace: chaos-lab
+  labels:
+    scenario: full-resilience
+    phase: "2"
+    component: api
+spec:
+  action: pod-delay
+  namespace: chaos-lab
+  selector:
+    app: api
+  count: 2
+  duration: "200ms"
+  experimentDuration: "3m"
+  maxPercentage: 50

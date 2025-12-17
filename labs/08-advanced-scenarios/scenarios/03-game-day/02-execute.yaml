@@ -1,0 +1,29 @@
+# Game Day - Step 2: Execute (After Team Approval)
+apiVersion: chaos.gushchin.dev/v1alpha1
+kind: ChaosExperiment
+metadata:
+  name: game-day-execute
+  namespace: chaos-lab
+  labels:
+    scenario: game-day
+    phase: execute
+spec:
+  action: pod-kill
+  namespace: chaos-lab
+  selector:
+    app: api
+  count: 2
+
+  # EXECUTE MODE
+  dryRun: false
+
+  # Safety limits
+  maxPercentage: 30
+
+  # Auto-stop after 15 minutes
+  experimentDuration: "15m"
+
+  # Retry if transient failures
+  maxRetries: 2
+  retryBackoff: exponential
+  retryDelay: "30s"
