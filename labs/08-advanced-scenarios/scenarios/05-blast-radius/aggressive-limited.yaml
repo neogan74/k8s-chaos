@@ -1,0 +1,19 @@
+# Blast Radius - Aggressive but Limited
+# This will be REJECTED because 50% > 20% maxPercentage
+apiVersion: chaos.gushchin.dev/v1alpha1
+kind: ChaosExperiment
+metadata:
+  name: blast-radius-aggressive
+  namespace: chaos-lab
+  labels:
+    scenario: blast-radius
+spec:
+  action: pod-kill
+  namespace: chaos-lab
+  selector:
+    tier: api
+  # Try to affect 50% of API pods (will be rejected)
+  count: 3
+
+  # Only allow 20% - this will reject the experiment
+  maxPercentage: 20

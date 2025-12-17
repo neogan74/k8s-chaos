@@ -1,0 +1,16 @@
+# Scheduled Experiment - Every 2 Minutes
+# Runs pod-kill every 2 minutes to demonstrate scheduling
+apiVersion: chaos.gushchin.dev/v1alpha1
+kind: ChaosExperiment
+metadata:
+  name: scheduled-every-2min
+  namespace: chaos-lab
+spec:
+  action: pod-kill
+  namespace: chaos-lab
+  selector:
+    app: nginx
+  count: 1
+
+  # Run every 2 minutes
+  schedule: "*/2 * * * *"

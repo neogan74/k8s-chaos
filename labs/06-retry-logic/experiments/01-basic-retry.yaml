@@ -1,0 +1,18 @@
+# Basic Retry Configuration
+# Uses default settings: 3 retries, exponential backoff, 30s delay
+apiVersion: chaos.gushchin.dev/v1alpha1
+kind: ChaosExperiment
+metadata:
+  name: retry-basic
+  namespace: chaos-lab
+spec:
+  action: pod-kill
+  namespace: chaos-lab
+  selector:
+    app: nginx
+  count: 1
+
+  # Default retry configuration
+  maxRetries: 3
+  # Default: exponential backoff
+  # Default: 30s initial delay

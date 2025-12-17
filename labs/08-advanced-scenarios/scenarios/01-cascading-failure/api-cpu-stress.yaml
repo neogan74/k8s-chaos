@@ -1,0 +1,20 @@
+# Cascading Failure - API CPU Stress
+apiVersion: chaos.gushchin.dev/v1alpha1
+kind: ChaosExperiment
+metadata:
+  name: cascading-api-cpu
+  namespace: chaos-lab
+  labels:
+    scenario: cascading
+    component: api
+spec:
+  action: pod-cpu-stress
+  namespace: chaos-lab
+  selector:
+    app: api
+  count: 2
+  duration: "3m"
+  cpuLoad: 80
+  cpuWorkers: 1
+  experimentDuration: "5m"
+  maxPercentage: 50

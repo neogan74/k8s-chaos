@@ -1,0 +1,14 @@
+# Excluded Namespace - WILL FAIL
+# critical-ns has chaos.gushchin.dev/exclude: "true" annotation
+apiVersion: chaos.gushchin.dev/v1alpha1
+kind: ChaosExperiment
+metadata:
+  name: excluded-ns-test
+  namespace: chaos-lab
+spec:
+  action: pod-kill
+  # This namespace is entirely excluded from chaos
+  namespace: critical-ns
+  selector:
+    app: nginx
+  count: 1

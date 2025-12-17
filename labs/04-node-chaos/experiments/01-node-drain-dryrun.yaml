@@ -1,0 +1,22 @@
+# Node Drain - Dry Run
+# Preview which node would be drained without executing
+apiVersion: chaos.gushchin.dev/v1alpha1
+kind: ChaosExperiment
+metadata:
+  name: node-drain-preview
+  namespace: chaos-lab
+spec:
+  action: node-drain
+
+  # Namespace is required by API but not used for node-drain
+  namespace: chaos-lab
+
+  # Target worker nodes
+  selector:
+    chaos-test: enabled
+
+  # Drain 1 node
+  count: 1
+
+  # DRY RUN: Preview which node would be affected
+  dryRun: true

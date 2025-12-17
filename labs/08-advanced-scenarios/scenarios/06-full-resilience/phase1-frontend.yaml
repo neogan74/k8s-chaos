@@ -1,0 +1,18 @@
+# Full Resilience - Phase 1: Frontend Failures
+apiVersion: chaos.gushchin.dev/v1alpha1
+kind: ChaosExperiment
+metadata:
+  name: full-resilience-frontend
+  namespace: chaos-lab
+  labels:
+    scenario: full-resilience
+    phase: "1"
+    component: frontend
+spec:
+  action: pod-failure
+  namespace: chaos-lab
+  selector:
+    app: frontend
+  count: 1
+  experimentDuration: "3m"
+  maxPercentage: 50

@@ -1,0 +1,15 @@
+# Experiment for generating metrics
+apiVersion: chaos.gushchin.dev/v1alpha1
+kind: ChaosExperiment
+metadata:
+  name: metrics-demo
+  namespace: chaos-lab
+spec:
+  action: pod-kill
+  namespace: chaos-lab
+  selector:
+    app: nginx
+  count: 1
+
+  # Run for 3 minutes to generate metrics
+  experimentDuration: "3m"

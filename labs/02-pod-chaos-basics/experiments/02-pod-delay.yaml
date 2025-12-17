@@ -1,0 +1,17 @@
+# Network Delay Experiment
+# Injects network latency using tc (traffic control)
+apiVersion: chaos.gushchin.dev/v1alpha1
+kind: ChaosExperiment
+metadata:
+  name: pod-delay-demo
+  namespace: chaos-lab
+spec:
+  action: pod-delay
+  namespace: chaos-lab
+  selector:
+    app: nginx
+  # Add delay to 2 pods
+  count: 2
+  # 500ms network delay
+  # The controller converts this to milliseconds for tc
+  duration: "500ms"

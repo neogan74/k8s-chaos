@@ -1,0 +1,18 @@
+# Rolling Zone Failure - Phase 2: Zone B Instance Failures
+apiVersion: chaos.gushchin.dev/v1alpha1
+kind: ChaosExperiment
+metadata:
+  name: zone-failure-phase2
+  namespace: chaos-lab
+  labels:
+    scenario: zone-failure
+    phase: "2"
+    zone: zone-b
+spec:
+  action: pod-kill
+  namespace: chaos-lab
+  selector:
+    zone: zone-b
+  count: 2
+  experimentDuration: "3m"
+  maxPercentage: 50

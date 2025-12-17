@@ -1,0 +1,21 @@
+# Blast Radius - Conservative (Will Succeed)
+apiVersion: chaos.gushchin.dev/v1alpha1
+kind: ChaosExperiment
+metadata:
+  name: blast-radius-conservative
+  namespace: chaos-lab
+  labels:
+    scenario: blast-radius
+spec:
+  action: pod-kill
+  namespace: chaos-lab
+  selector:
+    app: api
+  # Only affect 1 pod
+  count: 1
+
+  # Allow up to 20% - this passes
+  maxPercentage: 20
+
+  # Auto-stop
+  experimentDuration: "3m"

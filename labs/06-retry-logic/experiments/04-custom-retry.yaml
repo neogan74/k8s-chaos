@@ -1,0 +1,24 @@
+# Custom Retry Configuration
+# Tuned for critical operations with higher tolerance
+apiVersion: chaos.gushchin.dev/v1alpha1
+kind: ChaosExperiment
+metadata:
+  name: custom-retry
+  namespace: chaos-lab
+spec:
+  action: pod-kill
+  namespace: chaos-lab
+  selector:
+    app: nginx
+  count: 1
+
+  # Higher retry count for critical operations
+  maxRetries: 7
+
+  # Use exponential for infrastructure issues
+  retryBackoff: exponential
+
+  # Start with 1 minute delay
+  # Sequence: 1m -> 2m -> 4m -> 8m -> 10m -> 10m -> 10m
+  # (capped at 10 minutes)
+  retryDelay: "1m"

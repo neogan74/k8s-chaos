@@ -1,0 +1,17 @@
+# Cascading Failure - Cache Pod Failures
+apiVersion: chaos.gushchin.dev/v1alpha1
+kind: ChaosExperiment
+metadata:
+  name: cascading-cache-failure
+  namespace: chaos-lab
+  labels:
+    scenario: cascading
+    component: cache
+spec:
+  action: pod-failure
+  namespace: chaos-lab
+  selector:
+    app: cache
+  count: 1
+  experimentDuration: "5m"
+  maxPercentage: 50

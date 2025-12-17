@@ -1,0 +1,17 @@
+# Max Percentage - WILL SUCCEED
+# count=2 out of 10 pods = 20%, which is under maxPercentage=30
+apiVersion: chaos.gushchin.dev/v1alpha1
+kind: ChaosExperiment
+metadata:
+  name: percentage-limited
+  namespace: chaos-lab
+spec:
+  action: pod-kill
+  namespace: chaos-lab
+  selector:
+    app: nginx
+  # 2 out of 10 pods = 20%
+  count: 2
+
+  # Allow up to 30% - this passes (20% < 30%)
+  maxPercentage: 30

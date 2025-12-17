@@ -1,0 +1,14 @@
+# Pod Failure Experiment
+# Kills main process (PID 1) to cause container crash
+apiVersion: chaos.gushchin.dev/v1alpha1
+kind: ChaosExperiment
+metadata:
+  name: pod-failure-demo
+  namespace: chaos-lab
+spec:
+  action: pod-failure
+  namespace: chaos-lab
+  selector:
+    app: nginx
+  # Crash 1 pod
+  count: 1

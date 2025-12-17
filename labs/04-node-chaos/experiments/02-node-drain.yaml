@@ -1,0 +1,22 @@
+# Node Drain - Execute
+# Cordons and drains a worker node
+apiVersion: chaos.gushchin.dev/v1alpha1
+kind: ChaosExperiment
+metadata:
+  name: node-drain-execute
+  namespace: chaos-lab
+spec:
+  action: node-drain
+
+  # Namespace is required by API but not used for node-drain
+  namespace: chaos-lab
+
+  # Target worker nodes with chaos-test label
+  selector:
+    chaos-test: enabled
+
+  # Drain 1 node at a time
+  count: 1
+
+  # Execute for real
+  dryRun: false

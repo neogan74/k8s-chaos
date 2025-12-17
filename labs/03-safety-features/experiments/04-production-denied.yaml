@@ -1,0 +1,17 @@
+# Production Without Approval - WILL FAIL
+# Targeting production namespace without allowProduction: true
+apiVersion: chaos.gushchin.dev/v1alpha1
+kind: ChaosExperiment
+metadata:
+  name: production-denied
+  namespace: chaos-lab
+spec:
+  action: pod-kill
+  # Targeting the production namespace
+  namespace: production
+  selector:
+    app: nginx
+  count: 1
+
+  # NOT setting allowProduction - this will be REJECTED
+  # allowProduction: true  <- missing!

@@ -1,0 +1,20 @@
+# CPU Stress Experiment
+# Injects ephemeral container running stress-ng
+apiVersion: chaos.gushchin.dev/v1alpha1
+kind: ChaosExperiment
+metadata:
+  name: cpu-stress-demo
+  namespace: chaos-lab
+spec:
+  action: pod-cpu-stress
+  namespace: chaos-lab
+  selector:
+    app: nginx
+  # Stress 2 pods
+  count: 2
+  # Run stress for 2 minutes
+  duration: "2m"
+  # 80% CPU load per worker
+  cpuLoad: 80
+  # Number of stress workers (parallel processes)
+  cpuWorkers: 1

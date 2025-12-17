@@ -1,0 +1,20 @@
+# Production With Explicit Approval - WILL SUCCEED
+# Targeting production namespace WITH allowProduction: true
+apiVersion: chaos.gushchin.dev/v1alpha1
+kind: ChaosExperiment
+metadata:
+  name: production-approved
+  namespace: chaos-lab
+spec:
+  action: pod-kill
+  # Targeting the production namespace
+  namespace: production
+  selector:
+    app: nginx
+  count: 1
+
+  # Explicit approval for production chaos
+  allowProduction: true
+
+  # Best practice: Also use dry-run first in production
+  dryRun: true

@@ -1,0 +1,18 @@
+# Scheduled experiment to generate continuous metrics
+apiVersion: chaos.gushchin.dev/v1alpha1
+kind: ChaosExperiment
+metadata:
+  name: scheduled-metrics
+  namespace: chaos-lab
+spec:
+  action: pod-kill
+  namespace: chaos-lab
+  selector:
+    app: nginx
+  count: 1
+
+  # Run every 2 minutes for metrics generation
+  schedule: "*/2 * * * *"
+
+  # Each run lasts 30 seconds
+  experimentDuration: "30s"

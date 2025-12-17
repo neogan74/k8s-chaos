@@ -1,0 +1,23 @@
+# Circuit Breaker Test - Slow Database
+# Tests how API handles downstream latency
+apiVersion: chaos.gushchin.dev/v1alpha1
+kind: ChaosExperiment
+metadata:
+  name: circuit-breaker-db-slow
+  namespace: chaos-lab
+  labels:
+    scenario: circuit-breaker
+    component: database
+spec:
+  action: pod-delay
+  namespace: chaos-lab
+  selector:
+    app: database
+  # Affect all database pods
+  count: 3
+
+  # 2 second delay - should trigger timeouts
+  duration: "2s"
+
+  # Run for 5 minutes
+  experimentDuration: "5m"

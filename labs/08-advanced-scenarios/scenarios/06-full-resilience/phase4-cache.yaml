@@ -1,0 +1,18 @@
+# Full Resilience - Phase 4: Cache Failures
+apiVersion: chaos.gushchin.dev/v1alpha1
+kind: ChaosExperiment
+metadata:
+  name: full-resilience-cache
+  namespace: chaos-lab
+  labels:
+    scenario: full-resilience
+    phase: "4"
+    component: cache
+spec:
+  action: pod-kill
+  namespace: chaos-lab
+  selector:
+    app: cache
+  count: 1
+  experimentDuration: "3m"
+  maxPercentage: 50

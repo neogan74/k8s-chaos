@@ -1,0 +1,28 @@
+# All Safety Features Combined
+# Demonstrates defense-in-depth approach
+apiVersion: chaos.gushchin.dev/v1alpha1
+kind: ChaosExperiment
+metadata:
+  name: all-safety-demo
+  namespace: chaos-lab
+spec:
+  action: pod-kill
+  namespace: chaos-lab
+  selector:
+    app: nginx
+  count: 2
+
+  # LAYER 1: Preview mode - see what would happen
+  dryRun: true
+
+  # LAYER 2: Blast radius limit - max 25% of pods
+  maxPercentage: 25
+
+  # LAYER 3: Production gate (not needed here, but shown)
+  # allowProduction: false
+
+  # LAYER 4: Auto-stop after duration
+  experimentDuration: "5m"
+
+  # Note: Exclusion labels work automatically on pods
+  # with chaos.gushchin.dev/exclude: "true"
