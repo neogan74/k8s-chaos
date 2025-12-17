@@ -1,0 +1,16 @@
+# Dry-Run Preview Experiment
+# Shows which pods WOULD be affected without executing chaos
+apiVersion: chaos.gushchin.dev/v1alpha1
+kind: ChaosExperiment
+metadata:
+  name: dry-run-preview
+  namespace: chaos-lab
+spec:
+  action: pod-kill
+  namespace: chaos-lab
+  selector:
+    app: nginx
+  count: 3
+
+  # DRY RUN: Preview mode - no pods will be deleted
+  dryRun: true
