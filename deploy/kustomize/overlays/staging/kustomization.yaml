@@ -1,0 +1,81 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+# Base configuration
+resources:
+  - ../../base
+
+# Namespace override
+namespace: k8s-chaos-staging
+
+# Staging environment labels
+commonLabels:
+  environment: staging
+  managed-by: kustomize
+
+# Annotations
+commonAnnotations:
+  deployment-tool: kustomize
+  environment: staging
+
+# Image tag override (use release candidates or specific versions)
+images:
+  - name: controller
+    newName: ghcr.io/neogan74/k8s-chaos
+    newTag: v0.1.0-rc.1  # Or staging-latest
+
+# Resource limits (moderate for staging)
+patches:
+  - patch: |-
+      - op: replace
+        path: /spec/template/spec/containers/0/resources/limits/cpu
+        value: "400m"
+      - op: replace
+        path: /spec/template/spec/containers/0/resources/limits/memory
+        value: "384Mi"
+      - op: replace
+        path: /spec/template/spec/containers/0/resources/requests/cpu
+        value: "100m"
+      - op: replace
+        path: /spec/template/spec/containers/0/resources/requests/memory
+        value: "128Mi"
+    target:
+      kind: Deployment
+      name: k8s-chaos-controller-manager
+
+  # Multiple replicas for staging
+  - patch: |-
+      - op: replace
+        path: /spec/replicas
+        value: 2
+    target:
+      kind: Deployment
+      name: k8s-chaos-controller-manager
+
+# ConfigMap for staging-specific settings
+configMapGenerator:
+  - name: k8s-chaos-config
+    literals:
+      - ENVIRONMENT=staging
+      - LOG_LEVEL=info
+      - METRICS_ENABLED=true
+      - METRICS_SECURE=false  # HTTP for staging
+      - HISTORY_ENABLED=true
+      - HISTORY_RETENTION_LIMIT=100
+
+# Add PodDisruptionBudget for HA
+patches:
+  - patch: |-
+      apiVersion: policy/v1
+      kind: PodDisruptionBudget
+      metadata:
+        name: k8s-chaos-controller-pdb
+        namespace: k8s-chaos-staging
+      spec:
+        minAvailable: 1
+        selector:
+          matchLabels:
+            control-plane: controller-manager
+    target:
+      kind: PodDisruptionBudget
+      name: k8s-chaos-controller-pdb

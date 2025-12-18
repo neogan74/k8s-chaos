@@ -1,0 +1,148 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+# Base configuration
+resources:
+  - ../../base
+  - network-policy.yaml  # Additional security
+
+# Namespace override
+namespace: k8s-chaos-system  # Standard namespace for production
+
+# Production environment labels
+commonLabels:
+  environment: production
+  managed-by: kustomize
+  criticality: high
+
+# Annotations
+commonAnnotations:
+  deployment-tool: kustomize
+  environment: production
+  contact: platform-team@example.com
+
+# Image tag override (pinned versions only in production)
+images:
+  - name: controller
+    newName: ghcr.io/neogan74/k8s-chaos
+    newTag: v0.1.0  # ALWAYS use semantic versioning in production
+
+# Resource limits (production-grade)
+patches:
+  - patch: |-
+      - op: replace
+        path: /spec/template/spec/containers/0/resources/limits/cpu
+        value: "500m"
+      - op: replace
+        path: /spec/template/spec/containers/0/resources/limits/memory
+        value: "512Mi"
+      - op: replace
+        path: /spec/template/spec/containers/0/resources/requests/cpu
+        value: "100m"
+      - op: replace
+        path: /spec/template/spec/containers/0/resources/requests/memory
+        value: "128Mi"
+    target:
+      kind: Deployment
+      name: k8s-chaos-controller-manager
+
+  # HA: Multiple replicas
+  - patch: |-
+      - op: replace
+        path: /spec/replicas
+        value: 2
+    target:
+      kind: Deployment
+      name: k8s-chaos-controller-manager
+
+  # Add pod anti-affinity for HA
+  - patch: |-
+      - op: add
+        path: /spec/template/spec/affinity
+        value:
+          podAntiAffinity:
+            preferredDuringSchedulingIgnoredDuringExecution:
+              - weight: 100
+                podAffinityTerm:
+                  labelSelector:
+                    matchLabels:
+                      control-plane: controller-manager
+                  topologyKey: kubernetes.io/hostname
+    target:
+      kind: Deployment
+      name: k8s-chaos-controller-manager
+
+# ConfigMap for production settings
+configMapGenerator:
+  - name: k8s-chaos-config
+    literals:
+      - ENVIRONMENT=production
+      - LOG_LEVEL=info
+      - METRICS_ENABLED=true
+      - METRICS_SECURE=true  # HTTPS for production
+      - METRICS_BIND_ADDRESS=:8443
+      - HISTORY_ENABLED=true
+      - HISTORY_NAMESPACE=k8s-chaos-system
+      - HISTORY_RETENTION_LIMIT=200
+
+# Security contexts
+patches:
+  - patch: |-
+      - op: add
+        path: /spec/template/spec/securityContext
+        value:
+          runAsNonRoot: true
+          seccompProfile:
+            type: RuntimeDefault
+    target:
+      kind: Deployment
+      name: k8s-chaos-controller-manager
+
+  - patch: |-
+      - op: add
+        path: /spec/template/spec/containers/0/securityContext
+        value:
+          allowPrivilegeEscalation: false
+          capabilities:
+            drop:
+              - ALL
+          readOnlyRootFilesystem: true
+    target:
+      kind: Deployment
+      name: k8s-chaos-controller-manager
+
+# PodDisruptionBudget for HA
+patches:
+  - patch: |-
+      apiVersion: policy/v1
+      kind: PodDisruptionBudget
+      metadata:
+        name: k8s-chaos-controller-pdb
+        namespace: k8s-chaos-system
+      spec:
+        minAvailable: 1
+        selector:
+          matchLabels:
+            control-plane: controller-manager
+    target:
+      kind: PodDisruptionBudget
+      name: k8s-chaos-controller-pdb
+
+# Resource quotas
+patches:
+  - patch: |-
+      apiVersion: v1
+      kind: ResourceQuota
+      metadata:
+        name: k8s-chaos-quota
+        namespace: k8s-chaos-system
+      spec:
+        hard:
+          requests.cpu: "1"
+          requests.memory: 1Gi
+          limits.cpu: "2"
+          limits.memory: 2Gi
+          pods: "10"
+    target:
+      kind: ResourceQuota
+      name: k8s-chaos-quota

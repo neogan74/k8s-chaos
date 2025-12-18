@@ -1,0 +1,16 @@
+apiVersion: source.toolkit.fluxcd.io/v1
+kind: GitRepository
+metadata:
+  name: k8s-chaos
+  namespace: flux-system
+spec:
+  interval: 5m
+  url: https://github.com/neogan74/k8s-chaos
+  ref:
+    branch: main
+  ignore: |
+    # Ignore CI/CD and documentation files
+    .github/
+    docs/
+    *.md
+    !charts/*/README.md

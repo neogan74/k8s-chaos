@@ -1,0 +1,78 @@
+apiVersion: helm.toolkit.fluxcd.io/v2beta1
+kind: HelmRelease
+metadata:
+  name: k8s-chaos
+  namespace: flux-system
+spec:
+  interval: 10m
+  timeout: 5m
+
+  chart:
+    spec:
+      chart: charts/k8s-chaos
+      sourceRef:
+        kind: GitRepository
+        name: k8s-chaos
+        namespace: flux-system
+      interval: 5m
+
+  targetNamespace: k8s-chaos-system
+
+  install:
+    createNamespace: true
+    remediation:
+      retries: 3
+
+  upgrade:
+    remediation:
+      retries: 3
+      remediateLastFailure: true
+    cleanupOnFail: true
+
+  # Helm values
+  values:
+    replicaCount: 1
+
+    image:
+      repository: ghcr.io/neogan74/k8s-chaos
+      pullPolicy: IfNotPresent
+      tag: ""  # Defaults to appVersion
+
+    resources:
+      limits:
+        cpu: 500m
+        memory: 512Mi
+      requests:
+        cpu: 100m
+        memory: 128Mi
+
+    # Metrics
+    metrics:
+      enabled: true
+      serviceMonitor:
+        enabled: true
+
+    # History
+    history:
+      enabled: true
+      namespace: k8s-chaos-system
+      retentionLimit: 100
+
+  # Value overrides for different environments
+  valuesFrom:
+    - kind: ConfigMap
+      name: k8s-chaos-values
+      optional: true
+    - kind: Secret
+      name: k8s-chaos-secrets
+      optional: true
+
+  # Post-install/upgrade tests
+  test:
+    enable: true
+    timeout: 5m
+
+  # Rollback configuration
+  rollback:
+    timeout: 5m
+    cleanupOnFail: true
