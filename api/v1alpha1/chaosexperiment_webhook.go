@@ -216,6 +216,16 @@ func (w *ChaosExperimentWebhook) validateCrossFieldConstraints(spec *ChaosExperi
 		}
 	}
 
+	// pod-network-loss action requires duration and lossPercentage
+	if spec.Action == "pod-network-loss" {
+		if spec.Duration == "" {
+			return fmt.Errorf("duration is required for pod-network-loss action")
+		}
+		if spec.LossPercentage <= 0 {
+			return fmt.Errorf("lossPercentage must be specified and greater than 0 for pod-network-loss action")
+		}
+	}
+
 	return nil
 }
 

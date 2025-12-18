@@ -63,17 +63,21 @@ The `spec` section defines the desired state of the chaos experiment.
 
 **Type:** `string`
 **Required:** Yes
-**Validation:** Must be one of: `pod-kill`, `pod-delay`, `node-drain`
+**Validation:** Must be one of: `pod-kill`, `pod-delay`, `node-drain`, `pod-cpu-stress`, `pod-memory-stress`, `pod-failure`, `pod-network-loss`
 
 Specifies the type of chaos action to perform.
 
 #### Supported Actions
 
-| Action | Description | Status | Required Fields |
-|--------|-------------|--------|----------------|
-| `pod-kill` | Terminates selected pods | Implemented | action, namespace, selector |
-| `pod-delay` | Adds network latency to pods | Planned | action, namespace, selector, duration |
-| `node-drain` | Drains nodes gracefully | Planned | action, namespace, selector |
+| Action | Description | Required Fields |
+|--------|-------------|----------------|
+| `pod-kill` | Terminates selected pods | action, namespace, selector |
+| `pod-delay` | Adds network latency to pods | action, namespace, selector, duration |
+| `node-drain` | Drains and cordons nodes | action, namespace, selector |
+| `pod-cpu-stress` | Injects CPU stress via ephemeral containers | action, namespace, selector, duration, cpuLoad |
+| `pod-memory-stress` | Injects memory stress via ephemeral containers | action, namespace, selector, duration, memorySize |
+| `pod-failure` | Kills main process (PID 1) to cause container crash | action, namespace, selector |
+| `pod-network-loss` | Injects packet loss using tc netem | action, namespace, selector, duration, lossPercentage |
 
 #### Examples
 
@@ -96,10 +100,43 @@ spec:
   action: "node-drain"
 ```
 
+```yaml
+# CPU stress (requires duration and cpuLoad)
+spec:
+  action: "pod-cpu-stress"
+  duration: "5m"
+  cpuLoad: 80
+  cpuWorkers: 2
+```
+
+```yaml
+# Memory stress (requires duration and memorySize)
+spec:
+  action: "pod-memory-stress"
+  duration: "5m"
+  memorySize: "512M"
+  memoryWorkers: 2
+```
+
+```yaml
+# Pod failure (kills main process)
+spec:
+  action: "pod-failure"
+```
+
+```yaml
+# Network packet loss (requires duration and lossPercentage)
+spec:
+  action: "pod-network-loss"
+  duration: "2m"
+  lossPercentage: 10
+  lossCorrelation: 25
+```
+
 #### Notes
 - Action names are case-sensitive
-- Only `pod-kill` is currently implemented
-- Future actions will be added in subsequent releases
+- Actions using ephemeral containers (cpu-stress, memory-stress, network-loss) require Kubernetes 1.25+
+- Network chaos actions require NET_ADMIN capability in the cluster
 
 ---
 
@@ -420,13 +457,125 @@ duration: "-5m"      # ❌ Negative not allowed
 | Action | Duration Required? | Behavior |
 |--------|-------------------|----------|
 | `pod-kill` | No | Ignored if specified |
-| `pod-delay` | Yes | Delay lasts for specified duration |
+| `pod-delay` | Yes | Network delay lasts for specified duration |
 | `node-drain` | No | Ignored if specified |
+| `pod-cpu-stress` | Yes | CPU stress lasts for specified duration |
+| `pod-memory-stress` | Yes | Memory stress lasts for specified duration |
+| `pod-failure` | No | Ignored (immediate process kill) |
+| `pod-network-loss` | Yes | Packet loss lasts for specified duration |
 
 #### Notes
-- For `pod-kill`, duration is ignored (pod is immediately terminated)
-- For future actions, duration may control how long the chaos effect persists
+- For `pod-kill` and `pod-failure`, duration is ignored (immediate action)
 - Zero duration is not allowed
+
+---
+
+### cpuLoad
+
+**Type:** `integer`
+**Required:** Yes (for `pod-cpu-stress` action)
+**Default:** None
+**Validation:** 1-100
+
+Percentage of CPU to consume during stress testing.
+
+#### Example
+
+```yaml
+spec:
+  action: "pod-cpu-stress"
+  duration: "5m"
+  cpuLoad: 80      # 80% CPU load
+  cpuWorkers: 2    # 2 CPU workers
+```
+
+---
+
+### cpuWorkers
+
+**Type:** `integer`
+**Required:** No
+**Default:** `1`
+**Validation:** 1-32
+
+Number of CPU worker processes for stress testing.
+
+---
+
+### memorySize
+
+**Type:** `string`
+**Required:** Yes (for `pod-memory-stress` action)
+**Default:** None
+**Validation:** Pattern `^[0-9]+[MG]$`
+
+Amount of memory to allocate per worker. Format: number followed by M (megabytes) or G (gigabytes).
+
+#### Examples
+
+```yaml
+memorySize: "256M"   # 256 megabytes
+memorySize: "1G"     # 1 gigabyte
+memorySize: "512M"   # 512 megabytes
+```
+
+---
+
+### memoryWorkers
+
+**Type:** `integer`
+**Required:** No
+**Default:** `1`
+**Validation:** 1-8
+
+Number of memory worker processes. Total memory = memorySize × memoryWorkers.
+
+---
+
+### lossPercentage
+
+**Type:** `integer`
+**Required:** Yes (for `pod-network-loss` action)
+**Default:** `5`
+**Validation:** 1-40
+
+Percentage of network packets to drop. Limited to 40% for safety.
+
+#### Example
+
+```yaml
+spec:
+  action: "pod-network-loss"
+  duration: "2m"
+  lossPercentage: 10    # Drop 10% of packets
+  lossCorrelation: 25   # 25% correlation
+```
+
+---
+
+### lossCorrelation
+
+**Type:** `integer`
+**Required:** No
+**Default:** `0`
+**Validation:** 0-100
+
+Correlation percentage for packet loss. Higher values make losses cluster together (burst losses).
+
+- `0` = Independent random losses
+- `25` = Some correlation (realistic network issues)
+- `50+` = High correlation (simulates network congestion bursts)
+
+#### Example
+
+```yaml
+# Simulate bursty packet loss (more realistic)
+spec:
+  action: "pod-network-loss"
+  duration: "5m"
+  lossPercentage: 15
+  lossCorrelation: 50
+```
 
 ---
 

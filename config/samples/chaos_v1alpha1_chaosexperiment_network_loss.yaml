@@ -1,0 +1,50 @@
+apiVersion: chaos.gushchin.dev/v1alpha1
+kind: ChaosExperiment
+metadata:
+  labels:
+    app.kubernetes.io/name: k8s-chaos
+    app.kubernetes.io/managed-by: kustomize
+  name: chaosexperiment-network-loss
+  namespace: staging
+spec:
+  # Inject packet loss into pods using tc netem
+  action: "pod-network-loss"
+
+  # Target namespace
+  namespace: "staging"
+
+  # Target web application pods
+  selector:
+    app: web-app
+    tier: frontend
+
+  # Apply packet loss to 2 pods
+  count: 2
+
+  # Duration of network loss injection
+  # Format: combinations of numbers with units (s=seconds, m=minutes, h=hours)
+  # Examples: "30s", "5m", "1h30m"
+  duration: "2m"
+
+  # Packet loss percentage (1-40%, default: 5)
+  # Percentage of packets that will be dropped
+  lossPercentage: 10
+
+  # Loss correlation percentage (0-100%, default: 0)
+  # Higher values make packet losses cluster together (burst losses)
+  # 0 = independent random losses, 25 = some correlation, 50+ = high correlation
+  lossCorrelation: 25
+
+  # Optional: ExperimentDuration defines how long the experiment runs before auto-stopping
+  # Uncomment to enable duration-based lifecycle (auto-stop after 15 minutes)
+  # experimentDuration: "15m"
+
+  # Optional: Retry configuration
+  # maxRetries: 3
+  # retryBackoff: "exponential"
+  # retryDelay: "30s"
+
+  # Optional: Safety features
+  # dryRun: false                # Preview affected resources without executing
+  # maxPercentage: 30            # Limit to 30% of matching pods
+  # allowProduction: false       # Require explicit approval for production namespaces

@@ -217,6 +217,7 @@ spec:
                     - pod-cpu-stress
                     - pod-memory-stress
                     - pod-failure
+                    - pod-network-loss
                     type: string
                   allowProduction:
                     default: false
@@ -260,6 +261,22 @@ spec:
                       If not set, the experiment runs indefinitely until manually stopped
                     pattern: ^([0-9]+(s|m|h))+$
                     type: string
+                  lossCorrelation:
+                    default: 0
+                    description: |-
+                      LossCorrelation specifies correlation for packet loss (for pod-network-loss)
+                      Higher values make losses cluster together. Range: 0-100.
+                    maximum: 100
+                    minimum: 0
+                    type: integer
+                  lossPercentage:
+                    default: 5
+                    description: |-
+                      LossPercentage specifies the packet loss percentage (for pod-network-loss)
+                      Range: 1-40. Percentage of packets to drop.
+                    maximum: 40
+                    minimum: 1
+                    type: integer
                   maxPercentage:
                     description: |-
                       MaxPercentage limits the percentage of matching resources that can be affected
