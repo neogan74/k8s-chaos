@@ -330,6 +330,135 @@ kubectl port-forward -n observability svc/jaeger-query 16686:16686
 
 ---
 
+### Scenario 5.1: Test Network Packet Loss Resilience
+
+**Goal:** Verify microservices handle unreliable network conditions gracefully
+
+**Hypothesis:** When network packet loss occurs, services properly retry requests and implement timeouts without cascading failures
+
+**Setup:**
+```yaml
+# Microservice with retry logic
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: payment-service
+  namespace: production
+spec:
+  replicas: 3
+  selector:
+    matchLabels:
+      app: payment-service
+  template:
+    metadata:
+      labels:
+        app: payment-service
+        tier: backend
+    spec:
+      containers:
+      - name: payment
+        image: payment-service:v2
+        env:
+        - name: HTTP_CLIENT_TIMEOUT
+          value: "5s"
+        - name: HTTP_CLIENT_RETRIES
+          value: "3"
+        - name: HTTP_CLIENT_RETRY_DELAY
+          value: "1s"
+```
+
+**Chaos Experiment:**
+```yaml
+apiVersion: chaos.gushchin.dev/v1alpha1
+kind: ChaosExperiment
+metadata:
+  name: network-loss-test
+  namespace: production
+spec:
+  action: pod-network-loss
+  namespace: production
+  selector:
+    app: payment-service
+    tier: backend
+  count: 2                      # Affect 2 out of 3 pods
+  duration: "5m"                # 5 minutes of packet loss
+  lossPercentage: 15            # 15% packet loss
+  lossCorrelation: 25           # Realistic bursty loss
+  experimentDuration: "10m"     # Total experiment time
+  maxPercentage: 70             # Allow up to 70% of pods
+  allowProduction: true
+```
+
+**Validation:**
+```bash
+# Monitor request success rate
+kubectl exec -n production <api-gateway-pod> -- \
+  curl localhost:9090/metrics | grep payment_service_request
+
+# Check retry metrics
+kubectl logs -n production -l app=payment-service | grep -i retry
+
+# Monitor circuit breaker state
+kubectl exec -n production <payment-pod> -- \
+  curl localhost:8080/actuator/circuitbreakers
+```
+
+**Expected Behavior:**
+- HTTP clients retry failed requests automatically
+- Circuit breakers trip after repeated failures
+- Fallback responses returned when circuit is open
+- Healthy pod (without packet loss) serves increased traffic
+- Overall success rate remains >95%
+
+**Success Criteria:**
+- ✅ Service maintains >95% success rate
+- ✅ P99 latency increases but stays <2s
+- ✅ No cascading failures to upstream services
+- ✅ Circuit breakers open/close correctly
+- ✅ Retry count increases as expected
+
+**Variations:**
+```yaml
+# High packet loss (disaster scenario)
+spec:
+  lossPercentage: 30
+  lossCorrelation: 50           # Very bursty
+  duration: "2m"
+
+# Low packet loss (typical internet issues)
+spec:
+  lossPercentage: 5
+  lossCorrelation: 0            # Random loss
+  duration: "30m"
+
+# Scheduled recurring test
+spec:
+  schedule: "0 */6 * * *"       # Every 6 hours
+  lossPercentage: 10
+  duration: "10m"
+```
+
+**Troubleshooting:**
+```bash
+# Check if packet loss is actually applied
+kubectl exec -n production <payment-pod> -c network-loss-<timestamp> -- \
+  tc qdisc show dev eth0
+
+# Expected output:
+# qdisc netem 8001: root refcnt 2 limit 1000 loss 15% 25%
+
+# Verify ephemeral container is running
+kubectl describe pod -n production <payment-pod> | grep -A5 "Ephemeral Containers"
+```
+
+**Real-World Use Cases:**
+- **Multi-region deployments**: Simulate WAN latency and packet loss
+- **Cloud provider issues**: Test resilience to network degradation
+- **CDN failures**: Verify fallback to origin servers
+- **Mobile apps**: Simulate poor cellular network conditions
+
+---
+
 ## Database Scenarios
 
 ### Scenario 6: Test Database Connection Pool Exhaustion

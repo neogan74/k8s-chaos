@@ -23,6 +23,8 @@ An Architecture Decision Record (ADR) is a document that captures an important a
 | [0004](0004-pod-failure-implementation.md) | Pod Failure Implementation | Accepted | 2025-11-19 |
 | [0005](0005-pod-cpu-stress-implementation.md) | Pod CPU Stress Implementation | Accepted | 2025-10-28 |
 | [0006](0006-experiment-history-and-audit-logging.md) | Experiment History and Audit Logging | Accepted | 2025-11-21 |
+| [0007](0007-pod-network-loss-implementation.md) | Pod Network Loss Implementation | Implemented | 2025-12-18 |
+| [0008](0008-pod-disk-fill-implementation.md) | Pod Disk Fill Implementation | Proposed | 2025-12-18 |
 
 ## ADR Lifecycle
 
@@ -160,13 +162,13 @@ ADRs are living documents - update implementation status as work progresses!
 
 Not-yet-implemented/high-priority features (good ADR subjects):
 
-- Network chaos actions (pod-network-loss, network-partition, dns-chaos).
-- Infrastructure chaos (node-disk-fill, node-taint, node CPU stress).
-- Time windows/maintenance windows for experiments.
-- Event emission for experiments/pods.
-- Experiment orchestration/linked scenarios.
-- Notifications/integrations (Alertmanager, Slack/PagerDuty/webhooks).
-- Service mesh-aware chaos (Istio/Linkerd).
-- Multi-tenancy/quota and fine-grained RBAC.
-- Policy integration (OPA) and approval workflows.
-- Performance tuning (rate limiting, batching, memory/CPU profiling).
+- **Network chaos actions**: pod-network-bandwidth, network-partition, dns-chaos, packet-corruption
+- **Storage chaos**: pod-disk-fill (ADR-0008 proposed), pod-inode-exhaustion, disk-latency
+- **Infrastructure chaos**: node-disk-fill, node-taint, node CPU stress
+- **Advanced scheduling**: Time windows/maintenance windows for experiments
+- **Observability**: Event emission for experiments/pods, enhanced metrics
+- **Orchestration**: Experiment orchestration/linked scenarios, multi-stage chaos
+- **Integrations**: Notifications (Alertmanager, Slack/PagerDuty/webhooks)
+- **Service mesh**: Mesh-aware chaos (Istio/Linkerd fault injection)
+- **Security**: Multi-tenancy/quota, fine-grained RBAC, policy integration (OPA)
+- **Performance**: Rate limiting, batching, memory/CPU profiling
