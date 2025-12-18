@@ -282,31 +282,62 @@ make docker-push IMG=myrepo/k8s-chaos:tag
 
 ## 🤝 Contributing
 
-1. Fork the repository
-2. Create a feature branch (`git checkout -b feature/amazing-chaos`)
-3. Commit your changes (`git commit -m 'Add amazing chaos action'`)
-4. Push to the branch (`git push origin feature/amazing-chaos`)
-5. Open a Pull Request
+We welcome contributions! Please see our [Contributing Guide](CONTRIBUTING.md) for detailed information on:
 
-### Development Workflow
+- **Code of Conduct**: Standards for community interaction
+- **Development Setup**: Setting up your environment
+- **Contribution Process**: How to submit changes
+- **Code Standards**: Coding conventions and best practices
+- **Testing Requirements**: Writing and running tests
+- **Documentation Guidelines**: Updating documentation
 
-1. **API Changes**: Modify types in `api/v1alpha1/`, then run `make manifests generate`
-2. **Controller Logic**: Edit `internal/controller/chaosexperiment_controller.go`
-3. **Testing**: Run `make test lint` before committing
-4. **Documentation**: Update README and API docs as needed
+### Quick Start for Contributors
+
+```bash
+# 1. Fork and clone
+git clone https://github.com/YOUR_USERNAME/k8s-chaos.git
+cd k8s-chaos
+
+# 2. Set up development environment
+make dev-setup
+
+# 3. Create a branch
+git checkout -b feature/your-feature
+
+# 4. Make changes, test, and commit
+make test lint
+git commit -m "feat: your feature description"
+
+# 5. Push and create PR
+git push origin feature/your-feature
+```
+
+See [CONTRIBUTING.md](CONTRIBUTING.md) for complete guidelines.
 
 ## 📚 Documentation
 
-- **[Getting Started](docs/GETTING-STARTED.md)** - Complete installation and first experiment tutorial
+### Getting Started
+- **[Quick Start](docs/QUICKSTART.md)** - Get running in 5 minutes with video demo guides
+- **[Installation Guide](docs/INSTALLATION.md)** - Complete installation for all environments
+- **[Getting Started Tutorial](docs/GETTING-STARTED.md)** - First experiment walkthrough
+- **[Hands-on Labs](labs/README.md)** - Interactive learning tutorials
+
+### User Guides
 - **[Best Practices](docs/BEST-PRACTICES.md)** - Safety-first principles and progressive adoption
-- **[Troubleshooting](docs/TROUBLESHOOTING.md)** - Common issues and solutions
 - **[Real-World Scenarios](docs/SCENARIOS.md)** - 13 ready-to-use examples
-- **[API Reference](docs/API.md)** - Complete CRD specification
+- **[Troubleshooting](docs/TROUBLESHOOTING.md)** - Common issues and solutions
 - **[CLI Tool](docs/CLI.md)** - Command-line interface documentation
+
+### Technical Reference
+- **[Architecture Overview](docs/ARCHITECTURE.md)** - System design and components
+- **[API Reference](docs/API.md)** - Complete CRD specification
 - **[Metrics Guide](docs/METRICS.md)** - Prometheus metrics and monitoring
 - **[Grafana Dashboards](docs/GRAFANA.md)** - Dashboard setup and usage
 - **[Experiment History](docs/HISTORY.md)** - Audit logging and history tracking
-- **[Hands-on Labs](labs/README.md)** - Interactive learning tutorials
+
+### Contributing
+- **[Contributing Guide](CONTRIBUTING.md)** - How to contribute to k8s-chaos
+- **[Development Guide](docs/DEVELOPMENT.md)** - Local development setup
 - **[Roadmap](ROADMAP.md)** - Future development plans
 
 ## 📊 Comparison with Other Solutions

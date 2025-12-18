@@ -127,8 +127,100 @@ kubectl describe chaosexperiment nginx-chaos-demo -n chaos-demo
 - 📁 Check `config/samples/` for more examples
 - 🔍 Look at controller logs when running `make dev-run`
 
+## Video Demos & Tutorials
+
+### Creating Your Own Demo Video
+
+Want to create a demo video? Here's what to show:
+
+1. **Environment Setup** (1-2 minutes)
+   ```bash
+   make dev-setup
+   kubectl get nodes  # Show cluster is ready
+   kubectl get pods -n chaos-demo  # Show demo pods
+   ```
+
+2. **Controller Start** (30 seconds)
+   ```bash
+   make dev-run  # Show controller starting
+   ```
+
+3. **Chaos in Action** (2-3 minutes)
+   ```bash
+   make demo-run      # Start chaos
+   make demo-watch    # Show pods being killed and recreated
+   make demo-status   # Show experiment status
+   ```
+
+4. **Different Experiments** (2 minutes)
+   ```bash
+   # Try different chaos actions
+   kubectl apply -f config/samples/chaos_v1alpha1_chaosexperiment_pod_delay.yaml
+   kubectl apply -f config/samples/chaos_v1alpha1_chaosexperiment_cpu_stress.yaml
+   ```
+
+5. **Safety Features** (1-2 minutes)
+   ```bash
+   # Demonstrate dry-run mode
+   kubectl apply -f config/samples/chaos_v1alpha1_chaosexperiment_safety_demo.yaml
+   ```
+
+6. **Metrics & Dashboards** (1 minute)
+   - Show Prometheus metrics at `http://localhost:8080/metrics`
+   - Display Grafana dashboards (if installed)
+
+### Screen Recording Tips
+
+- Use **asciinema** for terminal recording: `asciinema rec demo.cast`
+- Or use **OBS Studio** for full-screen recording
+- Keep videos **under 10 minutes**
+- Add **narration or captions** explaining what's happening
+- Include **timestamps** in descriptions
+
+### Demo Scenarios
+
+**Scenario 1: Basic Pod Kill** (Great for beginners)
+```bash
+make dev-setup && make dev-run
+# In another terminal
+make demo-run && make demo-watch
+```
+
+**Scenario 2: Network Latency** (Shows real-world chaos)
+```bash
+kubectl apply -f config/samples/chaos_v1alpha1_chaosexperiment_pod_delay.yaml
+kubectl exec -it <pod-name> -n chaos-demo -- ping google.com
+# Show increased latency
+```
+
+**Scenario 3: CPU Stress Testing** (Resource chaos)
+```bash
+kubectl apply -f config/samples/chaos_v1alpha1_chaosexperiment_cpu_stress.yaml
+kubectl top pods -n chaos-demo
+# Show CPU usage spike
+```
+
+**Scenario 4: Safety in Production** (Best practices)
+```bash
+# Show dry-run mode
+kubectl apply -f config/samples/chaos_v1alpha1_chaosexperiment_safety_demo.yaml
+kubectl describe chaosexperiment safety-demo -n chaos-testing
+# Show it previews without executing
+```
+
+## Next Steps
+
 Ready to cause some controlled chaos? 😈
 
 ```bash
 make dev-setup && make dev-run
 ```
+
+### Learn More
+
+- **[Installation Guide](INSTALLATION.md)**: Production deployment
+- **[Getting Started Tutorial](GETTING-STARTED.md)**: Complete walkthrough
+- **[Architecture Overview](ARCHITECTURE.md)**: System design
+- **[Contributing Guide](../CONTRIBUTING.md)**: Join the project
+- **[Best Practices](BEST-PRACTICES.md)**: Safety-first principles
+- **[Real-World Scenarios](SCENARIOS.md)**: 13 ready-to-use examples
