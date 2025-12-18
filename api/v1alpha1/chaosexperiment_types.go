@@ -46,7 +46,7 @@ type ChaosExperimentSpec struct {
 
 	// Action specifies the chaos action to perform
 	// +kubebuilder:validation:Required
-	// +kubebuilder:validation:Enum=pod-kill;pod-delay;node-drain;pod-cpu-stress;pod-memory-stress;pod-failure
+	// +kubebuilder:validation:Enum=pod-kill;pod-delay;node-drain;pod-cpu-stress;pod-memory-stress;pod-failure;pod-network-loss
 	Action string `json:"action"`
 
 	// Namespace specifies the target namespace for chaos experiments
@@ -123,6 +123,22 @@ type ChaosExperimentSpec struct {
 	// +kubebuilder:default=1
 	// +optional
 	MemoryWorkers int `json:"memoryWorkers,omitempty"`
+
+	// LossPercentage specifies the packet loss percentage (for pod-network-loss)
+	// Range: 1-40. Percentage of packets to drop.
+	// +kubebuilder:validation:Minimum=1
+	// +kubebuilder:validation:Maximum=40
+	// +kubebuilder:default=5
+	// +optional
+	LossPercentage int `json:"lossPercentage,omitempty"`
+
+	// LossCorrelation specifies correlation for packet loss (for pod-network-loss)
+	// Higher values make losses cluster together. Range: 0-100.
+	// +kubebuilder:validation:Minimum=0
+	// +kubebuilder:validation:Maximum=100
+	// +kubebuilder:default=0
+	// +optional
+	LossCorrelation int `json:"lossCorrelation,omitempty"`
 
 	// DryRun mode previews affected resources without executing chaos
 	// When enabled, the controller lists resources that would be affected and updates status without performing actions

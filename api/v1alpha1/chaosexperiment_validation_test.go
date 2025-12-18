@@ -94,6 +94,40 @@ func TestChaosExperimentValidation(t *testing.T) {
 			},
 			wantErr: false,
 		},
+		{
+			name: "valid pod-network-loss experiment with duration",
+			spec: ChaosExperimentSpec{
+				Action:         "pod-network-loss",
+				Namespace:      "default",
+				Selector:       map[string]string{"app": "test"},
+				Count:          2,
+				Duration:       "2m",
+				LossPercentage: 10,
+			},
+			wantErr: false,
+		},
+		{
+			name: "valid pod-network-loss with correlation",
+			spec: ChaosExperimentSpec{
+				Action:          "pod-network-loss",
+				Namespace:       "default",
+				Selector:        map[string]string{"app": "test"},
+				Duration:        "5m",
+				LossPercentage:  15,
+				LossCorrelation: 25,
+			},
+			wantErr: false,
+		},
+		{
+			name: "valid pod-failure experiment",
+			spec: ChaosExperimentSpec{
+				Action:    "pod-failure",
+				Namespace: "default",
+				Selector:  map[string]string{"app": "test"},
+				Count:     1,
+			},
+			wantErr: false,
+		},
 	}
 
 	for _, tt := range tests {
@@ -128,7 +162,7 @@ func TestChaosExperimentInvalidCases(t *testing.T) {
 				Namespace: "default",
 				Selector:  map[string]string{"app": "test"},
 			},
-			errMsg: "action must be one of: pod-kill, pod-delay, node-drain, pod-cpu-stress, pod-memory-stress",
+			errMsg: "action must be one of: pod-kill, pod-delay, node-drain, pod-cpu-stress, pod-memory-stress, pod-failure, pod-network-loss",
 		},
 		{
 			name: "empty action",
@@ -245,9 +279,11 @@ func validateChaosExperimentSpec(spec *ChaosExperimentSpec) error {
 		"node-drain":        true,
 		"pod-cpu-stress":    true,
 		"pod-memory-stress": true,
+		"pod-failure":       true,
+		"pod-network-loss":  true,
 	}
 	if !validActions[spec.Action] {
-		return &ValidationError{Field: "action", Message: "action must be one of: pod-kill, pod-delay, node-drain, pod-cpu-stress, pod-memory-stress"}
+		return &ValidationError{Field: "action", Message: "action must be one of: pod-kill, pod-delay, node-drain, pod-cpu-stress, pod-memory-stress, pod-failure, pod-network-loss"}
 	}
 
 	// Validate namespace (MinLength validation)

@@ -1,6 +1,6 @@
 # ADR 0007: Pod Network Loss Implementation
 
-**Status**: Proposed  
+ **Status**: Implemented  
 **Date**: 2026-03-02  
 **Author**: k8s-chaos team
 
@@ -63,13 +63,14 @@ Implement `pod-network-loss` using Linux `tc netem` applied from an ephemeral co
 ## Implementation Status
 
 ### Completed
-- [ ] CRD/schema fields and webhook validation
-- [ ] Controller logic for tc injection/cleanup
-- [ ] Metrics/events for network loss action
+- [x] CRD/schema fields and webhook validation
+- [x] Controller logic for tc injection/cleanup
+- [x] Metrics/events for network loss action
+- [x] Sample YAML in `config/samples/chaos_v1alpha1_chaosexperiment_network_loss.yaml`
 
 ### Planned
 - [ ] E2E scenario in `test/e2e` with Kind
-- [ ] Docs: usage example in `docs/SCENARIOS.md` and samples under `config/samples/`
+- [ ] Docs: usage example in `docs/SCENARIOS.md`
 - [ ] Safe override flag for >40% loss (if needed)
 
 ### Deferred
