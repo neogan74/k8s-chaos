@@ -1,0 +1,64 @@
+apiVersion: argoproj.io/v1alpha1
+kind: ApplicationSet
+metadata:
+  name: k8s-chaos-multi-cluster
+  namespace: argocd
+spec:
+  # Generator for multiple clusters
+  generators:
+    - clusters:
+        selector:
+          matchLabels:
+            chaos-enabled: "true"  # Only deploy to clusters with this label
+        values:
+          revision: main
+
+  template:
+    metadata:
+      name: 'k8s-chaos-{{name}}'
+      labels:
+        environment: '{{metadata.labels.environment}}'
+        cluster: '{{name}}'
+    spec:
+      project: default
+
+      source:
+        repoURL: https://github.com/neogan74/k8s-chaos
+        targetRevision: '{{values.revision}}'
+        path: 'deploy/kustomize/overlays/{{metadata.labels.environment}}'
+
+      destination:
+        server: '{{server}}'
+        namespace: k8s-chaos-system
+
+      syncPolicy:
+        automated:
+          prune: true
+          selfHeal: true
+        syncOptions:
+          - CreateNamespace=true
+
+      # Health checks
+      health:
+        timeout: 300s
+        checkInterval: 30s
+
+# Example cluster labels for different environments:
+#
+# Development cluster:
+#   metadata:
+#     labels:
+#       chaos-enabled: "true"
+#       environment: dev
+#
+# Staging cluster:
+#   metadata:
+#     labels:
+#       chaos-enabled: "true"
+#       environment: staging
+#
+# Production cluster:
+#   metadata:
+#     labels:
+#       chaos-enabled: "true"
+#       environment: production

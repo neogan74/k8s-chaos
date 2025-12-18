@@ -1,0 +1,73 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+# Base configuration
+resources:
+  - ../../base
+
+# Namespace override
+namespace: k8s-chaos-dev
+
+# Development environment labels
+commonLabels:
+  environment: development
+  managed-by: kustomize
+
+# Annotations
+commonAnnotations:
+  deployment-tool: kustomize
+  environment: dev
+
+# Image tag override (use latest or specific dev tags)
+images:
+  - name: controller
+    newName: ghcr.io/neogan74/k8s-chaos
+    newTag: dev-latest
+
+# Resource limits (lower for dev)
+patches:
+  - patch: |-
+      - op: replace
+        path: /spec/template/spec/containers/0/resources/limits/cpu
+        value: "200m"
+      - op: replace
+        path: /spec/template/spec/containers/0/resources/limits/memory
+        value: "256Mi"
+      - op: replace
+        path: /spec/template/spec/containers/0/resources/requests/cpu
+        value: "50m"
+      - op: replace
+        path: /spec/template/spec/containers/0/resources/requests/memory
+        value: "64Mi"
+    target:
+      kind: Deployment
+      name: k8s-chaos-controller-manager
+
+  # Single replica for dev
+  - patch: |-
+      - op: replace
+        path: /spec/replicas
+        value: 1
+    target:
+      kind: Deployment
+      name: k8s-chaos-controller-manager
+
+# ConfigMap for dev-specific settings
+configMapGenerator:
+  - name: k8s-chaos-config
+    literals:
+      - ENVIRONMENT=development
+      - LOG_LEVEL=debug
+      - METRICS_ENABLED=true
+      - HISTORY_ENABLED=true
+      - HISTORY_RETENTION_LIMIT=50
+
+# Enable verbose logging in dev
+patches:
+  - patch: |-
+      - op: add
+        path: /spec/template/spec/containers/0/args/-
+        value: "--zap-log-level=2"
+    target:
+      kind: Deployment
+      name: k8s-chaos-controller-manager

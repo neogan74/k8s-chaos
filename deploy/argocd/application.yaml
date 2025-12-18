@@ -1,0 +1,72 @@
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: k8s-chaos
+  namespace: argocd
+  finalizers:
+    - resources-finalizer.argocd.argoproj.io
+spec:
+  project: default
+
+  source:
+    repoURL: https://github.com/neogan74/k8s-chaos
+    targetRevision: main
+    path: charts/k8s-chaos
+    helm:
+      # Default values - override in overlays for different environments
+      values: |
+        replicaCount: 1
+
+        image:
+          repository: ghcr.io/neogan74/k8s-chaos
+          pullPolicy: IfNotPresent
+          tag: ""  # Defaults to chart appVersion
+
+        resources:
+          limits:
+            cpu: 500m
+            memory: 512Mi
+          requests:
+            cpu: 100m
+            memory: 128Mi
+
+        # Metrics configuration
+        metrics:
+          enabled: true
+          serviceMonitor:
+            enabled: false  # Set to true if Prometheus Operator is installed
+
+        # History configuration
+        history:
+          enabled: true
+          namespace: k8s-chaos-system
+          retentionLimit: 100
+
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: k8s-chaos-system
+
+  syncPolicy:
+    automated:
+      prune: true      # Automatically remove resources that are no longer defined
+      selfHeal: true   # Automatically sync when cluster state differs from Git
+      allowEmpty: false
+
+    syncOptions:
+      - CreateNamespace=true
+      - PrunePropagationPolicy=foreground
+      - PruneLast=true
+
+    retry:
+      limit: 5
+      backoff:
+        duration: 5s
+        factor: 2
+        maxDuration: 3m
+
+  # Ignore differences in these fields (common for operators)
+  ignoreDifferences:
+    - group: apps
+      kind: Deployment
+      jsonPointers:
+        - /spec/replicas

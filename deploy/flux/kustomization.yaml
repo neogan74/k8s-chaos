@@ -1,0 +1,41 @@
+apiVersion: kustomize.toolkit.fluxcd.io/v1
+kind: Kustomization
+metadata:
+  name: k8s-chaos
+  namespace: flux-system
+spec:
+  interval: 10m
+  timeout: 5m
+  retryInterval: 2m
+
+  sourceRef:
+    kind: GitRepository
+    name: k8s-chaos
+
+  path: ./config/default
+
+  prune: true
+  wait: true
+
+  # Health checks for critical resources
+  healthChecks:
+    - apiVersion: apps/v1
+      kind: Deployment
+      name: k8s-chaos-controller-manager
+      namespace: k8s-chaos-system
+
+  # Post-build variable substitution
+  postBuild:
+    substitute:
+      CLUSTER_NAME: "production"
+      ENVIRONMENT: "production"
+
+  # Decryption for secrets (if using SOPS)
+  # decryption:
+  #   provider: sops
+  #   secretRef:
+  #     name: sops-age
+
+  # Dependencies - install CRDs first
+  dependsOn:
+    - name: k8s-chaos-crds
