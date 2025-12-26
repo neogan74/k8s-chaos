@@ -46,7 +46,7 @@ type ChaosExperimentSpec struct {
 
 	// Action specifies the chaos action to perform
 	// +kubebuilder:validation:Required
-	// +kubebuilder:validation:Enum=pod-kill;pod-delay;node-drain;pod-cpu-stress;pod-memory-stress;pod-failure;pod-network-loss
+	// +kubebuilder:validation:Enum=pod-kill;pod-delay;node-drain;pod-cpu-stress;pod-memory-stress;pod-failure;pod-network-loss;pod-disk-fill
 	Action string `json:"action"`
 
 	// Namespace specifies the target namespace for chaos experiments
@@ -140,6 +140,25 @@ type ChaosExperimentSpec struct {
 	// +optional
 	LossCorrelation int `json:"lossCorrelation,omitempty"`
 
+	// FillPercentage specifies the percentage of disk space to fill (for pod-disk-fill)
+	// Range: 50-95. Conservative limits to avoid total exhaustion.
+	// +kubebuilder:validation:Minimum=50
+	// +kubebuilder:validation:Maximum=95
+	// +kubebuilder:default=80
+	// +optional
+	FillPercentage int `json:"fillPercentage,omitempty"`
+
+	// TargetPath specifies where to create the fill file (for pod-disk-fill)
+	// Default: /tmp
+	// +kubebuilder:default="/tmp"
+	// +optional
+	TargetPath string `json:"targetPath,omitempty"`
+
+	// VolumeName optionally targets a specific mounted volume (for pod-disk-fill)
+	// If set, the controller resolves the first matching mount path and uses it instead of targetPath.
+	// +optional
+	VolumeName string `json:"volumeName,omitempty"`
+
 	// DryRun mode previews affected resources without executing chaos
 	// When enabled, the controller lists resources that would be affected and updates status without performing actions
 	// +kubebuilder:default=false
@@ -227,7 +246,7 @@ type ChaosExperimentStatus struct {
 	CordonedNodes []string `json:"cordonedNodes,omitempty"`
 
 	// AffectedPods tracks pods that have ephemeral containers injected by this experiment
-	// Used for cleanup when the experiment completes (pod-cpu-stress, pod-memory-stress)
+	// Used for cleanup when the experiment completes (pod-cpu-stress, pod-memory-stress, pod-network-loss, pod-disk-fill)
 	// Format: "namespace/podName:containerName"
 	// +optional
 	AffectedPods []string `json:"affectedPods,omitempty"`

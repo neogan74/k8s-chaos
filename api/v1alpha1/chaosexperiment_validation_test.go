@@ -128,6 +128,19 @@ func TestChaosExperimentValidation(t *testing.T) {
 			},
 			wantErr: false,
 		},
+		{
+			name: "valid pod-disk-fill experiment",
+			spec: ChaosExperimentSpec{
+				Action:         "pod-disk-fill",
+				Namespace:      "default",
+				Selector:       map[string]string{"app": "test"},
+				Count:          1,
+				Duration:       "3m",
+				FillPercentage: 80,
+				TargetPath:     "/tmp",
+			},
+			wantErr: false,
+		},
 	}
 
 	for _, tt := range tests {
@@ -162,7 +175,7 @@ func TestChaosExperimentInvalidCases(t *testing.T) {
 				Namespace: "default",
 				Selector:  map[string]string{"app": "test"},
 			},
-			errMsg: "action must be one of: pod-kill, pod-delay, node-drain, pod-cpu-stress, pod-memory-stress, pod-failure, pod-network-loss",
+			errMsg: "action must be one of: pod-kill, pod-delay, node-drain, pod-cpu-stress, pod-memory-stress, pod-failure, pod-network-loss, pod-disk-fill",
 		},
 		{
 			name: "empty action",
@@ -281,9 +294,10 @@ func validateChaosExperimentSpec(spec *ChaosExperimentSpec) error {
 		"pod-memory-stress": true,
 		"pod-failure":       true,
 		"pod-network-loss":  true,
+		"pod-disk-fill":     true,
 	}
 	if !validActions[spec.Action] {
-		return &ValidationError{Field: "action", Message: "action must be one of: pod-kill, pod-delay, node-drain, pod-cpu-stress, pod-memory-stress, pod-failure, pod-network-loss"}
+		return &ValidationError{Field: "action", Message: "action must be one of: pod-kill, pod-delay, node-drain, pod-cpu-stress, pod-memory-stress, pod-failure, pod-network-loss, pod-disk-fill"}
 	}
 
 	// Validate namespace (MinLength validation)

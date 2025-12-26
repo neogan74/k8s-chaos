@@ -42,7 +42,7 @@ func (e *ValidationError) Error() string {
 }
 
 // ValidActions is the list of supported chaos actions
-var ValidActions = []string{"pod-kill", "pod-delay", "node-drain", "pod-cpu-stress", "pod-memory-stress", "pod-failure"}
+var ValidActions = []string{"pod-kill", "pod-delay", "node-drain", "pod-cpu-stress", "pod-memory-stress", "pod-failure", "pod-network-loss", "pod-disk-fill"}
 
 // IsValidAction checks if the given action is valid
 func IsValidAction(action string) bool {

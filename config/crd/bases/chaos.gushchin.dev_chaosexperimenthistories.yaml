@@ -218,6 +218,7 @@ spec:
                     - pod-memory-stress
                     - pod-failure
                     - pod-network-loss
+                    - pod-disk-fill
                     type: string
                   allowProduction:
                     default: false
@@ -261,6 +262,14 @@ spec:
                       If not set, the experiment runs indefinitely until manually stopped
                     pattern: ^([0-9]+(s|m|h))+$
                     type: string
+                  fillPercentage:
+                    default: 80
+                    description: |-
+                      FillPercentage specifies the percentage of disk space to fill (for pod-disk-fill)
+                      Range: 50-95. Conservative limits to avoid total exhaustion.
+                    maximum: 95
+                    minimum: 50
+                    type: integer
                   lossCorrelation:
                     default: 0
                     description: |-
@@ -342,6 +351,17 @@ spec:
                       resources
                     minProperties: 1
                     type: object
+                  targetPath:
+                    default: /tmp
+                    description: |-
+                      TargetPath specifies where to create the fill file (for pod-disk-fill)
+                      Default: /tmp
+                    type: string
+                  volumeName:
+                    description: |-
+                      VolumeName optionally targets a specific mounted volume (for pod-disk-fill)
+                      If set, the controller resolves the first matching mount path and uses it instead of targetPath.
+                    type: string
                 required:
                 - action
                 - namespace

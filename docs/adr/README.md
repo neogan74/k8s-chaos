@@ -17,14 +17,17 @@ An Architecture Decision Record (ADR) is a document that captures an important a
 | ADR | Title | Status | Date |
 |-----|-------|--------|------|
 | [0000](0000-adr-template.md) | ADR Template | Template | - |
-| [0001](0001-crd-validation-strategy.md) | CRD Validation Strategy | Accepted | 2025-10-10 |
-| [0002](0002-safety-features-implementation.md) | Safety Features Implementation | Accepted | 2025-11-04 |
-| [0003](0003-pod-memory-stress-implementation.md) | Pod Memory Stress Implementation | Accepted | 2025-11-07 |
-| [0004](0004-pod-failure-implementation.md) | Pod Failure Implementation | Accepted | 2025-11-19 |
-| [0005](0005-pod-cpu-stress-implementation.md) | Pod CPU Stress Implementation | Accepted | 2025-10-28 |
-| [0006](0006-experiment-history-and-audit-logging.md) | Experiment History and Audit Logging | Accepted | 2025-11-21 |
+| [0001](0001-crd-validation-strategy.md) | CRD Validation Strategy | Implemented | 2025-10-10 |
+| [0002](0002-safety-features-implementation.md) | Safety Features Implementation | Implemented | 2025-11-04 |
+| [0003](0003-pod-memory-stress-implementation.md) | Pod Memory Stress Implementation | Implemented | 2025-11-07 |
+| [0004](0004-pod-failure-implementation.md) | Pod Failure Implementation | Implemented | 2025-11-19 |
+| [0005](0005-pod-cpu-stress-implementation.md) | Pod CPU Stress Implementation | Implemented | 2025-10-28 |
+| [0006](0006-experiment-history-and-audit-logging.md) | Experiment History and Audit Logging | Implemented | 2025-11-21 |
 | [0007](0007-pod-network-loss-implementation.md) | Pod Network Loss Implementation | Implemented | 2025-12-18 |
 | [0008](0008-pod-disk-fill-implementation.md) | Pod Disk Fill Implementation | Proposed | 2025-12-18 |
+
+Notes:
+- Some ADRs are implemented without every “planned” item: 0006 uses retention limit but no TTL; 0007 is missing an e2e test entry.
 
 ## ADR Lifecycle
 

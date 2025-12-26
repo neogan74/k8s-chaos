@@ -1,6 +1,6 @@
 # Backlog
 
-This file tracks remaining work items, grouped by area and priority. Source of truth is `backlog.md`.
+This file tracks remaining work items not yet completed. For the full historical list, see `TODO.md`.
 
 ## P0 (blocking/critical)
 - Handle terminating pods gracefully during selection/execution.

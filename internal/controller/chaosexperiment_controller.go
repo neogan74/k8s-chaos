@@ -142,6 +142,8 @@ func (r *ChaosExperimentReconciler) Reconcile(ctx context.Context, req ctrl.Requ
 		return r.handlePodFailure(ctx, &exp)
 	case "pod-network-loss":
 		return r.handlePodNetworkLoss(ctx, &exp)
+	case "pod-disk-fill":
+		return r.handlePodDiskFill(ctx, &exp)
 	default:
 		log.Info("Unsupported action", "action", exp.Spec.Action)
 		exp.Status.Message = "Error: Unsupported action: " + exp.Spec.Action
@@ -1175,8 +1177,8 @@ func (r *ChaosExperimentReconciler) checkExperimentLifecycle(ctx context.Context
 			exp.Status.CordonedNodes = nil
 		}
 
-		// Cleanup ephemeral containers for experiments using them (pod-cpu-stress, pod-memory-stress, pod-network-loss)
-		if (exp.Spec.Action == "pod-cpu-stress" || exp.Spec.Action == "pod-memory-stress" || exp.Spec.Action == "pod-network-loss") && len(exp.Status.AffectedPods) > 0 {
+		// Cleanup ephemeral containers for experiments using them (pod-cpu-stress, pod-memory-stress, pod-network-loss, pod-disk-fill)
+		if (exp.Spec.Action == "pod-cpu-stress" || exp.Spec.Action == "pod-memory-stress" || exp.Spec.Action == "pod-network-loss" || exp.Spec.Action == "pod-disk-fill") && len(exp.Status.AffectedPods) > 0 {
 			log.Info("Cleaning up ephemeral containers injected by this experiment",
 				"affectedPods", len(exp.Status.AffectedPods))
 			if err := r.cleanupEphemeralContainers(ctx, exp); err != nil {
@@ -1629,6 +1631,130 @@ func (r *ChaosExperimentReconciler) handlePodNetworkLoss(ctx context.Context, ex
 	return ctrl.Result{RequeueAfter: time.Minute}, nil
 }
 
+// handlePodDiskFill injects disk usage into pods using an ephemeral container
+func (r *ChaosExperimentReconciler) handlePodDiskFill(ctx context.Context, exp *chaosv1alpha1.ChaosExperiment) (ctrl.Result, error) {
+	log := ctrl.LoggerFrom(ctx)
+	startTime := time.Now()
+
+	// Track active experiments
+	chaosmetrics.ActiveExperiments.WithLabelValues("pod-disk-fill").Inc()
+	defer chaosmetrics.ActiveExperiments.WithLabelValues("pod-disk-fill").Dec()
+
+	// Validate required fields
+	if exp.Spec.Duration == "" {
+		return r.handleExperimentFailure(ctx, exp, "Duration is required for pod-disk-fill action")
+	}
+
+	fillPercentage := exp.Spec.FillPercentage
+	if fillPercentage <= 0 {
+		fillPercentage = 80
+	}
+
+	// Parse duration to seconds for sleep timeout
+	duration, err := r.parseDuration(exp.Spec.Duration)
+	if err != nil {
+		return r.handleExperimentFailure(ctx, exp, fmt.Sprintf("Invalid duration format: %v", err))
+	}
+	timeoutSeconds := int(duration.Seconds())
+
+	// Get eligible pods
+	eligiblePods, err := r.getEligiblePods(ctx, exp)
+	if err != nil {
+		return ctrl.Result{}, err
+	}
+
+	if len(eligiblePods) == 0 {
+		log.Info("No eligible pods found for selector", "selector", exp.Spec.Selector)
+		exp.Status.Message = "No eligible pods found matching selector"
+		_ = r.Status().Update(ctx, exp)
+		return ctrl.Result{RequeueAfter: time.Minute}, nil
+	}
+
+	// Handle dry-run mode
+	if exp.Spec.DryRun {
+		return r.handleDryRun(ctx, exp, eligiblePods, "pod-disk-fill")
+	}
+
+	// Shuffle the list of pods
+	rand.Shuffle(len(eligiblePods), func(i, j int) {
+		eligiblePods[i], eligiblePods[j] = eligiblePods[j], eligiblePods[i]
+	})
+
+	// Determine how many pods to affect
+	affectCount := exp.Spec.Count
+	if affectCount <= 0 {
+		affectCount = 1
+	}
+	if affectCount > len(eligiblePods) {
+		affectCount = len(eligiblePods)
+	}
+
+	// Fill disk on selected pods
+	affectedPods := []string{}
+	for i := 0; i < affectCount; i++ {
+		pod := eligiblePods[i]
+
+		targetPath, err := resolveDiskFillTarget(&pod, exp.Spec.VolumeName, exp.Spec.TargetPath)
+		if err != nil {
+			log.Error(err, "Failed to resolve disk fill target", "pod", pod.Name, "namespace", pod.Namespace)
+			chaosmetrics.ExperimentErrors.WithLabelValues("pod-disk-fill", exp.Spec.Namespace).Inc()
+			continue
+		}
+
+		log.Info("Injecting disk fill into pod",
+			"pod", pod.Name,
+			"namespace", pod.Namespace,
+			"fillPercentage", fillPercentage,
+			"targetPath", targetPath,
+			"duration", timeoutSeconds)
+
+		containerName, err := r.injectDiskFillContainer(ctx, &pod, fillPercentage, targetPath, timeoutSeconds)
+		if err != nil {
+			log.Error(err, "Failed to inject disk fill container", "pod", pod.Name)
+			chaosmetrics.ExperimentErrors.WithLabelValues("pod-disk-fill", exp.Spec.Namespace).Inc()
+			continue
+		}
+		if containerName == "" {
+			continue
+		}
+
+		// Track the affected pod for cleanup later
+		r.trackAffectedPod(exp, pod.Namespace, pod.Name, containerName)
+		affectedPods = append(affectedPods, pod.Name)
+	}
+
+	// Update status
+	now := metav1.Now()
+	exp.Status.LastRunTime = &now
+	status := statusSuccess
+	if len(affectedPods) > 0 {
+		exp.Status.Message = fmt.Sprintf("Successfully filled disk to %d%% on %d pod(s) for %s",
+			fillPercentage, len(affectedPods), exp.Spec.Duration)
+	} else {
+		exp.Status.Message = "Failed to fill disk on any pods"
+		status = statusFailure
+	}
+	if err := r.Status().Update(ctx, exp); err != nil {
+		log.Error(err, "Failed to update ChaosExperiment status")
+		return ctrl.Result{}, err
+	}
+
+	// Record metrics
+	elapsed := time.Since(startTime)
+	chaosmetrics.ExperimentsTotal.WithLabelValues("pod-disk-fill", exp.Spec.Namespace, status).Inc()
+	chaosmetrics.ExperimentDuration.WithLabelValues("pod-disk-fill", exp.Spec.Namespace).Observe(elapsed.Seconds())
+	chaosmetrics.ResourcesAffected.WithLabelValues("pod-disk-fill", exp.Spec.Namespace, exp.Name).Set(float64(len(affectedPods)))
+
+	// Create history record
+	affectedResources := buildResourceReferences(fmt.Sprintf("disk-fill-%d%%", fillPercentage), exp.Spec.Namespace, affectedPods, "Pod")
+	if err := r.createHistoryRecord(ctx, exp, status, affectedResources, startTime, nil); err != nil {
+		log.Error(err, "Failed to create history record")
+		// Don't fail the experiment if history recording fails
+	}
+
+	return ctrl.Result{RequeueAfter: time.Minute}, nil
+}
+
 // injectNetworkLossContainer injects an ephemeral container that applies packet loss using tc netem
 func (r *ChaosExperimentReconciler) injectNetworkLossContainer(ctx context.Context, pod *corev1.Pod, lossPercentage, correlation, timeoutSeconds int) (string, error) {
 	log := ctrl.LoggerFrom(ctx)
@@ -1682,6 +1808,123 @@ func (r *ChaosExperimentReconciler) injectNetworkLossContainer(ctx context.Conte
 		"duration", timeoutSeconds)
 
 	return containerName, nil
+}
+
+// injectDiskFillContainer injects an ephemeral container that fills disk space
+// Returns the container name for tracking purposes
+func (r *ChaosExperimentReconciler) injectDiskFillContainer(ctx context.Context, pod *corev1.Pod, fillPercentage int, targetPath string, timeoutSeconds int) (string, error) {
+	log := ctrl.LoggerFrom(ctx)
+
+	// Generate unique container name
+	containerName := fmt.Sprintf("disk-fill-%d", time.Now().Unix())
+
+	// Get the current pod to check container statuses
+	currentPod := &corev1.Pod{}
+	if err := r.Get(ctx, client.ObjectKeyFromObject(pod), currentPod); err != nil {
+		return "", fmt.Errorf("failed to get current pod state: %w", err)
+	}
+
+	// Check if a disk-fill ephemeral container is still running
+	for _, ec := range currentPod.Spec.EphemeralContainers {
+		if strings.HasPrefix(ec.Name, "disk-fill") {
+			if isEphemeralContainerRunning(currentPod, ec.Name) {
+				log.Info("Disk fill container is already running, skipping injection",
+					"pod", pod.Name,
+					"container", ec.Name)
+				return "", nil
+			}
+		}
+	}
+
+	diskFillCmd := fmt.Sprintf(`set -e
+TARGET=%q
+FILE="$TARGET/chaos-disk-fill.img"
+PERCENT=%d
+DURATION=%d
+
+mkdir -p "$TARGET"
+df_out=$(df -Pk "$TARGET" | tail -1)
+total_kb=$(echo "$df_out" | awk '{print $2}')
+used_kb=$(echo "$df_out" | awk '{print $3}')
+if [ -z "$total_kb" ] || [ -z "$used_kb" ]; then
+  echo "failed to read disk usage"
+  exit 1
+fi
+target_kb=$((total_kb * PERCENT / 100))
+fill_kb=$((target_kb - used_kb))
+if [ "$fill_kb" -le 0 ]; then
+  echo "disk already above target"
+  sleep "$DURATION"
+  exit 0
+fi
+fallocate_failed=0
+if command -v fallocate >/dev/null 2>&1; then
+  if ! fallocate -l "${fill_kb}K" "$FILE"; then
+    fallocate_failed=1
+  fi
+else
+  fallocate_failed=1
+fi
+if [ "$fallocate_failed" -ne 0 ]; then
+  count=$((fill_kb / 1024))
+  if [ "$count" -le 0 ]; then
+    count=1
+  fi
+  dd if=/dev/zero of="$FILE" bs=1M count="$count" conv=fsync 2>/dev/null
+fi
+sleep "$DURATION"
+rm -f "$FILE"
+`, targetPath, fillPercentage, timeoutSeconds)
+
+	ephemeralContainer := corev1.EphemeralContainer{
+		EphemeralContainerCommon: corev1.EphemeralContainerCommon{
+			Name:    containerName,
+			Image:   "busybox:1.36",
+			Command: []string{"/bin/sh", "-c", diskFillCmd},
+		},
+	}
+
+	currentPod.Spec.EphemeralContainers = append(currentPod.Spec.EphemeralContainers, ephemeralContainer)
+
+	if err := r.Client.SubResource("ephemeralcontainers").Update(ctx, currentPod); err != nil {
+		return "", fmt.Errorf("failed to inject ephemeral container: %w", err)
+	}
+
+	log.Info("Successfully injected disk fill ephemeral container",
+		"pod", pod.Name,
+		"container", containerName,
+		"fillPercentage", fillPercentage,
+		"targetPath", targetPath,
+		"duration", timeoutSeconds)
+
+	return containerName, nil
+}
+
+func resolveDiskFillTarget(pod *corev1.Pod, volumeName, targetPath string) (string, error) {
+	if volumeName == "" {
+		if targetPath == "" {
+			return "", fmt.Errorf("target path is empty")
+		}
+		return targetPath, nil
+	}
+
+	for _, container := range pod.Spec.Containers {
+		for _, mount := range container.VolumeMounts {
+			if mount.Name == volumeName {
+				return mount.MountPath, nil
+			}
+		}
+	}
+
+	for _, container := range pod.Spec.InitContainers {
+		for _, mount := range container.VolumeMounts {
+			if mount.Name == volumeName {
+				return mount.MountPath, nil
+			}
+		}
+	}
+
+	return "", fmt.Errorf("volume %q not found in pod %s/%s", volumeName, pod.Namespace, pod.Name)
 }
 
 // killContainerProcess kills the main process (PID 1) in the pod's first container to cause a crash

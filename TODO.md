@@ -45,7 +45,7 @@
 ### Status Reporting
 - [x] **Enhance Status Fields**
   - [x] Add `phase` field (Pending, Running, Completed, Failed)
-  - [ ] Add `affectedPods` list with pod names
+  - [x] Add `affectedPods` list with pod names
   - [x] Add `startTime` and `completedAt` timestamps
   - [x] Add retry tracking fields (retryCount, nextRetryTime, lastError)
 - [ ] **Kubernetes Events** - Emit events on ChaosExperiment and affected pods
@@ -56,7 +56,8 @@
 - [x] **pod-delay** - Add network latency to pods
 - [x] **pod-cpu-stress** - Consume CPU resources
 - [x] **pod-memory-stress** - Consume memory resources
-- [ ] **pod-network-loss** - Simulate packet loss
+- [x] **pod-network-loss** - Simulate packet loss
+- [x] **pod-disk-fill** - Fill pod disk space
 - [ ] **pod-network-corruption** - Corrupt network packets
 - [ ] **pod-restart** - Restart pods instead of delete
 
@@ -110,7 +111,7 @@
 ### Developer Documentation
 - [x] **Architecture Decision Records (ADRs)** - Created ADR for pod-cpu-stress implementation
 - [x] **API Documentation** - Detailed CRD field descriptions
-- [ ] **Contributing Guide** - How to add new chaos actions
+- [x] **Contributing Guide** - How to add new chaos actions
 - [x] **Code Comments** - Translate Russian comments to English
 
 ## 🔒 Security
@@ -118,7 +119,7 @@
 ### RBAC
 - [ ] **Fine-grained Permissions** - Separate roles for different chaos levels
 - [ ] **Namespace Isolation** - Restrict experiments to specific namespaces
-- [ ] **Audit Logging** - Track who runs experiments
+- [x] **Audit Logging** - Track who runs experiments
 
 ### Policy
 - [ ] **OPA Integration** - Policy-based experiment approval
