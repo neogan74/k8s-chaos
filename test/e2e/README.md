@@ -29,6 +29,16 @@ Comprehensive tests for the `pod-memory-stress` action:
 #### Observability
 - **Metrics exposure**: Verifies Prometheus metrics are exported correctly
 
+### Disk Fill Tests (`disk_fill_test.go`)
+Basic tests for the `pod-disk-fill` action:
+
+#### Basic Functionality
+- **Disk fill injection**: Verifies ephemeral containers are injected to fill disk
+- **Completion flow**: Ensures the experiment reports success
+
+#### Validation
+- **Required fields**: Tests webhook rejection when duration is missing
+
 ## Running E2E Tests
 
 ### Quick Start
@@ -82,6 +92,9 @@ go test -tags=e2e ./test/e2e/ -v -ginkgo.focus="Dry-Run"
 
 # Run only metrics tests
 go test -tags=e2e ./test/e2e/ -v -ginkgo.focus="Metrics Validation"
+
+# Run only disk fill tests
+go test -tags=e2e ./test/e2e/ -v -ginkgo.focus="Disk Fill"
 ```
 
 ## Prerequisites

@@ -63,7 +63,7 @@ The `spec` section defines the desired state of the chaos experiment.
 
 **Type:** `string`
 **Required:** Yes
-**Validation:** Must be one of: `pod-kill`, `pod-delay`, `node-drain`, `pod-cpu-stress`, `pod-memory-stress`, `pod-failure`, `pod-network-loss`
+**Validation:** Must be one of: `pod-kill`, `pod-delay`, `node-drain`, `pod-cpu-stress`, `pod-memory-stress`, `pod-failure`, `pod-network-loss`, `pod-disk-fill`
 
 Specifies the type of chaos action to perform.
 
@@ -78,6 +78,7 @@ Specifies the type of chaos action to perform.
 | `pod-memory-stress` | Injects memory stress via ephemeral containers | action, namespace, selector, duration, memorySize |
 | `pod-failure` | Kills main process (PID 1) to cause container crash | action, namespace, selector |
 | `pod-network-loss` | Injects packet loss using tc netem | action, namespace, selector, duration, lossPercentage |
+| `pod-disk-fill` | Fills disk space using an ephemeral container | action, namespace, selector, duration, fillPercentage |
 
 #### Examples
 
@@ -133,9 +134,18 @@ spec:
   lossCorrelation: 25
 ```
 
+```yaml
+# Disk fill (requires duration and fillPercentage)
+spec:
+  action: "pod-disk-fill"
+  duration: "2m"
+  fillPercentage: 80
+  targetPath: "/tmp"
+```
+
 #### Notes
 - Action names are case-sensitive
-- Actions using ephemeral containers (cpu-stress, memory-stress, network-loss) require Kubernetes 1.25+
+- Actions using ephemeral containers (cpu-stress, memory-stress, network-loss, disk-fill) require Kubernetes 1.25+
 - Network chaos actions require NET_ADMIN capability in the cluster
 
 ---
@@ -575,6 +585,66 @@ spec:
   duration: "5m"
   lossPercentage: 15
   lossCorrelation: 50
+```
+
+---
+
+### fillPercentage
+
+**Type:** `integer`
+**Required:** Yes (for `pod-disk-fill` action)
+**Default:** `80`
+**Validation:** 50-95
+
+Percentage of disk space to fill on the target filesystem.
+
+#### Example
+
+```yaml
+spec:
+  action: "pod-disk-fill"
+  duration: "2m"
+  fillPercentage: 85
+  targetPath: "/tmp"
+```
+
+---
+
+### targetPath
+
+**Type:** `string`
+**Required:** No
+**Default:** `/tmp`
+
+Path inside the pod filesystem to fill. Ignored when `volumeName` is set.
+
+#### Example
+
+```yaml
+spec:
+  action: "pod-disk-fill"
+  duration: "2m"
+  fillPercentage: 80
+  targetPath: "/var/log"
+```
+
+---
+
+### volumeName
+
+**Type:** `string`
+**Required:** No
+
+Optional volume name to target. The controller resolves the first matching mount path and uses it for filling disk.
+
+#### Example
+
+```yaml
+spec:
+  action: "pod-disk-fill"
+  duration: "2m"
+  fillPercentage: 80
+  volumeName: "data"
 ```
 
 ---
