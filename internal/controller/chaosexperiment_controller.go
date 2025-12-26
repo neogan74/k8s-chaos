@@ -1238,10 +1238,11 @@ func (r *ChaosExperimentReconciler) getEligiblePods(ctx context.Context, exp *ch
 		}
 	}
 
-	// Filter out excluded pods and track exclusions in metrics
+	// Filter out excluded pods, terminating pods, and track exclusions in metrics
 	eligiblePods := []corev1.Pod{}
 	excludedByNamespace := 0
 	excludedByLabel := 0
+	excludedByTerminating := 0
 
 	for _, pod := range podList.Items {
 		// Skip if namespace is excluded
@@ -1254,6 +1255,13 @@ func (r *ChaosExperimentReconciler) getEligiblePods(ctx context.Context, exp *ch
 		if val, exists := pod.Labels[chaosv1alpha1.ExclusionLabel]; exists && val == "true" {
 			log.Info("Skipping excluded pod", "pod", pod.Name, "namespace", pod.Namespace)
 			excludedByLabel++
+			continue
+		}
+
+		// Skip if pod is terminating (has DeletionTimestamp set)
+		if pod.DeletionTimestamp != nil {
+			log.Info("Skipping terminating pod", "pod", pod.Name, "namespace", pod.Namespace, "deletionTimestamp", pod.DeletionTimestamp)
+			excludedByTerminating++
 			continue
 		}
 
@@ -1274,6 +1282,13 @@ func (r *ChaosExperimentReconciler) getEligiblePods(ctx context.Context, exp *ch
 			exp.Spec.Namespace,
 			"pod",
 		).Add(float64(excludedByLabel))
+	}
+	if excludedByTerminating > 0 {
+		chaosmetrics.SafetyExcludedResources.WithLabelValues(
+			exp.Spec.Action,
+			exp.Spec.Namespace,
+			"terminating",
+		).Add(float64(excludedByTerminating))
 	}
 
 	return eligiblePods, nil

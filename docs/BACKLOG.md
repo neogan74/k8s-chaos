@@ -3,7 +3,7 @@
 This file tracks remaining work items, grouped by area and priority. Source of truth is `backlog.md`.
 
 ## P0 (blocking/critical)
-- Handle terminating pods gracefully during selection/execution.
+- ~~Handle terminating pods gracefully during selection/execution.~~ **[COMPLETED 2025-12-26]** - Pods with DeletionTimestamp are now filtered in `getEligiblePods()`, metrics track via `chaos_safety_excluded_resources_total{reason="terminating"}`.
 - Emit Kubernetes Events for experiments and affected pods.
 - Add history TTL cleanup (in addition to retention limit).
 - Add E2E coverage for `pod-network-loss`.
