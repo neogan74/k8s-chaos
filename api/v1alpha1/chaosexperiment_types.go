@@ -46,7 +46,7 @@ type ChaosExperimentSpec struct {
 
 	// Action specifies the chaos action to perform
 	// +kubebuilder:validation:Required
-	// +kubebuilder:validation:Enum=pod-kill;pod-delay;node-drain;pod-cpu-stress;pod-memory-stress;pod-failure;pod-network-loss;pod-disk-fill
+	// +kubebuilder:validation:Enum=pod-kill;pod-delay;node-drain;pod-cpu-stress;pod-memory-stress;pod-failure;pod-network-loss;pod-disk-fill;pod-restart
 	Action string `json:"action"`
 
 	// Namespace specifies the target namespace for chaos experiments
@@ -187,6 +187,13 @@ type ChaosExperimentSpec struct {
 	// If not set, the experiment runs once immediately after creation
 	// +optional
 	Schedule string `json:"schedule,omitempty"`
+
+	// RestartInterval specifies delay between restarting each pod (pod-restart only)
+	// Format: "30s", "1m", "2m30s"
+	// Default: "" (restart all immediately)
+	// +kubebuilder:validation:Pattern="^([0-9]+(s|m|h))+$"
+	// +optional
+	RestartInterval string `json:"restartInterval,omitempty"`
 }
 
 // ChaosExperimentStatus defines the observed state of ChaosExperiment.

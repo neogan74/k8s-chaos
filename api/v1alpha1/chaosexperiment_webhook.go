@@ -239,6 +239,13 @@ func (w *ChaosExperimentWebhook) validateCrossFieldConstraints(spec *ChaosExperi
 		}
 	}
 
+	// Validate restartInterval format if provided
+	if spec.RestartInterval != "" {
+		if err := ValidateDurationFormat(spec.RestartInterval); err != nil {
+			return fmt.Errorf("invalid restartInterval format: %w", err)
+		}
+	}
+
 	return nil
 }
 

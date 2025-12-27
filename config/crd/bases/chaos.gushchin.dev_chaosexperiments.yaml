@@ -69,6 +69,7 @@ spec:
                 - pod-failure
                 - pod-network-loss
                 - pod-disk-fill
+                - pod-restart
                 type: string
               allowProduction:
                 default: false
@@ -168,6 +169,13 @@ spec:
               namespace:
                 description: Namespace specifies the target namespace for chaos experiments
                 minLength: 1
+                type: string
+              restartInterval:
+                description: |-
+                  RestartInterval specifies delay between restarting each pod (pod-restart only)
+                  Format: "30s", "1m", "2m30s"
+                  Default: "" (restart all immediately)
+                pattern: ^([0-9]+(s|m|h))+$
                 type: string
               retryBackoff:
                 default: exponential
