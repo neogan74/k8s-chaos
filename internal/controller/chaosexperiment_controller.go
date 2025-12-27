@@ -140,6 +140,8 @@ func (r *ChaosExperimentReconciler) Reconcile(ctx context.Context, req ctrl.Requ
 		return r.handlePodMemoryStress(ctx, &exp)
 	case "pod-failure":
 		return r.handlePodFailure(ctx, &exp)
+	case "pod-restart":
+		return r.handlePodRestart(ctx, &exp)
 	case "pod-network-loss":
 		return r.handlePodNetworkLoss(ctx, &exp)
 	case "pod-disk-fill":
@@ -1537,6 +1539,112 @@ func (r *ChaosExperimentReconciler) handlePodFailure(ctx context.Context, exp *c
 	return ctrl.Result{RequeueAfter: time.Minute}, nil
 }
 
+// handlePodRestart gracefully restarts containers by sending SIGTERM to PID 1
+func (r *ChaosExperimentReconciler) handlePodRestart(ctx context.Context, exp *chaosv1alpha1.ChaosExperiment) (ctrl.Result, error) {
+	log := ctrl.LoggerFrom(ctx)
+	startTime := time.Now()
+
+	// Track active experiments
+	chaosmetrics.ActiveExperiments.WithLabelValues("pod-restart").Inc()
+	defer chaosmetrics.ActiveExperiments.WithLabelValues("pod-restart").Dec()
+
+	// Get eligible pods (includes namespace validation and exclusion filtering)
+	eligiblePods, err := r.getEligiblePods(ctx, exp)
+	if err != nil {
+		return r.handleExperimentFailure(ctx, exp, fmt.Sprintf("Failed to get eligible pods: %v", err))
+	}
+
+	if len(eligiblePods) == 0 {
+		log.Info("No eligible pods found")
+		exp.Status.Message = "No eligible pods found matching selector (or all are excluded)"
+		_ = r.Status().Update(ctx, exp)
+		return ctrl.Result{RequeueAfter: time.Minute}, nil
+	}
+
+	// Handle dry-run mode
+	if exp.Spec.DryRun {
+		return r.handleDryRun(ctx, exp, eligiblePods, "gracefully restart")
+	}
+
+	// Parse restart interval if provided
+	var restartInterval time.Duration
+	if exp.Spec.RestartInterval != "" {
+		interval, err := r.parseDuration(exp.Spec.RestartInterval)
+		if err != nil {
+			return r.handleExperimentFailure(ctx, exp, fmt.Sprintf("Invalid restartInterval: %v", err))
+		}
+		restartInterval = interval
+		log.Info("Using restart interval", "interval", restartInterval)
+	}
+
+	// Shuffle the list of eligible pods
+	rand.Shuffle(len(eligiblePods), func(i, j int) {
+		eligiblePods[i], eligiblePods[j] = eligiblePods[j], eligiblePods[i]
+	})
+
+	// Determine how many pods to affect
+	affectCount := exp.Spec.Count
+	if affectCount <= 0 {
+		affectCount = 1 // Default to 1 if not specified or invalid
+	}
+	if affectCount > len(eligiblePods) {
+		affectCount = len(eligiblePods)
+	}
+
+	// Gracefully restart containers in selected pods
+	restartedPods := []string{}
+	for i := 0; i < affectCount; i++ {
+		// Apply delay between restarts (except first)
+		if i > 0 && restartInterval > 0 {
+			log.Info("Waiting before next restart", "interval", restartInterval)
+			time.Sleep(restartInterval)
+		}
+
+		pod := eligiblePods[i]
+		log.Info("Gracefully restarting pod", "pod", pod.Name, "namespace", pod.Namespace)
+
+		// Send SIGTERM to gracefully restart the container
+		if err := r.gracefullyRestartContainer(ctx, &pod); err != nil {
+			log.Error(err, "Failed to restart pod", "pod", pod.Name)
+			chaosmetrics.ExperimentErrors.WithLabelValues("pod-restart", exp.Spec.Namespace).Inc()
+			// Continue with other pods even if one fails
+		} else {
+			restartedPods = append(restartedPods, pod.Name)
+		}
+	}
+
+	// Check if we restarted any pods
+	if len(restartedPods) == 0 {
+		return r.handleExperimentFailure(ctx, exp, "Failed to restart any pods")
+	}
+
+	// Update status - success
+	now := metav1.Now()
+	exp.Status.LastRunTime = &now
+	exp.Status.Message = fmt.Sprintf("Successfully restarted %d pod(s)", len(restartedPods))
+
+	// Reset retry counters on success
+	if err := r.handleExperimentSuccess(ctx, exp); err != nil {
+		log.Error(err, "Failed to update ChaosExperiment status")
+		return ctrl.Result{}, err
+	}
+
+	// Record metrics
+	duration := time.Since(startTime).Seconds()
+	chaosmetrics.ExperimentsTotal.WithLabelValues("pod-restart", exp.Spec.Namespace, statusSuccess).Inc()
+	chaosmetrics.ExperimentDuration.WithLabelValues("pod-restart", exp.Spec.Namespace).Observe(duration)
+	chaosmetrics.ResourcesAffected.WithLabelValues("pod-restart", exp.Spec.Namespace, exp.Name).Set(float64(len(restartedPods)))
+
+	// Create history record
+	affectedResources := buildResourceReferences("container-restarted", exp.Spec.Namespace, restartedPods, "Pod")
+	if err := r.createHistoryRecord(ctx, exp, statusSuccess, affectedResources, startTime, nil); err != nil {
+		log.Error(err, "Failed to create history record")
+		// Don't fail the experiment if history recording fails
+	}
+
+	return ctrl.Result{RequeueAfter: time.Minute}, nil
+}
+
 // handlePodNetworkLoss injects packet loss into pods using tc netem via ephemeral containers
 func (r *ChaosExperimentReconciler) handlePodNetworkLoss(ctx context.Context, exp *chaosv1alpha1.ChaosExperiment) (ctrl.Result, error) {
 	log := ctrl.LoggerFrom(ctx)
@@ -1966,6 +2074,39 @@ func (r *ChaosExperimentReconciler) killContainerProcess(ctx context.Context, po
 	}
 
 	log.Info("Successfully killed main process in container",
+		"pod", pod.Name,
+		"container", containerName,
+		"stdout", stdout,
+		"stderr", stderr)
+
+	return nil
+}
+
+// gracefullyRestartContainer sends SIGTERM to the main process (PID 1) to trigger graceful shutdown
+func (r *ChaosExperimentReconciler) gracefullyRestartContainer(ctx context.Context, pod *corev1.Pod) error {
+	log := ctrl.LoggerFrom(ctx)
+
+	// Find the first container (main application container)
+	if len(pod.Spec.Containers) == 0 {
+		return fmt.Errorf("no containers found in pod")
+	}
+	containerName := pod.Spec.Containers[0].Name
+
+	// Send SIGTERM (signal 15) to PID 1 for graceful shutdown
+	// Using fallback command to handle different environments
+	command := []string{"/bin/sh", "-c", "kill -15 1 || kill -TERM 1"}
+
+	stdout, stderr, err := r.execInPod(ctx, pod.Namespace, pod.Name, containerName, command)
+	if err != nil {
+		log.Error(err, "Failed to send SIGTERM to main process",
+			"pod", pod.Name,
+			"container", containerName,
+			"stdout", stdout,
+			"stderr", stderr)
+		return err
+	}
+
+	log.Info("Successfully sent SIGTERM to main process for graceful restart",
 		"pod", pod.Name,
 		"container", containerName,
 		"stdout", stdout,
