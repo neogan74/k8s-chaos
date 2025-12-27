@@ -39,6 +39,27 @@ Basic tests for the `pod-disk-fill` action:
 #### Validation
 - **Required fields**: Tests webhook rejection when duration is missing
 
+### Network Loss Tests (`e2e_test.go`)
+Comprehensive tests for the `pod-network-loss` action:
+
+#### Basic Functionality
+- **Packet loss injection**: Verifies ephemeral containers inject packet loss using tc netem
+- **Multiple pod targeting**: Tests affecting multiple pods simultaneously
+- **Duration handling**: Validates experiments run for specified duration
+
+#### Safety Features
+- **Dry-run mode**: Verifies no actual network chaos is applied in dry-run mode
+- **Max percentage limits**: Tests the maxPercentage safety constraint
+- **No eligible pods handling**: Validates graceful handling when no pods match selector
+
+#### Parameters
+- **Loss percentage**: Tests lossPercentage parameter (1-100%)
+- **Loss correlation**: Tests lossCorrelation parameter for burst losses (0-100%)
+
+#### Observability
+- **Metrics exposure**: Verifies Prometheus metrics are exported correctly
+- **Status updates**: Validates experiment status reflects injection state
+
 ## Running E2E Tests
 
 ### Quick Start
@@ -95,6 +116,9 @@ go test -tags=e2e ./test/e2e/ -v -ginkgo.focus="Metrics Validation"
 
 # Run only disk fill tests
 go test -tags=e2e ./test/e2e/ -v -ginkgo.focus="Disk Fill"
+
+# Run only pod-network-loss tests
+go test -tags=e2e ./test/e2e/ -v -ginkgo.focus="pod-network-loss"
 ```
 
 ## Prerequisites
