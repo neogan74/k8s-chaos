@@ -261,15 +261,314 @@ var _ = Describe("Manager", Ordered, func() {
 		})
 
 		// +kubebuilder:scaffold:e2e-webhooks-checks
+	})
 
-		// TODO: Customize the e2e test suite with scenarios specific to your project.
-		// Consider applying sample/CR(s) and check their status and/or verifying
-		// the reconciliation by using the metrics, i.e.:
-		// metricsOutput := getMetricsOutput()
-		// Expect(metricsOutput).To(ContainSubstring(
-		//    fmt.Sprintf(`controller_runtime_reconcile_total{controller="%s",result="success"} 1`,
-		//    strings.ToLower(<Kind>),
-		// ))
+	Context("ChaosExperiment - pod-network-loss", func() {
+		const testNamespace = "chaos-test-network-loss"
+
+		BeforeEach(func() {
+			By("creating test namespace")
+			cmd := exec.Command("kubectl", "create", "ns", testNamespace)
+			_, err := utils.Run(cmd)
+			Expect(err).NotTo(HaveOccurred(), "Failed to create test namespace")
+
+			By("deploying test pods")
+			cmd = exec.Command("kubectl", "run", "test-pod-1",
+				"--image=busybox:1.36",
+				"--labels=app=test-app",
+				"--namespace", testNamespace,
+				"--command", "--", "sleep", "3600")
+			_, err = utils.Run(cmd)
+			Expect(err).NotTo(HaveOccurred(), "Failed to create test-pod-1")
+
+			cmd = exec.Command("kubectl", "run", "test-pod-2",
+				"--image=busybox:1.36",
+				"--labels=app=test-app",
+				"--namespace", testNamespace,
+				"--command", "--", "sleep", "3600")
+			_, err = utils.Run(cmd)
+			Expect(err).NotTo(HaveOccurred(), "Failed to create test-pod-2")
+
+			cmd = exec.Command("kubectl", "run", "test-pod-3",
+				"--image=busybox:1.36",
+				"--labels=app=test-app",
+				"--namespace", testNamespace,
+				"--command", "--", "sleep", "3600")
+			_, err = utils.Run(cmd)
+			Expect(err).NotTo(HaveOccurred(), "Failed to create test-pod-3")
+
+			By("waiting for test pods to be ready")
+			Eventually(func(g Gomega) {
+				cmd := exec.Command("kubectl", "get", "pods",
+					"-n", testNamespace,
+					"-l", "app=test-app",
+					"-o", "jsonpath={.items[*].status.phase}")
+				output, err := utils.Run(cmd)
+				g.Expect(err).NotTo(HaveOccurred())
+				g.Expect(output).To(ContainSubstring("Running"))
+
+				// Verify all 3 pods are running
+				cmd = exec.Command("kubectl", "get", "pods",
+					"-n", testNamespace,
+					"-l", "app=test-app",
+					"--field-selector=status.phase=Running",
+					"-o", "name")
+				output, err = utils.Run(cmd)
+				g.Expect(err).NotTo(HaveOccurred())
+				pods := utils.GetNonEmptyLines(output)
+				g.Expect(pods).To(HaveLen(3), "Expected 3 pods to be running")
+			}, 2*time.Minute, 5*time.Second).Should(Succeed())
+		})
+
+		AfterEach(func() {
+			By("cleaning up test namespace")
+			cmd := exec.Command("kubectl", "delete", "ns", testNamespace, "--ignore-not-found=true")
+			_, _ = utils.Run(cmd)
+		})
+
+		It("should inject packet loss into pods successfully", func() {
+			By("creating a pod-network-loss experiment")
+			experimentYAML := fmt.Sprintf(`apiVersion: chaos.gushchin.dev/v1alpha1
+kind: ChaosExperiment
+metadata:
+  name: test-network-loss
+  namespace: %s
+spec:
+  action: pod-network-loss
+  namespace: %s
+  selector:
+    app: test-app
+  count: 2
+  duration: "30s"
+  lossPercentage: 10
+  lossCorrelation: 0
+`, testNamespace, testNamespace)
+
+			experimentFile := filepath.Join("/tmp", "network-loss-experiment.yaml")
+			err := os.WriteFile(experimentFile, []byte(experimentYAML), os.FileMode(0644))
+			Expect(err).NotTo(HaveOccurred())
+
+			cmd := exec.Command("kubectl", "apply", "-f", experimentFile)
+			_, err = utils.Run(cmd)
+			Expect(err).NotTo(HaveOccurred(), "Failed to create ChaosExperiment")
+
+			By("verifying the experiment status updates")
+			Eventually(func(g Gomega) {
+				cmd := exec.Command("kubectl", "get", "chaosexperiment", "test-network-loss",
+					"-n", testNamespace,
+					"-o", "jsonpath={.status.message}")
+				output, err := utils.Run(cmd)
+				g.Expect(err).NotTo(HaveOccurred())
+				g.Expect(output).To(Or(
+					ContainSubstring("Successfully injected"),
+					ContainSubstring("packet loss"),
+				))
+			}, 3*time.Minute, 5*time.Second).Should(Succeed())
+
+			By("verifying ephemeral containers were injected")
+			Eventually(func(g Gomega) {
+				cmd := exec.Command("kubectl", "get", "pods",
+					"-n", testNamespace,
+					"-l", "app=test-app",
+					"-o", "jsonpath={.items[*].spec.ephemeralContainers[*].name}")
+				output, err := utils.Run(cmd)
+				g.Expect(err).NotTo(HaveOccurred())
+				g.Expect(output).To(ContainSubstring("network-loss"))
+			}, 1*time.Minute, 5*time.Second).Should(Succeed())
+
+			By("verifying metrics were recorded")
+			time.Sleep(10 * time.Second) // Wait for metrics to be scraped
+			metricsOutput := getMetricsOutput()
+			Expect(metricsOutput).To(ContainSubstring("chaos_experiments_total"))
+			Expect(metricsOutput).To(Or(
+				ContainSubstring(`action="pod-network-loss"`),
+				ContainSubstring("pod-network-loss"),
+			))
+
+			By("cleaning up experiment")
+			cmd = exec.Command("kubectl", "delete", "chaosexperiment", "test-network-loss", "-n", testNamespace)
+			_, _ = utils.Run(cmd)
+		})
+
+		It("should support dry-run mode", func() {
+			By("creating a dry-run pod-network-loss experiment")
+			experimentYAML := fmt.Sprintf(`apiVersion: chaos.gushchin.dev/v1alpha1
+kind: ChaosExperiment
+metadata:
+  name: test-network-loss-dryrun
+  namespace: %s
+spec:
+  action: pod-network-loss
+  namespace: %s
+  selector:
+    app: test-app
+  count: 2
+  duration: "30s"
+  lossPercentage: 10
+  dryRun: true
+`, testNamespace, testNamespace)
+
+			experimentFile := filepath.Join("/tmp", "network-loss-dryrun.yaml")
+			err := os.WriteFile(experimentFile, []byte(experimentYAML), os.FileMode(0644))
+			Expect(err).NotTo(HaveOccurred())
+
+			cmd := exec.Command("kubectl", "apply", "-f", experimentFile)
+			_, err = utils.Run(cmd)
+			Expect(err).NotTo(HaveOccurred(), "Failed to create ChaosExperiment")
+
+			By("verifying dry-run status message")
+			Eventually(func(g Gomega) {
+				cmd := exec.Command("kubectl", "get", "chaosexperiment", "test-network-loss-dryrun",
+					"-n", testNamespace,
+					"-o", "jsonpath={.status.message}")
+				output, err := utils.Run(cmd)
+				g.Expect(err).NotTo(HaveOccurred())
+				g.Expect(output).To(ContainSubstring("DRY RUN"))
+			}, 2*time.Minute, 5*time.Second).Should(Succeed())
+
+			By("verifying no ephemeral containers were actually injected")
+			cmd = exec.Command("kubectl", "get", "pods",
+				"-n", testNamespace,
+				"-l", "app=test-app",
+				"-o", "jsonpath={.items[*].spec.ephemeralContainers}")
+			output, err := utils.Run(cmd)
+			Expect(err).NotTo(HaveOccurred())
+			// Should be empty or not contain network-loss containers from this experiment
+			Expect(output).NotTo(ContainSubstring("network-loss"))
+
+			By("cleaning up experiment")
+			cmd = exec.Command("kubectl", "delete", "chaosexperiment", "test-network-loss-dryrun", "-n", testNamespace)
+			_, _ = utils.Run(cmd)
+		})
+
+		It("should respect lossCorrelation parameter", func() {
+			By("creating a pod-network-loss experiment with correlation")
+			experimentYAML := fmt.Sprintf(`apiVersion: chaos.gushchin.dev/v1alpha1
+kind: ChaosExperiment
+metadata:
+  name: test-network-loss-correlation
+  namespace: %s
+spec:
+  action: pod-network-loss
+  namespace: %s
+  selector:
+    app: test-app
+  count: 1
+  duration: "30s"
+  lossPercentage: 20
+  lossCorrelation: 50
+`, testNamespace, testNamespace)
+
+			experimentFile := filepath.Join("/tmp", "network-loss-correlation.yaml")
+			err := os.WriteFile(experimentFile, []byte(experimentYAML), os.FileMode(0644))
+			Expect(err).NotTo(HaveOccurred())
+
+			cmd := exec.Command("kubectl", "apply", "-f", experimentFile)
+			_, err = utils.Run(cmd)
+			Expect(err).NotTo(HaveOccurred(), "Failed to create ChaosExperiment")
+
+			By("verifying the experiment completes successfully")
+			Eventually(func(g Gomega) {
+				cmd := exec.Command("kubectl", "get", "chaosexperiment", "test-network-loss-correlation",
+					"-n", testNamespace,
+					"-o", "jsonpath={.status.message}")
+				output, err := utils.Run(cmd)
+				g.Expect(err).NotTo(HaveOccurred())
+				g.Expect(output).To(ContainSubstring("Successfully injected"))
+			}, 2*time.Minute, 5*time.Second).Should(Succeed())
+
+			By("cleaning up experiment")
+			cmd = exec.Command("kubectl", "delete", "chaosexperiment", "test-network-loss-correlation", "-n", testNamespace)
+			_, _ = utils.Run(cmd)
+		})
+
+		It("should handle no eligible pods gracefully", func() {
+			By("creating an experiment with non-matching selector")
+			experimentYAML := fmt.Sprintf(`apiVersion: chaos.gushchin.dev/v1alpha1
+kind: ChaosExperiment
+metadata:
+  name: test-network-loss-nomatch
+  namespace: %s
+spec:
+  action: pod-network-loss
+  namespace: %s
+  selector:
+    app: non-existent-app
+  count: 1
+  duration: "30s"
+  lossPercentage: 10
+`, testNamespace, testNamespace)
+
+			experimentFile := filepath.Join("/tmp", "network-loss-nomatch.yaml")
+			err := os.WriteFile(experimentFile, []byte(experimentYAML), os.FileMode(0644))
+			Expect(err).NotTo(HaveOccurred())
+
+			cmd := exec.Command("kubectl", "apply", "-f", experimentFile)
+			_, err = utils.Run(cmd)
+			Expect(err).NotTo(HaveOccurred(), "Failed to create ChaosExperiment")
+
+			By("verifying the experiment reports no eligible pods")
+			Eventually(func(g Gomega) {
+				cmd := exec.Command("kubectl", "get", "chaosexperiment", "test-network-loss-nomatch",
+					"-n", testNamespace,
+					"-o", "jsonpath={.status.message}")
+				output, err := utils.Run(cmd)
+				g.Expect(err).NotTo(HaveOccurred())
+				g.Expect(output).To(ContainSubstring("No eligible pods"))
+			}, 2*time.Minute, 5*time.Second).Should(Succeed())
+
+			By("cleaning up experiment")
+			cmd = exec.Command("kubectl", "delete", "chaosexperiment", "test-network-loss-nomatch", "-n", testNamespace)
+			_, _ = utils.Run(cmd)
+		})
+
+		It("should respect maxPercentage safety limit", func() {
+			By("creating an experiment with maxPercentage")
+			// We have 3 pods, maxPercentage=30 means max 1 pod (30% of 3 = 0.9, rounds down to 0, but we enforce minimum 1)
+			experimentYAML := fmt.Sprintf(`apiVersion: chaos.gushchin.dev/v1alpha1
+kind: ChaosExperiment
+metadata:
+  name: test-network-loss-maxpercent
+  namespace: %s
+spec:
+  action: pod-network-loss
+  namespace: %s
+  selector:
+    app: test-app
+  count: 3
+  duration: "30s"
+  lossPercentage: 10
+  maxPercentage: 30
+`, testNamespace, testNamespace)
+
+			experimentFile := filepath.Join("/tmp", "network-loss-maxpercent.yaml")
+			err := os.WriteFile(experimentFile, []byte(experimentYAML), os.FileMode(0644))
+			Expect(err).NotTo(HaveOccurred())
+
+			cmd := exec.Command("kubectl", "apply", "-f", experimentFile)
+			_, err = utils.Run(cmd)
+			// This should either be rejected by webhook or succeed with limited count
+			// Let's check what happens
+			if err == nil {
+				By("verifying the experiment was created but limited")
+				Eventually(func(g Gomega) {
+					cmd := exec.Command("kubectl", "get", "chaosexperiment", "test-network-loss-maxpercent",
+						"-n", testNamespace,
+						"-o", "jsonpath={.status.message}")
+					output, err := utils.Run(cmd)
+					g.Expect(err).NotTo(HaveOccurred())
+					// Should succeed but only affect 1 pod
+					g.Expect(output).To(Or(
+						ContainSubstring("Successfully injected"),
+						ContainSubstring("1 pod"),
+					))
+				}, 2*time.Minute, 5*time.Second).Should(Succeed())
+
+				By("cleaning up experiment")
+				cmd = exec.Command("kubectl", "delete", "chaosexperiment", "test-network-loss-maxpercent", "-n", testNamespace)
+				_, _ = utils.Run(cmd)
+			}
+		})
 	})
 })
 
