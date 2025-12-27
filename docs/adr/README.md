@@ -25,7 +25,7 @@ An Architecture Decision Record (ADR) is a document that captures an important a
 | [0006](0006-experiment-history-and-audit-logging.md) | Experiment History and Audit Logging | Implemented | 2025-11-21 |
 | [0007](0007-pod-network-loss-implementation.md) | Pod Network Loss Implementation | Implemented | 2025-12-18 |
 | [0008](0008-pod-disk-fill-implementation.md) | Pod Disk Fill Implementation | Proposed | 2025-12-18 |
-| [0009](0009-pod-restart-implementation.md) | Pod Restart Implementation | Proposed | 2025-12-27 |
+| [0009](0009-pod-restart-implementation.md) | Pod Restart Implementation | Accepted | 2025-12-27 |
 
 Notes:
 - Some ADRs are implemented without every "planned" item: 0006 uses retention limit but no TTL; 0007 has E2E tests but 0008 only has basic tests.
