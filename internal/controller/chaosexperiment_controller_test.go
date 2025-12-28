@@ -25,6 +25,7 @@ import (
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
+	"k8s.io/client-go/tools/record"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
@@ -126,8 +127,10 @@ var _ = Describe("ChaosExperiment Controller", func() {
 
 			By("Checking if the controller reconciles and kills pods")
 			reconciler := &ChaosExperimentReconciler{
-				Client: k8sClient,
-				Scheme: k8sClient.Scheme(),
+				Client:        k8sClient,
+				Scheme:        k8sClient.Scheme(),
+				Recorder:      record.NewFakeRecorder(100),
+				HistoryConfig: DefaultHistoryConfig(),
 			}
 
 			_, err := reconciler.Reconcile(ctx, reconcile.Request{
@@ -173,8 +176,10 @@ var _ = Describe("ChaosExperiment Controller", func() {
 
 			By("Reconciling the experiment")
 			reconciler := &ChaosExperimentReconciler{
-				Client: k8sClient,
-				Scheme: k8sClient.Scheme(),
+				Client:        k8sClient,
+				Scheme:        k8sClient.Scheme(),
+				Recorder:      record.NewFakeRecorder(100),
+				HistoryConfig: DefaultHistoryConfig(),
 			}
 
 			result, err := reconciler.Reconcile(ctx, reconcile.Request{
@@ -212,8 +217,10 @@ var _ = Describe("ChaosExperiment Controller", func() {
 
 			By("Reconciling the experiment")
 			reconciler := &ChaosExperimentReconciler{
-				Client: k8sClient,
-				Scheme: k8sClient.Scheme(),
+				Client:        k8sClient,
+				Scheme:        k8sClient.Scheme(),
+				Recorder:      record.NewFakeRecorder(100),
+				HistoryConfig: DefaultHistoryConfig(),
 			}
 
 			result, err := reconciler.Reconcile(ctx, reconcile.Request{
@@ -250,8 +257,10 @@ var _ = Describe("ChaosExperiment Controller", func() {
 
 			By("Reconciling and checking requeue time")
 			reconciler := &ChaosExperimentReconciler{
-				Client: k8sClient,
-				Scheme: k8sClient.Scheme(),
+				Client:        k8sClient,
+				Scheme:        k8sClient.Scheme(),
+				Recorder:      record.NewFakeRecorder(100),
+				HistoryConfig: DefaultHistoryConfig(),
 			}
 
 			result, err := reconciler.Reconcile(ctx, ctrl.Request{
