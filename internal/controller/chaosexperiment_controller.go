@@ -35,6 +35,7 @@ import (
 	"k8s.io/client-go/kubernetes"
 	"k8s.io/client-go/kubernetes/scheme"
 	"k8s.io/client-go/rest"
+	"k8s.io/client-go/tools/record"
 	"k8s.io/client-go/tools/remotecommand"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -66,6 +67,7 @@ type ChaosExperimentReconciler struct {
 	Scheme        *runtime.Scheme
 	Config        *rest.Config
 	Clientset     *kubernetes.Clientset
+	Recorder      record.EventRecorder
 	HistoryConfig HistoryConfig
 }
 
@@ -79,6 +81,7 @@ type ChaosExperimentReconciler struct {
 // +kubebuilder:rbac:groups="",resources=nodes,verbs=get;list;watch;update;patch
 // +kubebuilder:rbac:groups="",resources=pods/eviction,verbs=create
 // +kubebuilder:rbac:groups="",resources=namespaces,verbs=get;list
+// +kubebuilder:rbac:groups="",resources=events,verbs=create;patch
 
 // Reconcile is part of the main kubernetes reconciliation loop which aims to
 // move the current state of the cluster closer to the desired state.
@@ -1042,6 +1045,11 @@ func (r *ChaosExperimentReconciler) handleExperimentFailure(ctx context.Context,
 			return ctrl.Result{}, err
 		}
 
+		// Emit event for retry
+		r.Recorder.Event(exp, corev1.EventTypeWarning, "ExperimentRetrying",
+			fmt.Sprintf("Experiment failed, will retry %d/%d in %s: %s",
+				exp.Status.RetryCount, exp.Spec.MaxRetries, retryDelay, errorMsg))
+
 		// Requeue after retry delay
 		return ctrl.Result{RequeueAfter: retryDelay}, nil
 	}
@@ -1060,6 +1068,10 @@ func (r *ChaosExperimentReconciler) handleExperimentFailure(ctx context.Context,
 		return ctrl.Result{}, err
 	}
 
+	// Emit event for permanent failure
+	r.Recorder.Event(exp, corev1.EventTypeWarning, "ExperimentFailed",
+		fmt.Sprintf("Experiment failed after %d retries: %s", exp.Status.RetryCount, errorMsg))
+
 	// Don't requeue, experiment has permanently failed
 	return ctrl.Result{}, nil
 }
@@ -1076,6 +1088,10 @@ func (r *ChaosExperimentReconciler) handleExperimentSuccess(ctx context.Context,
 	if err := r.Status().Update(ctx, exp); err != nil {
 		return fmt.Errorf("failed to update status after success: %w", err)
 	}
+
+	// Emit event for successful experiment
+	r.Recorder.Event(exp, corev1.EventTypeNormal, "ExperimentSucceeded",
+		fmt.Sprintf("Chaos experiment completed successfully: %s", exp.Status.Message))
 
 	return nil
 }
@@ -1139,6 +1155,11 @@ func (r *ChaosExperimentReconciler) checkExperimentLifecycle(ctx context.Context
 			return false, err
 		}
 		log.Info("Experiment started", "startTime", now)
+
+		// Emit event for experiment start
+		r.Recorder.Event(exp, corev1.EventTypeNormal, "ExperimentStarted",
+			fmt.Sprintf("Chaos experiment started: action=%s, namespace=%s, count=%d",
+				exp.Spec.Action, exp.Spec.Namespace, exp.Spec.Count))
 	}
 
 	// Check if experimentDuration is set
