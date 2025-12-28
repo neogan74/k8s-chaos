@@ -5,7 +5,7 @@ This file tracks remaining work items, grouped by area and priority. Source of t
 ## P0 (blocking/critical)
 - ~~Handle terminating pods gracefully during selection/execution.~~ **[COMPLETED 2025-12-26]** - Pods with DeletionTimestamp are now filtered in `getEligiblePods()`, metrics track via `chaos_safety_excluded_resources_total{reason="terminating"}`.
 - ~~Add E2E coverage for `pod-network-loss`.~~ **[COMPLETED 2025-12-26]** - Comprehensive E2E tests added in `test/e2e/e2e_test.go` covering: basic injection, dry-run mode, lossCorrelation parameter, no eligible pods handling, and maxPercentage safety limit.
-- Emit Kubernetes Events for experiments and affected pods.
+- ~~Emit Kubernetes Events for experiments and affected pods.~~ **[COMPLETED 2025-12-27]** - EventRecorder now emits events at key lifecycle points: ExperimentStarted, ExperimentSucceeded, ExperimentRetrying, and ExperimentFailed. Events visible via `kubectl describe chaosexperiment`.
 - Add history TTL cleanup (in addition to retention limit).
 
 ## P1 (important)
