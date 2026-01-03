@@ -80,6 +80,13 @@ chaosexperiment_resources_affected{namespace="production"}
 
 **Description:** Total number of errors during chaos experiments.
 
+**Error Type Values:**
+- `permission` - RBAC or authentication failures (403 Forbidden, 401 Unauthorized)
+- `execution` - Runtime errors during chaos injection
+- `validation` - Invalid experiment configuration
+- `timeout` - Operation timeouts
+- `unknown` - Uncategorized errors
+
 **Example queries:**
 ```promql
 # Error rate
@@ -88,8 +95,44 @@ rate(chaosexperiment_errors_total[5m])
 # Errors by type
 sum(chaosexperiment_errors_total) by (error_type)
 
+# Permission errors by action
+sum(chaosexperiment_errors_total{error_type="permission"}) by (action)
+
+# Permission error rate
+rate(chaosexperiment_errors_total{error_type="permission"}[5m])
+
+# Actions with highest permission failures
+topk(5, sum(chaosexperiment_errors_total{error_type="permission"}) by (action, namespace))
+
 # Errors in last 24 hours
 increase(chaosexperiment_errors_total[24h])
+
+# Distribution of error types
+sum(chaosexperiment_errors_total) by (error_type)
+```
+
+**Common Use Cases:**
+
+*Monitoring RBAC Issues:*
+```promql
+# Alert on permission errors
+sum(increase(chaosexperiment_errors_total{error_type="permission"}[5m])) > 0
+```
+
+*Identifying Problematic Actions:*
+```promql
+# Actions with most errors
+topk(3, sum(rate(chaosexperiment_errors_total[1h])) by (action))
+```
+
+*Error Distribution Analysis:*
+```promql
+# Percentage of errors by type
+(
+  sum(chaosexperiment_errors_total) by (error_type)
+  / ignoring(error_type) group_left
+  sum(chaosexperiment_errors_total)
+) * 100
 ```
 
 #### `chaosexperiment_active`
