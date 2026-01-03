@@ -2,6 +2,7 @@ package controller
 
 import (
 	"context"
+	"fmt"
 	"testing"
 	"time"
 
@@ -28,9 +29,13 @@ func TestHandleExperimentFailureRetries(t *testing.T) {
 
 	r := newReconcilerWithObjects(t, exp)
 
-	result, err := r.handleExperimentFailure(ctx, exp, "boom")
+	chaosErr := &ChaosError{
+		Original: fmt.Errorf("boom"),
+		Type:     ErrorTypeExecution,
+	}
+	result, err := r.handleExperimentFailure(ctx, exp, chaosErr)
 	require.NoError(t, err)
-	assert.Equal(t, time.Minute, result.RequeueAfter)
+	assert.Equal(t, 30*time.Second, result.RequeueAfter) // defaultRetryDelay * 2^0 = 30s
 
 	refreshed := &chaosv1alpha1.ChaosExperiment{}
 	require.NoError(t, r.Get(ctx, clientKey(exp), refreshed))
@@ -58,7 +63,11 @@ func TestHandleExperimentFailureExhaustsRetries(t *testing.T) {
 
 	r := newReconcilerWithObjects(t, exp)
 
-	result, err := r.handleExperimentFailure(ctx, exp, "boom")
+	chaosErr := &ChaosError{
+		Original: fmt.Errorf("boom"),
+		Type:     ErrorTypeExecution,
+	}
+	result, err := r.handleExperimentFailure(ctx, exp, chaosErr)
 	require.NoError(t, err)
 	assert.Equal(t, time.Duration(0), result.RequeueAfter)
 
