@@ -421,46 +421,128 @@ make deploy IMG=<your-image>
 
 ## Permission Issues
 
-### Issue: Cannot List/Delete Pods
+### Understanding Permission Error Messages
 
-**Symptoms:**
+The operator provides detailed permission error messages with remediation steps. Example:
+
 ```
-Error: Failed to list pods: pods is forbidden: User "system:serviceaccount:k8s-chaos-system:k8s-chaos-controller-manager" cannot list resource "pods" in API group "" in the namespace "default"
+Permission denied: cannot list pods in namespace default. Missing permission: pods/list.
+Troubleshooting: https://github.com/neogan74/k8s-chaos/blob/main/docs/TROUBLESHOOTING.md#permission-issues
+Check with: kubectl auth can-i list pods --as=system:serviceaccount:k8s-chaos-system:k8s-chaos-controller-manager -n default
+Fix: make manifests && kubectl apply -f config/rbac/
 ```
 
-**Solution:**
+Each error message includes:
+- **What failed**: The specific operation that was denied
+- **Missing permission**: The exact resource/verb combination needed
+- **Troubleshooting link**: Direct link to this documentation
+- **Check command**: kubectl command to verify permissions
+- **Fix suggestion**: How to remediate the issue
+
+### Common Permission Scenarios
+
+#### pod-kill Action
+Required permissions:
+- `pods/list` - To find target pods
+- `pods/delete` - To kill pods
+
+**Verification:**
 ```bash
-# Reinstall RBAC
-make manifests
-kubectl apply -f config/rbac/
-
-# Verify permissions
 kubectl auth can-i list pods \
   --as=system:serviceaccount:k8s-chaos-system:k8s-chaos-controller-manager \
-  -n default
+  -n <namespace>
+kubectl auth can-i delete pods \
+  --as=system:serviceaccount:k8s-chaos-system:k8s-chaos-controller-manager \
+  -n <namespace>
 ```
 
-### Issue: Cannot Update Node (for node-drain)
+#### pod-cpu-stress, pod-memory-stress, pod-disk-fill Actions
+Required permissions:
+- `pods/list` - To find target pods
+- `pods/ephemeralcontainers/update` - To inject ephemeral containers
 
-**Symptoms:**
-```
-Error: Failed to cordon node: nodes "worker-1" is forbidden
-```
-
-**Solution:**
+**Verification:**
 ```bash
-# Check RBAC includes node permissions
-kubectl get clusterrole manager-role -o yaml | grep nodes
+kubectl auth can-i update pods/ephemeralcontainers \
+  --as=system:serviceaccount:k8s-chaos-system:k8s-chaos-controller-manager \
+  -n <namespace>
+```
 
-# Should see:
-# - apiGroups: [""]
-#   resources: ["nodes"]
-#   verbs: ["get", "list", "watch", "update", "patch"]
+#### pod-failure, pod-restart Actions
+Required permissions:
+- `pods/list` - To find target pods
+- `pods/exec/create` - To execute commands in pods
 
-# If missing, reinstall:
+**Verification:**
+```bash
+kubectl auth can-i create pods/exec \
+  --as=system:serviceaccount:k8s-chaos-system:k8s-chaos-controller-manager \
+  -n <namespace>
+```
+
+#### node-drain Action
+Required permissions:
+- `nodes/list` - To find target nodes
+- `nodes/update` - To cordon nodes
+- `nodes/patch` - To update node status
+- `pods/eviction/create` - To evict pods from nodes
+
+**Verification:**
+```bash
+kubectl auth can-i list nodes \
+  --as=system:serviceaccount:k8s-chaos-system:k8s-chaos-controller-manager
+kubectl auth can-i update nodes \
+  --as=system:serviceaccount:k8s-chaos-system:k8s-chaos-controller-manager
+kubectl auth can-i create pods/eviction \
+  --as=system:serviceaccount:k8s-chaos-system:k8s-chaos-controller-manager \
+  -n <namespace>
+```
+
+### Debugging Permission Issues
+
+**Step 1: Check experiment status**
+```bash
+kubectl describe chaosexperiment <experiment-name>
+# Look at Status.Message for detailed error
+```
+
+**Step 2: Verify RBAC is installed**
+```bash
+kubectl get clusterrole manager-role -o yaml
+# Should contain all required permissions listed above
+```
+
+**Step 3: Run suggested kubectl command**
+The error message contains a `kubectl auth can-i` command tailored to your specific issue. Run it to verify the permission is missing.
+
+**Step 4: Reinstall RBAC**
+```bash
 make manifests
 kubectl apply -f config/rbac/
 ```
+
+**Step 5: Verify fix**
+```bash
+# Re-run the kubectl auth can-i command from step 3
+# Should now return "yes"
+```
+
+### Retry Behavior for Permission Errors
+
+Permission errors are automatically retried **once** with a 30-second delay, then marked as failed. This is different from execution errors which use exponential backoff with multiple retries.
+
+**Rationale**: Permission errors rarely self-resolve and require manual RBAC fixes. Quick failure helps identify issues faster.
+
+**Example:**
+```bash
+# First attempt: Permission denied
+# Retry 1/1 in 30s
+# (30 seconds later)
+# Second attempt: Permission denied
+# Failed after 1 retries
+```
+
+After fixing RBAC, you can manually re-run the experiment or wait for the next scheduled execution (if using cron).
 
 ---
 
