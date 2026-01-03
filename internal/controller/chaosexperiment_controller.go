@@ -168,7 +168,7 @@ func (r *ChaosExperimentReconciler) handlePodKill(ctx context.Context, exp *chao
 	// Get eligible pods (includes namespace validation and exclusion filtering)
 	eligiblePods, err := r.getEligiblePods(ctx, exp)
 	if err != nil {
-		return r.handleExperimentFailure(ctx, exp, fmt.Sprintf("Failed to get eligible pods: %v", err))
+		return r.handleExperimentFailure(ctx, exp, WrapK8sError(err, "list pods"))
 	}
 
 	if len(eligiblePods) == 0 {
@@ -203,6 +203,8 @@ func (r *ChaosExperimentReconciler) handlePodKill(ctx context.Context, exp *chao
 		log.Info("Deleting pod", "pod", pod.Name, "namespace", pod.Namespace)
 		if err := r.Delete(ctx, &pod); err != nil {
 			log.Error(err, "Failed to delete pod", "pod", pod.Name)
+			chaosErr := WrapK8sError(err, "delete pod")
+			chaosmetrics.ExperimentErrors.WithLabelValues("pod-kill", exp.Spec.Namespace, string(chaosErr.Type)).Inc()
 		} else {
 			killedPods = append(killedPods, pod.Name)
 		}
@@ -210,7 +212,11 @@ func (r *ChaosExperimentReconciler) handlePodKill(ctx context.Context, exp *chao
 
 	// Check if we killed any pods
 	if len(killedPods) == 0 {
-		return r.handleExperimentFailure(ctx, exp, "Failed to kill any pods")
+		chaosErr := &ChaosError{
+			Original: fmt.Errorf("failed to kill any pods"),
+			Type:     ErrorTypeExecution,
+		}
+		return r.handleExperimentFailure(ctx, exp, chaosErr)
 	}
 
 	// Update status - success
@@ -371,28 +377,44 @@ func (r *ChaosExperimentReconciler) handlePodCPUStress(ctx context.Context, exp 
 
 	// Validate namespace
 	if exp.Spec.Namespace == "" {
-		return r.handleExperimentFailure(ctx, exp, "Namespace not specified")
+		chaosErr := &ChaosError{
+			Original: fmt.Errorf("namespace not specified"),
+			Type:     ErrorTypeValidation,
+		}
+		return r.handleExperimentFailure(ctx, exp, chaosErr)
 	}
 
 	// Validate required fields for pod-cpu-stress
 	if exp.Spec.CPULoad <= 0 {
-		return r.handleExperimentFailure(ctx, exp, "CPULoad must be specified and greater than 0 for pod-cpu-stress")
+		chaosErr := &ChaosError{
+			Original: fmt.Errorf("CPULoad must be specified and greater than 0 for pod-cpu-stress"),
+			Type:     ErrorTypeValidation,
+		}
+		return r.handleExperimentFailure(ctx, exp, chaosErr)
 	}
 
 	if exp.Spec.Duration == "" {
-		return r.handleExperimentFailure(ctx, exp, "Duration is required for pod-cpu-stress action")
+		chaosErr := &ChaosError{
+			Original: fmt.Errorf("duration is required for pod-cpu-stress action"),
+			Type:     ErrorTypeValidation,
+		}
+		return r.handleExperimentFailure(ctx, exp, chaosErr)
 	}
 
 	// Parse duration for stress-ng timeout
 	durationSeconds, err := r.parseDurationToSeconds(exp.Spec.Duration)
 	if err != nil {
-		return r.handleExperimentFailure(ctx, exp, fmt.Sprintf("Invalid duration format: %s", exp.Spec.Duration))
+		chaosErr := &ChaosError{
+			Original: fmt.Errorf("invalid duration format: %s: %w", exp.Spec.Duration, err),
+			Type:     ErrorTypeValidation,
+		}
+		return r.handleExperimentFailure(ctx, exp, chaosErr)
 	}
 
 	// Get eligible pods (includes namespace validation and exclusion filtering)
 	eligiblePods, err := r.getEligiblePods(ctx, exp)
 	if err != nil {
-		return r.handleExperimentFailure(ctx, exp, fmt.Sprintf("Failed to get eligible pods: %v", err))
+		return r.handleExperimentFailure(ctx, exp, WrapK8sError(err, "list pods"))
 	}
 
 	if len(eligiblePods) == 0 {
@@ -442,7 +464,8 @@ func (r *ChaosExperimentReconciler) handlePodCPUStress(ctx context.Context, exp 
 		containerName, err := r.injectCPUStressContainer(ctx, &pod, exp.Spec.CPULoad, cpuWorkers, durationSeconds)
 		if err != nil {
 			log.Error(err, "Failed to inject CPU stress container", "pod", pod.Name)
-			chaosmetrics.ExperimentErrors.WithLabelValues("pod-cpu-stress", exp.Spec.Namespace).Inc()
+			chaosErr := WrapK8sError(err, "update pod/ephemeralcontainers")
+			chaosmetrics.ExperimentErrors.WithLabelValues("pod-cpu-stress", exp.Spec.Namespace, string(chaosErr.Type)).Inc()
 		} else if containerName != "" {
 			// Track the affected pod for cleanup later
 			r.trackAffectedPod(exp, pod.Namespace, pod.Name, containerName)
@@ -1012,8 +1035,11 @@ func (r *ChaosExperimentReconciler) shouldRetry(exp *chaosv1alpha1.ChaosExperime
 }
 
 // handleExperimentFailure updates status and determines retry behavior
-func (r *ChaosExperimentReconciler) handleExperimentFailure(ctx context.Context, exp *chaosv1alpha1.ChaosExperiment, errorMsg string) (ctrl.Result, error) {
+func (r *ChaosExperimentReconciler) handleExperimentFailure(ctx context.Context, exp *chaosv1alpha1.ChaosExperiment, chaosErr *ChaosError) (ctrl.Result, error) {
 	log := ctrl.LoggerFrom(ctx)
+
+	// Extract formatted error message
+	errorMsg := chaosErr.Error()
 
 	// Update error information and last run time
 	now := metav1.Now()
@@ -1021,23 +1047,40 @@ func (r *ChaosExperimentReconciler) handleExperimentFailure(ctx context.Context,
 	exp.Status.LastError = errorMsg
 	exp.Status.Message = fmt.Sprintf("Failed: %s", errorMsg)
 
+	// Determine max retries and delay based on error type
+	maxRetries := exp.Spec.MaxRetries
+	if maxRetries == 0 {
+		maxRetries = defaultMaxRetries
+	}
+	retryDelay := r.calculateRetryDelay(exp)
+
+	// Special handling for permission errors: limit to 1 retry with fixed 30s delay
+	if chaosErr.Type == ErrorTypePermission {
+		maxRetries = 1
+		retryDelay = 30 * time.Second
+		log.Info("Permission error detected, limiting to 1 retry with 30s delay",
+			"resource", chaosErr.Resource,
+			"verb", chaosErr.Verb,
+			"namespace", chaosErr.Namespace)
+	}
+
 	// Check if we should retry
-	if r.shouldRetry(exp) {
+	if exp.Status.RetryCount < maxRetries {
 		// Increment retry count
 		exp.Status.RetryCount++
 		exp.Status.Phase = phasePending
 
 		// Calculate next retry time
-		retryDelay := r.calculateRetryDelay(exp)
 		nextRetry := metav1.NewTime(time.Now().Add(retryDelay))
 		exp.Status.NextRetryTime = &nextRetry
 
-		exp.Status.Message = fmt.Sprintf("Failed: %s (Retry %d/%d in %s)", errorMsg, exp.Status.RetryCount, exp.Spec.MaxRetries, retryDelay)
+		exp.Status.Message = fmt.Sprintf("Failed: %s (Retry %d/%d in %s)", errorMsg, exp.Status.RetryCount, maxRetries, retryDelay)
 
 		log.Info("Experiment failed, scheduling retry",
 			"error", errorMsg,
+			"errorType", chaosErr.Type,
 			"retryCount", exp.Status.RetryCount,
-			"maxRetries", exp.Spec.MaxRetries,
+			"maxRetries", maxRetries,
 			"nextRetry", retryDelay)
 
 		if err := r.Status().Update(ctx, exp); err != nil {
@@ -1048,7 +1091,7 @@ func (r *ChaosExperimentReconciler) handleExperimentFailure(ctx context.Context,
 		// Emit event for retry
 		r.Recorder.Event(exp, corev1.EventTypeWarning, "ExperimentRetrying",
 			fmt.Sprintf("Experiment failed, will retry %d/%d in %s: %s",
-				exp.Status.RetryCount, exp.Spec.MaxRetries, retryDelay, errorMsg))
+				exp.Status.RetryCount, maxRetries, retryDelay, errorMsg))
 
 		// Requeue after retry delay
 		return ctrl.Result{RequeueAfter: retryDelay}, nil
@@ -1061,6 +1104,7 @@ func (r *ChaosExperimentReconciler) handleExperimentFailure(ctx context.Context,
 
 	log.Info("Experiment failed, max retries exceeded",
 		"error", errorMsg,
+		"errorType", chaosErr.Type,
 		"retryCount", exp.Status.RetryCount)
 
 	if err := r.Status().Update(ctx, exp); err != nil {
@@ -1328,16 +1372,28 @@ func (r *ChaosExperimentReconciler) handlePodMemoryStress(ctx context.Context, e
 
 	// Validate required fields
 	if exp.Spec.Duration == "" {
-		return r.handleExperimentFailure(ctx, exp, "Duration is required for pod-memory-stress action")
+		chaosErr := &ChaosError{
+			Original: fmt.Errorf("duration is required for pod-memory-stress action"),
+			Type:     ErrorTypeValidation,
+		}
+		return r.handleExperimentFailure(ctx, exp, chaosErr)
 	}
 	if exp.Spec.MemorySize == "" {
-		return r.handleExperimentFailure(ctx, exp, "MemorySize must be specified for pod-memory-stress action")
+		chaosErr := &ChaosError{
+			Original: fmt.Errorf("memorySize must be specified for pod-memory-stress action"),
+			Type:     ErrorTypeValidation,
+		}
+		return r.handleExperimentFailure(ctx, exp, chaosErr)
 	}
 
 	// Parse duration to seconds for stress-ng timeout
 	duration, err := r.parseDuration(exp.Spec.Duration)
 	if err != nil {
-		return r.handleExperimentFailure(ctx, exp, fmt.Sprintf("Invalid duration format: %v", err))
+		chaosErr := &ChaosError{
+			Original: fmt.Errorf("invalid duration format: %w", err),
+			Type:     ErrorTypeValidation,
+		}
+		return r.handleExperimentFailure(ctx, exp, chaosErr)
 	}
 	timeoutSeconds := int(duration.Seconds())
 
@@ -1484,7 +1540,7 @@ func (r *ChaosExperimentReconciler) handlePodFailure(ctx context.Context, exp *c
 	// Get eligible pods (includes namespace validation and exclusion filtering)
 	eligiblePods, err := r.getEligiblePods(ctx, exp)
 	if err != nil {
-		return r.handleExperimentFailure(ctx, exp, fmt.Sprintf("Failed to get eligible pods: %v", err))
+		return r.handleExperimentFailure(ctx, exp, WrapK8sError(err, "list pods"))
 	}
 
 	if len(eligiblePods) == 0 {
@@ -1522,7 +1578,8 @@ func (r *ChaosExperimentReconciler) handlePodFailure(ctx context.Context, exp *c
 		// Kill the main process (PID 1) in the first container
 		if err := r.killContainerProcess(ctx, &pod); err != nil {
 			log.Error(err, "Failed to kill container process", "pod", pod.Name)
-			chaosmetrics.ExperimentErrors.WithLabelValues("pod-failure", exp.Spec.Namespace).Inc()
+			chaosErr := WrapK8sError(err, "exec pod")
+			chaosmetrics.ExperimentErrors.WithLabelValues("pod-failure", exp.Spec.Namespace, string(chaosErr.Type)).Inc()
 		} else {
 			failedPods = append(failedPods, pod.Name)
 		}
@@ -1530,7 +1587,11 @@ func (r *ChaosExperimentReconciler) handlePodFailure(ctx context.Context, exp *c
 
 	// Check if we failed any pods
 	if len(failedPods) == 0 {
-		return r.handleExperimentFailure(ctx, exp, "Failed to cause container failure in any pods")
+		chaosErr := &ChaosError{
+			Original: fmt.Errorf("failed to cause container failure in any pods"),
+			Type:     ErrorTypeExecution,
+		}
+		return r.handleExperimentFailure(ctx, exp, chaosErr)
 	}
 
 	// Update status - success
@@ -1572,7 +1633,7 @@ func (r *ChaosExperimentReconciler) handlePodRestart(ctx context.Context, exp *c
 	// Get eligible pods (includes namespace validation and exclusion filtering)
 	eligiblePods, err := r.getEligiblePods(ctx, exp)
 	if err != nil {
-		return r.handleExperimentFailure(ctx, exp, fmt.Sprintf("Failed to get eligible pods: %v", err))
+		return r.handleExperimentFailure(ctx, exp, WrapK8sError(err, "list pods"))
 	}
 
 	if len(eligiblePods) == 0 {
@@ -1592,7 +1653,11 @@ func (r *ChaosExperimentReconciler) handlePodRestart(ctx context.Context, exp *c
 	if exp.Spec.RestartInterval != "" {
 		interval, err := r.parseDuration(exp.Spec.RestartInterval)
 		if err != nil {
-			return r.handleExperimentFailure(ctx, exp, fmt.Sprintf("Invalid restartInterval: %v", err))
+			chaosErr := &ChaosError{
+				Original: fmt.Errorf("invalid restartInterval: %w", err),
+				Type:     ErrorTypeValidation,
+			}
+			return r.handleExperimentFailure(ctx, exp, chaosErr)
 		}
 		restartInterval = interval
 		log.Info("Using restart interval", "interval", restartInterval)
@@ -1627,7 +1692,8 @@ func (r *ChaosExperimentReconciler) handlePodRestart(ctx context.Context, exp *c
 		// Send SIGTERM to gracefully restart the container
 		if err := r.gracefullyRestartContainer(ctx, &pod); err != nil {
 			log.Error(err, "Failed to restart pod", "pod", pod.Name)
-			chaosmetrics.ExperimentErrors.WithLabelValues("pod-restart", exp.Spec.Namespace).Inc()
+			chaosErr := WrapK8sError(err, "exec pod")
+			chaosmetrics.ExperimentErrors.WithLabelValues("pod-restart", exp.Spec.Namespace, string(chaosErr.Type)).Inc()
 			// Continue with other pods even if one fails
 		} else {
 			restartedPods = append(restartedPods, pod.Name)
@@ -1636,7 +1702,11 @@ func (r *ChaosExperimentReconciler) handlePodRestart(ctx context.Context, exp *c
 
 	// Check if we restarted any pods
 	if len(restartedPods) == 0 {
-		return r.handleExperimentFailure(ctx, exp, "Failed to restart any pods")
+		chaosErr := &ChaosError{
+			Original: fmt.Errorf("failed to restart any pods"),
+			Type:     ErrorTypeExecution,
+		}
+		return r.handleExperimentFailure(ctx, exp, chaosErr)
 	}
 
 	// Update status - success
@@ -1677,16 +1747,28 @@ func (r *ChaosExperimentReconciler) handlePodNetworkLoss(ctx context.Context, ex
 
 	// Validate required fields
 	if exp.Spec.Duration == "" {
-		return r.handleExperimentFailure(ctx, exp, "Duration is required for pod-network-loss action")
+		chaosErr := &ChaosError{
+			Original: fmt.Errorf("duration is required for pod-network-loss action"),
+			Type:     ErrorTypeValidation,
+		}
+		return r.handleExperimentFailure(ctx, exp, chaosErr)
 	}
 	if exp.Spec.LossPercentage <= 0 {
-		return r.handleExperimentFailure(ctx, exp, "LossPercentage must be specified and greater than 0 for pod-network-loss action")
+		chaosErr := &ChaosError{
+			Original: fmt.Errorf("lossPercentage must be specified and greater than 0 for pod-network-loss action"),
+			Type:     ErrorTypeValidation,
+		}
+		return r.handleExperimentFailure(ctx, exp, chaosErr)
 	}
 
 	// Parse duration to seconds for tc timeout
 	duration, err := r.parseDuration(exp.Spec.Duration)
 	if err != nil {
-		return r.handleExperimentFailure(ctx, exp, fmt.Sprintf("Invalid duration format: %v", err))
+		chaosErr := &ChaosError{
+			Original: fmt.Errorf("invalid duration format: %w", err),
+			Type:     ErrorTypeValidation,
+		}
+		return r.handleExperimentFailure(ctx, exp, chaosErr)
 	}
 	timeoutSeconds := int(duration.Seconds())
 
@@ -1786,7 +1868,11 @@ func (r *ChaosExperimentReconciler) handlePodDiskFill(ctx context.Context, exp *
 
 	// Validate required fields
 	if exp.Spec.Duration == "" {
-		return r.handleExperimentFailure(ctx, exp, "Duration is required for pod-disk-fill action")
+		chaosErr := &ChaosError{
+			Original: fmt.Errorf("duration is required for pod-disk-fill action"),
+			Type:     ErrorTypeValidation,
+		}
+		return r.handleExperimentFailure(ctx, exp, chaosErr)
 	}
 
 	fillPercentage := exp.Spec.FillPercentage
@@ -1797,7 +1883,11 @@ func (r *ChaosExperimentReconciler) handlePodDiskFill(ctx context.Context, exp *
 	// Parse duration to seconds for sleep timeout
 	duration, err := r.parseDuration(exp.Spec.Duration)
 	if err != nil {
-		return r.handleExperimentFailure(ctx, exp, fmt.Sprintf("Invalid duration format: %v", err))
+		chaosErr := &ChaosError{
+			Original: fmt.Errorf("invalid duration format: %w", err),
+			Type:     ErrorTypeValidation,
+		}
+		return r.handleExperimentFailure(ctx, exp, chaosErr)
 	}
 	timeoutSeconds := int(duration.Seconds())
 
@@ -1841,7 +1931,8 @@ func (r *ChaosExperimentReconciler) handlePodDiskFill(ctx context.Context, exp *
 		targetPath, err := resolveDiskFillTarget(&pod, exp.Spec.VolumeName, exp.Spec.TargetPath)
 		if err != nil {
 			log.Error(err, "Failed to resolve disk fill target", "pod", pod.Name, "namespace", pod.Namespace)
-			chaosmetrics.ExperimentErrors.WithLabelValues("pod-disk-fill", exp.Spec.Namespace).Inc()
+			chaosErr := WrapK8sError(err, "resolve disk fill target")
+			chaosmetrics.ExperimentErrors.WithLabelValues("pod-disk-fill", exp.Spec.Namespace, string(chaosErr.Type)).Inc()
 			continue
 		}
 
@@ -1855,7 +1946,8 @@ func (r *ChaosExperimentReconciler) handlePodDiskFill(ctx context.Context, exp *
 		containerName, err := r.injectDiskFillContainer(ctx, &pod, fillPercentage, targetPath, timeoutSeconds)
 		if err != nil {
 			log.Error(err, "Failed to inject disk fill container", "pod", pod.Name)
-			chaosmetrics.ExperimentErrors.WithLabelValues("pod-disk-fill", exp.Spec.Namespace).Inc()
+			chaosErr := WrapK8sError(err, "update pod/ephemeralcontainers")
+			chaosmetrics.ExperimentErrors.WithLabelValues("pod-disk-fill", exp.Spec.Namespace, string(chaosErr.Type)).Inc()
 			continue
 		}
 		if containerName == "" {
