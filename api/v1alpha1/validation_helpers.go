@@ -19,6 +19,8 @@ package v1alpha1
 import (
 	"fmt"
 	"regexp"
+	"strings"
+	"time"
 
 	"github.com/robfig/cron/v3"
 )
@@ -30,6 +32,9 @@ var durationPattern = regexp.MustCompile(`^([0-9]+(s|m|h))+$`)
 // memorySizePattern matches the pattern used in the MemorySize field validation
 // Pattern: ^[0-9]+[MG]$
 var memorySizePattern = regexp.MustCompile(`^[0-9]+[MG]$`)
+
+// timeWindowClockPattern matches 24h HH:MM format.
+var timeWindowClockPattern = regexp.MustCompile(`^([01]\d|2[0-3]):[0-5]\d$`)
 
 // ValidationError represents a validation error for a specific field
 type ValidationError struct {
@@ -92,4 +97,90 @@ func ValidateSchedule(schedule string) error {
 	}
 
 	return nil
+}
+
+// ValidateTimeWindows validates the time window configuration.
+func ValidateTimeWindows(windows []TimeWindow) error {
+	for i, window := range windows {
+		if err := validateTimeWindow(window); err != nil {
+			return fmt.Errorf("timeWindows[%d]: %w", i, err)
+		}
+	}
+	return nil
+}
+
+func validateTimeWindow(window TimeWindow) error {
+	if window.Type != TimeWindowRecurring && window.Type != TimeWindowAbsolute {
+		return fmt.Errorf("type must be Recurring or Absolute")
+	}
+
+	switch window.Type {
+	case TimeWindowRecurring:
+		if window.Start == "" || window.End == "" {
+			return fmt.Errorf("start and end are required for recurring windows")
+		}
+		if !timeWindowClockPattern.MatchString(window.Start) {
+			return fmt.Errorf("start must be HH:MM for recurring windows")
+		}
+		if !timeWindowClockPattern.MatchString(window.End) {
+			return fmt.Errorf("end must be HH:MM for recurring windows")
+		}
+		if window.Start == window.End {
+			return fmt.Errorf("start and end cannot be the same for recurring windows")
+		}
+		if window.Timezone != "" {
+			if _, err := time.LoadLocation(window.Timezone); err != nil {
+				return fmt.Errorf("invalid timezone %q", window.Timezone)
+			}
+		}
+		for _, day := range window.DaysOfWeek {
+			if _, ok := normalizeWeekday(day); !ok {
+				return fmt.Errorf("invalid dayOfWeek %q", day)
+			}
+		}
+	case TimeWindowAbsolute:
+		if window.Start == "" || window.End == "" {
+			return fmt.Errorf("start and end are required for absolute windows")
+		}
+		startTime, err := time.Parse(time.RFC3339, window.Start)
+		if err != nil {
+			return fmt.Errorf("start must be RFC3339 for absolute windows")
+		}
+		endTime, err := time.Parse(time.RFC3339, window.End)
+		if err != nil {
+			return fmt.Errorf("end must be RFC3339 for absolute windows")
+		}
+		if !endTime.After(startTime) {
+			return fmt.Errorf("end must be after start for absolute windows")
+		}
+		if window.Timezone != "" {
+			return fmt.Errorf("timezone is not supported for absolute windows")
+		}
+		if len(window.DaysOfWeek) > 0 {
+			return fmt.Errorf("daysOfWeek is not supported for absolute windows")
+		}
+	}
+
+	return nil
+}
+
+func normalizeWeekday(day string) (time.Weekday, bool) {
+	switch strings.ToLower(day) {
+	case "mon":
+		return time.Monday, true
+	case "tue":
+		return time.Tuesday, true
+	case "wed":
+		return time.Wednesday, true
+	case "thu":
+		return time.Thursday, true
+	case "fri":
+		return time.Friday, true
+	case "sat":
+		return time.Saturday, true
+	case "sun":
+		return time.Sunday, true
+	default:
+		return time.Sunday, false
+	}
 }
