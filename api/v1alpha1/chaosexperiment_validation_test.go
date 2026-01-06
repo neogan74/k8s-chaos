@@ -175,7 +175,7 @@ func TestChaosExperimentInvalidCases(t *testing.T) {
 				Namespace: "default",
 				Selector:  map[string]string{"app": "test"},
 			},
-			errMsg: "action must be one of: pod-kill, pod-delay, node-drain, pod-cpu-stress, pod-memory-stress, pod-failure, pod-network-loss, pod-disk-fill",
+			errMsg: "action must be one of: pod-kill, pod-delay, node-drain, pod-cpu-stress, pod-memory-stress, pod-failure, pod-network-loss, pod-disk-fill, pod-restart",
 		},
 		{
 			name: "empty action",
@@ -295,9 +295,10 @@ func validateChaosExperimentSpec(spec *ChaosExperimentSpec) error {
 		"pod-failure":       true,
 		"pod-network-loss":  true,
 		"pod-disk-fill":     true,
+		"pod-restart":       true,
 	}
 	if !validActions[spec.Action] {
-		return &ValidationError{Field: "action", Message: "action must be one of: pod-kill, pod-delay, node-drain, pod-cpu-stress, pod-memory-stress, pod-failure, pod-network-loss, pod-disk-fill"}
+		return &ValidationError{Field: "action", Message: "action must be one of: pod-kill, pod-delay, node-drain, pod-cpu-stress, pod-memory-stress, pod-failure, pod-network-loss, pod-disk-fill, pod-restart"}
 	}
 
 	// Validate namespace (MinLength validation)
