@@ -291,6 +291,10 @@ type ChaosExperimentStatus struct {
 	// +optional
 	CordonedNodes []string `json:"cordonedNodes,omitempty"`
 
+	// Conditions represents the latest available observations of the experiment
+	// +optional
+	Conditions []metav1.Condition `json:"conditions,omitempty"`
+
 	// AffectedPods tracks pods that have ephemeral containers injected by this experiment
 	// Used for cleanup when the experiment completes (pod-cpu-stress, pod-memory-stress, pod-network-loss, pod-disk-fill)
 	// Format: "namespace/podName:containerName"
