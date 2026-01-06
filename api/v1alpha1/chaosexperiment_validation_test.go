@@ -540,3 +540,103 @@ func TestValidateSchedule(t *testing.T) {
 		})
 	}
 }
+
+func TestValidateTimeWindows(t *testing.T) {
+	tests := []struct {
+		name    string
+		windows []TimeWindow
+		wantErr bool
+	}{
+		{
+			name: "valid recurring window with timezone and days",
+			windows: []TimeWindow{
+				{
+					Type:       TimeWindowRecurring,
+					Start:      "22:00",
+					End:        "02:00",
+					Timezone:   "UTC",
+					DaysOfWeek: []string{"Mon", "Wed", "Fri"},
+				},
+			},
+			wantErr: false,
+		},
+		{
+			name: "valid absolute window",
+			windows: []TimeWindow{
+				{
+					Type:  TimeWindowAbsolute,
+					Start: "2026-01-10T01:00:00Z",
+					End:   "2026-01-10T03:00:00Z",
+				},
+			},
+			wantErr: false,
+		},
+		{
+			name: "invalid recurring clock format",
+			windows: []TimeWindow{
+				{
+					Type:  TimeWindowRecurring,
+					Start: "9:00",
+					End:   "18:00",
+				},
+			},
+			wantErr: true,
+		},
+		{
+			name: "invalid recurring day",
+			windows: []TimeWindow{
+				{
+					Type:       TimeWindowRecurring,
+					Start:      "09:00",
+					End:        "18:00",
+					DaysOfWeek: []string{"Funday"},
+				},
+			},
+			wantErr: true,
+		},
+		{
+			name: "invalid timezone",
+			windows: []TimeWindow{
+				{
+					Type:     TimeWindowRecurring,
+					Start:    "09:00",
+					End:      "18:00",
+					Timezone: "Not/AZone",
+				},
+			},
+			wantErr: true,
+		},
+		{
+			name: "invalid absolute order",
+			windows: []TimeWindow{
+				{
+					Type:  TimeWindowAbsolute,
+					Start: "2026-01-10T03:00:00Z",
+					End:   "2026-01-10T01:00:00Z",
+				},
+			},
+			wantErr: true,
+		},
+		{
+			name: "absolute with timezone not allowed",
+			windows: []TimeWindow{
+				{
+					Type:     TimeWindowAbsolute,
+					Start:    "2026-01-10T01:00:00Z",
+					End:      "2026-01-10T03:00:00Z",
+					Timezone: "UTC",
+				},
+			},
+			wantErr: true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			err := ValidateTimeWindows(tt.windows)
+			if (err != nil) != tt.wantErr {
+				t.Errorf("ValidateTimeWindows() error = %v, wantErr %v", err, tt.wantErr)
+			}
+		})
+	}
+}
