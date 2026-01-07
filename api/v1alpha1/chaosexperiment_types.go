@@ -188,12 +188,51 @@ type ChaosExperimentSpec struct {
 	// +optional
 	Schedule string `json:"schedule,omitempty"`
 
+	// TimeWindows restrict when the experiment may execute
+	// If empty or omitted, the experiment can run at any time
+	// +optional
+	TimeWindows []TimeWindow `json:"timeWindows,omitempty"`
+
 	// RestartInterval specifies delay between restarting each pod (pod-restart only)
 	// Format: "30s", "1m", "2m30s"
 	// Default: "" (restart all immediately)
 	// +kubebuilder:validation:Pattern="^([0-9]+(s|m|h))+$"
 	// +optional
 	RestartInterval string `json:"restartInterval,omitempty"`
+}
+
+// TimeWindowType defines the time window mode for experiments.
+// +kubebuilder:validation:Enum=Recurring;Absolute
+type TimeWindowType string
+
+const (
+	TimeWindowRecurring TimeWindowType = "Recurring"
+	TimeWindowAbsolute  TimeWindowType = "Absolute"
+)
+
+// TimeWindow restricts when an experiment may execute.
+type TimeWindow struct {
+	// Type selects recurring or absolute window semantics.
+	// +kubebuilder:validation:Enum=Recurring;Absolute
+	Type TimeWindowType `json:"type"`
+
+	// Start time. For recurring windows: HH:MM. For absolute windows: RFC3339.
+	// +optional
+	Start string `json:"start,omitempty"`
+
+	// End time. For recurring windows: HH:MM. For absolute windows: RFC3339.
+	// +optional
+	End string `json:"end,omitempty"`
+
+	// Timezone applies to recurring windows (IANA TZ, e.g., "Europe/Berlin").
+	// Defaults to UTC when omitted.
+	// +optional
+	Timezone string `json:"timezone,omitempty"`
+
+	// DaysOfWeek applies to recurring windows. Empty means every day.
+	// Values: Mon, Tue, Wed, Thu, Fri, Sat, Sun
+	// +optional
+	DaysOfWeek []string `json:"daysOfWeek,omitempty"`
 }
 
 // ChaosExperimentStatus defines the observed state of ChaosExperiment.
@@ -251,6 +290,10 @@ type ChaosExperimentStatus struct {
 	// Used for auto-uncordon when the experiment completes
 	// +optional
 	CordonedNodes []string `json:"cordonedNodes,omitempty"`
+
+	// Conditions represents the latest available observations of the experiment
+	// +optional
+	Conditions []metav1.Condition `json:"conditions,omitempty"`
 
 	// AffectedPods tracks pods that have ephemeral containers injected by this experiment
 	// Used for cleanup when the experiment completes (pod-cpu-stress, pod-memory-stress, pod-network-loss, pod-disk-fill)

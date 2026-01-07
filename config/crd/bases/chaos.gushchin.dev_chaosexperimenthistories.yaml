@@ -365,6 +365,47 @@ spec:
                       TargetPath specifies where to create the fill file (for pod-disk-fill)
                       Default: /tmp
                     type: string
+                  timeWindows:
+                    description: |-
+                      TimeWindows restrict when the experiment may execute
+                      If empty or omitted, the experiment can run at any time
+                    items:
+                      description: TimeWindow restricts when an experiment may execute.
+                      properties:
+                        daysOfWeek:
+                          description: |-
+                            DaysOfWeek applies to recurring windows. Empty means every day.
+                            Values: Mon, Tue, Wed, Thu, Fri, Sat, Sun
+                          items:
+                            type: string
+                          type: array
+                        end:
+                          description: 'End time. For recurring windows: HH:MM. For
+                            absolute windows: RFC3339.'
+                          type: string
+                        start:
+                          description: 'Start time. For recurring windows: HH:MM.
+                            For absolute windows: RFC3339.'
+                          type: string
+                        timezone:
+                          description: |-
+                            Timezone applies to recurring windows (IANA TZ, e.g., "Europe/Berlin").
+                            Defaults to UTC when omitted.
+                          type: string
+                        type:
+                          allOf:
+                          - enum:
+                            - Recurring
+                            - Absolute
+                          - enum:
+                            - Recurring
+                            - Absolute
+                          description: Type selects recurring or absolute window semantics.
+                          type: string
+                      required:
+                      - type
+                      type: object
+                    type: array
                   volumeName:
                     description: |-
                       VolumeName optionally targets a specific mounted volume (for pod-disk-fill)

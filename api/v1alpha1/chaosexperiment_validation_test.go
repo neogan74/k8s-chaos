@@ -18,6 +18,7 @@ package v1alpha1
 
 import (
 	"testing"
+	"time"
 
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
@@ -175,7 +176,7 @@ func TestChaosExperimentInvalidCases(t *testing.T) {
 				Namespace: "default",
 				Selector:  map[string]string{"app": "test"},
 			},
-			errMsg: "action must be one of: pod-kill, pod-delay, node-drain, pod-cpu-stress, pod-memory-stress, pod-failure, pod-network-loss, pod-disk-fill",
+			errMsg: "action must be one of: pod-kill, pod-delay, node-drain, pod-cpu-stress, pod-memory-stress, pod-failure, pod-network-loss, pod-disk-fill, pod-restart",
 		},
 		{
 			name: "empty action",
@@ -295,9 +296,10 @@ func validateChaosExperimentSpec(spec *ChaosExperimentSpec) error {
 		"pod-failure":       true,
 		"pod-network-loss":  true,
 		"pod-disk-fill":     true,
+		"pod-restart":       true,
 	}
 	if !validActions[spec.Action] {
-		return &ValidationError{Field: "action", Message: "action must be one of: pod-kill, pod-delay, node-drain, pod-cpu-stress, pod-memory-stress, pod-failure, pod-network-loss, pod-disk-fill"}
+		return &ValidationError{Field: "action", Message: "action must be one of: pod-kill, pod-delay, node-drain, pod-cpu-stress, pod-memory-stress, pod-failure, pod-network-loss, pod-disk-fill, pod-restart"}
 	}
 
 	// Validate namespace (MinLength validation)
@@ -535,6 +537,446 @@ func TestValidateSchedule(t *testing.T) {
 			err := ValidateSchedule(tt.schedule)
 			if (err != nil) != tt.wantErr {
 				t.Errorf("ValidateSchedule() error = %v, wantErr %v", err, tt.wantErr)
+			}
+		})
+	}
+}
+
+func TestValidateTimeWindows(t *testing.T) {
+	tests := []struct {
+		name    string
+		windows []TimeWindow
+		wantErr bool
+	}{
+		{
+			name: "valid recurring window with timezone and days",
+			windows: []TimeWindow{
+				{
+					Type:       TimeWindowRecurring,
+					Start:      "22:00",
+					End:        "02:00",
+					Timezone:   "UTC",
+					DaysOfWeek: []string{"Mon", "Wed", "Fri"},
+				},
+			},
+			wantErr: false,
+		},
+		{
+			name: "valid absolute window",
+			windows: []TimeWindow{
+				{
+					Type:  TimeWindowAbsolute,
+					Start: "2026-01-10T01:00:00Z",
+					End:   "2026-01-10T03:00:00Z",
+				},
+			},
+			wantErr: false,
+		},
+		{
+			name: "invalid recurring clock format",
+			windows: []TimeWindow{
+				{
+					Type:  TimeWindowRecurring,
+					Start: "9:00",
+					End:   "18:00",
+				},
+			},
+			wantErr: true,
+		},
+		{
+			name: "invalid recurring day",
+			windows: []TimeWindow{
+				{
+					Type:       TimeWindowRecurring,
+					Start:      "09:00",
+					End:        "18:00",
+					DaysOfWeek: []string{"Funday"},
+				},
+			},
+			wantErr: true,
+		},
+		{
+			name: "invalid timezone",
+			windows: []TimeWindow{
+				{
+					Type:     TimeWindowRecurring,
+					Start:    "09:00",
+					End:      "18:00",
+					Timezone: "Not/AZone",
+				},
+			},
+			wantErr: true,
+		},
+		{
+			name: "invalid absolute order",
+			windows: []TimeWindow{
+				{
+					Type:  TimeWindowAbsolute,
+					Start: "2026-01-10T03:00:00Z",
+					End:   "2026-01-10T01:00:00Z",
+				},
+			},
+			wantErr: true,
+		},
+		{
+			name: "absolute with timezone not allowed",
+			windows: []TimeWindow{
+				{
+					Type:     TimeWindowAbsolute,
+					Start:    "2026-01-10T01:00:00Z",
+					End:      "2026-01-10T03:00:00Z",
+					Timezone: "UTC",
+				},
+			},
+			wantErr: true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			err := ValidateTimeWindows(tt.windows)
+			if (err != nil) != tt.wantErr {
+				t.Errorf("ValidateTimeWindows() error = %v, wantErr %v", err, tt.wantErr)
+			}
+		})
+	}
+}
+
+func TestIsWithinTimeWindows(t *testing.T) {
+	// Fixed test time: 2026-01-06 (Tuesday) 14:30 UTC
+	testTime := time.Date(2026, 1, 6, 14, 30, 0, 0, time.UTC)
+
+	tests := []struct {
+		name     string
+		windows  []TimeWindow
+		testTime time.Time
+		want     bool
+	}{
+		{
+			name:     "no windows - always allowed",
+			windows:  []TimeWindow{},
+			testTime: testTime,
+			want:     true,
+		},
+		{
+			name: "recurring window - within time on correct day",
+			windows: []TimeWindow{
+				{
+					Type:       TimeWindowRecurring,
+					Start:      "09:00",
+					End:        "17:00",
+					Timezone:   "UTC",
+					DaysOfWeek: []string{"Tue", "Wed", "Thu"},
+				},
+			},
+			testTime: testTime, // Tuesday 14:30 UTC
+			want:     true,
+		},
+		{
+			name: "recurring window - within time but wrong day",
+			windows: []TimeWindow{
+				{
+					Type:       TimeWindowRecurring,
+					Start:      "09:00",
+					End:        "17:00",
+					Timezone:   "UTC",
+					DaysOfWeek: []string{"Mon", "Wed", "Fri"},
+				},
+			},
+			testTime: testTime, // Tuesday 14:30 UTC
+			want:     false,
+		},
+		{
+			name: "recurring window - correct day but outside time",
+			windows: []TimeWindow{
+				{
+					Type:       TimeWindowRecurring,
+					Start:      "09:00",
+					End:        "12:00",
+					Timezone:   "UTC",
+					DaysOfWeek: []string{"Tue"},
+				},
+			},
+			testTime: testTime, // Tuesday 14:30 UTC
+			want:     false,
+		},
+		{
+			name: "recurring window - wrap around midnight (in window before midnight)",
+			windows: []TimeWindow{
+				{
+					Type:     TimeWindowRecurring,
+					Start:    "22:00",
+					End:      "02:00",
+					Timezone: "UTC",
+				},
+			},
+			testTime: time.Date(2026, 1, 7, 23, 30, 0, 0, time.UTC),
+			want:     true,
+		},
+		{
+			name: "recurring window - wrap around midnight (in window after midnight)",
+			windows: []TimeWindow{
+				{
+					Type:     TimeWindowRecurring,
+					Start:    "22:00",
+					End:      "02:00",
+					Timezone: "UTC",
+				},
+			},
+			testTime: time.Date(2026, 1, 7, 1, 30, 0, 0, time.UTC),
+			want:     true,
+		},
+		{
+			name: "recurring window - wrap around midnight (outside window)",
+			windows: []TimeWindow{
+				{
+					Type:     TimeWindowRecurring,
+					Start:    "22:00",
+					End:      "02:00",
+					Timezone: "UTC",
+				},
+			},
+			testTime: testTime, // 14:30 UTC
+			want:     false,
+		},
+		{
+			name: "recurring window - timezone conversion (Europe/Berlin)",
+			windows: []TimeWindow{
+				{
+					Type:     TimeWindowRecurring,
+					Start:    "09:00",
+					End:      "17:00",
+					Timezone: "Europe/Berlin",
+				},
+			},
+			testTime: time.Date(2026, 1, 7, 8, 30, 0, 0, time.UTC), // 09:30 Berlin time
+			want:     true,
+		},
+		{
+			name: "absolute window - within window",
+			windows: []TimeWindow{
+				{
+					Type:  TimeWindowAbsolute,
+					Start: "2026-01-06T14:00:00Z",
+					End:   "2026-01-06T15:00:00Z",
+				},
+			},
+			testTime: testTime, // 14:30 UTC
+			want:     true,
+		},
+		{
+			name: "absolute window - before window",
+			windows: []TimeWindow{
+				{
+					Type:  TimeWindowAbsolute,
+					Start: "2026-01-06T15:00:00Z",
+					End:   "2026-01-06T16:00:00Z",
+				},
+			},
+			testTime: testTime, // 14:30 UTC
+			want:     false,
+		},
+		{
+			name: "absolute window - after window",
+			windows: []TimeWindow{
+				{
+					Type:  TimeWindowAbsolute,
+					Start: "2026-01-06T12:00:00Z",
+					End:   "2026-01-06T13:00:00Z",
+				},
+			},
+			testTime: testTime, // 14:30 UTC
+			want:     false,
+		},
+		{
+			name: "multiple windows - matches second window",
+			windows: []TimeWindow{
+				{
+					Type:       TimeWindowRecurring,
+					Start:      "09:00",
+					End:        "12:00",
+					DaysOfWeek: []string{"Mon"},
+				},
+				{
+					Type:       TimeWindowRecurring,
+					Start:      "14:00",
+					End:        "18:00",
+					DaysOfWeek: []string{"Tue"},
+				},
+			},
+			testTime: testTime, // Tuesday 14:30 UTC
+			want:     true,
+		},
+		{
+			name: "multiple windows - matches none",
+			windows: []TimeWindow{
+				{
+					Type:       TimeWindowRecurring,
+					Start:      "09:00",
+					End:        "12:00",
+					DaysOfWeek: []string{"Mon"},
+				},
+				{
+					Type:       TimeWindowRecurring,
+					Start:      "18:00",
+					End:        "22:00",
+					DaysOfWeek: []string{"Tue"},
+				},
+			},
+			testTime: testTime, // Tuesday 14:30 UTC
+			want:     false,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := IsWithinTimeWindows(tt.windows, tt.testTime)
+			if got != tt.want {
+				t.Errorf("IsWithinTimeWindows() = %v, want %v", got, tt.want)
+			}
+		})
+	}
+}
+
+func TestNextTimeWindowBoundary(t *testing.T) {
+	// Fixed test time: 2026-01-06 (Tuesday) 14:30 UTC
+	testTime := time.Date(2026, 1, 6, 14, 30, 0, 0, time.UTC)
+
+	tests := []struct {
+		name           string
+		windows        []TimeWindow
+		testTime       time.Time
+		wantBoundary   time.Time
+		wantWillBeOpen bool
+	}{
+		{
+			name:           "no windows - always open",
+			windows:        []TimeWindow{},
+			testTime:       testTime,
+			wantBoundary:   time.Time{},
+			wantWillBeOpen: true,
+		},
+		{
+			name: "recurring window - before window opens today",
+			windows: []TimeWindow{
+				{
+					Type:     TimeWindowRecurring,
+					Start:    "18:00",
+					End:      "22:00",
+					Timezone: "UTC",
+				},
+			},
+			testTime:       testTime, // 14:30 UTC
+			wantBoundary:   time.Date(2026, 1, 6, 18, 0, 0, 0, time.UTC),
+			wantWillBeOpen: true,
+		},
+		{
+			name: "recurring window - inside window, next boundary is close",
+			windows: []TimeWindow{
+				{
+					Type:     TimeWindowRecurring,
+					Start:    "14:00",
+					End:      "15:00",
+					Timezone: "UTC",
+				},
+			},
+			testTime:       testTime, // 14:30 UTC
+			wantBoundary:   time.Date(2026, 1, 6, 15, 0, 0, 0, time.UTC),
+			wantWillBeOpen: false,
+		},
+		{
+			name: "recurring window - after today's window, next is tomorrow",
+			windows: []TimeWindow{
+				{
+					Type:     TimeWindowRecurring,
+					Start:    "09:00",
+					End:      "12:00",
+					Timezone: "UTC",
+				},
+			},
+			testTime:       testTime, // 14:30 UTC
+			wantBoundary:   time.Date(2026, 1, 7, 9, 0, 0, 0, time.UTC),
+			wantWillBeOpen: true,
+		},
+		{
+			name: "recurring window with days - next matching day",
+			windows: []TimeWindow{
+				{
+					Type:       TimeWindowRecurring,
+					Start:      "09:00",
+					End:        "17:00",
+					DaysOfWeek: []string{"Mon", "Wed", "Fri"},
+					Timezone:   "UTC",
+				},
+			},
+			testTime:       testTime,                                    // Tuesday 14:30 UTC
+			wantBoundary:   time.Date(2026, 1, 7, 9, 0, 0, 0, time.UTC), // Wednesday
+			wantWillBeOpen: true,
+		},
+		{
+			name: "absolute window - before start",
+			windows: []TimeWindow{
+				{
+					Type:  TimeWindowAbsolute,
+					Start: "2026-01-10T10:00:00Z",
+					End:   "2026-01-10T12:00:00Z",
+				},
+			},
+			testTime:       testTime,
+			wantBoundary:   time.Date(2026, 1, 10, 10, 0, 0, 0, time.UTC),
+			wantWillBeOpen: true,
+		},
+		{
+			name: "absolute window - inside window",
+			windows: []TimeWindow{
+				{
+					Type:  TimeWindowAbsolute,
+					Start: "2026-01-06T14:00:00Z",
+					End:   "2026-01-06T16:00:00Z",
+				},
+			},
+			testTime:       testTime,
+			wantBoundary:   time.Date(2026, 1, 6, 16, 0, 0, 0, time.UTC),
+			wantWillBeOpen: false,
+		},
+		{
+			name: "absolute window - after end (no future boundary)",
+			windows: []TimeWindow{
+				{
+					Type:  TimeWindowAbsolute,
+					Start: "2026-01-05T12:00:00Z",
+					End:   "2026-01-05T13:00:00Z",
+				},
+			},
+			testTime:       testTime,
+			wantBoundary:   time.Time{},
+			wantWillBeOpen: false,
+		},
+		{
+			name: "wrap-around window - before start",
+			windows: []TimeWindow{
+				{
+					Type:     TimeWindowRecurring,
+					Start:    "22:00",
+					End:      "02:00",
+					Timezone: "UTC",
+				},
+			},
+			testTime:       testTime, // 14:30 UTC
+			wantBoundary:   time.Date(2026, 1, 6, 22, 0, 0, 0, time.UTC),
+			wantWillBeOpen: true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			gotBoundary, gotWillBeOpen := NextTimeWindowBoundary(tt.windows, tt.testTime)
+			if !gotBoundary.Equal(tt.wantBoundary) {
+				t.Errorf("NextTimeWindowBoundary() boundary = %v, want %v",
+					gotBoundary.Format(time.RFC3339), tt.wantBoundary.Format(time.RFC3339))
+			}
+			if gotWillBeOpen != tt.wantWillBeOpen {
+				t.Errorf("NextTimeWindowBoundary() willBeOpen = %v, want %v", gotWillBeOpen, tt.wantWillBeOpen)
 			}
 		})
 	}
