@@ -184,3 +184,234 @@ func normalizeWeekday(day string) (time.Weekday, bool) {
 		return time.Sunday, false
 	}
 }
+
+// IsWithinTimeWindows checks if the current time is within any of the configured time windows.
+// Returns true if windows is empty (no restrictions) or if current time matches any window.
+func IsWithinTimeWindows(windows []TimeWindow, now time.Time) bool {
+	// No windows means no restrictions
+	if len(windows) == 0 {
+		return true
+	}
+
+	// Check if we're within any window
+	for _, window := range windows {
+		if isWithinTimeWindow(window, now) {
+			return true
+		}
+	}
+
+	return false
+}
+
+// isWithinTimeWindow checks if the given time is within a single time window.
+func isWithinTimeWindow(window TimeWindow, now time.Time) bool {
+	switch window.Type {
+	case TimeWindowRecurring:
+		return isWithinRecurringWindow(window, now)
+	case TimeWindowAbsolute:
+		return isWithinAbsoluteWindow(window, now)
+	default:
+		return false
+	}
+}
+
+// isWithinRecurringWindow checks if now falls within a recurring time window.
+func isWithinRecurringWindow(window TimeWindow, now time.Time) bool {
+	// Load timezone (default to UTC)
+	loc := time.UTC
+	if window.Timezone != "" {
+		var err error
+		loc, err = time.LoadLocation(window.Timezone)
+		if err != nil {
+			// Invalid timezone, skip this window
+			return false
+		}
+	}
+
+	// Convert now to the window's timezone
+	nowInZone := now.In(loc)
+
+	// Check day of week if specified
+	if len(window.DaysOfWeek) > 0 {
+		matched := false
+		for _, day := range window.DaysOfWeek {
+			if weekday, ok := normalizeWeekday(day); ok && weekday == nowInZone.Weekday() {
+				matched = true
+				break
+			}
+		}
+		if !matched {
+			return false
+		}
+	}
+
+	// Parse start and end times
+	startParts := strings.Split(window.Start, ":")
+	endParts := strings.Split(window.End, ":")
+	if len(startParts) != 2 || len(endParts) != 2 {
+		return false
+	}
+
+	// Create time.Time values for start and end in the same day as now
+	startHour, _ := parseTimeComponents(startParts[0], startParts[1])
+	endHour, _ := parseTimeComponents(endParts[0], endParts[1])
+
+	start := time.Date(nowInZone.Year(), nowInZone.Month(), nowInZone.Day(), startHour, parseMinute(startParts[1]), 0, 0, loc)
+	end := time.Date(nowInZone.Year(), nowInZone.Month(), nowInZone.Day(), endHour, parseMinute(endParts[1]), 0, 0, loc)
+
+	// Handle wrap-around (e.g., 22:00-02:00 spans midnight)
+	if end.Before(start) || end.Equal(start) {
+		// Window spans midnight: check if we're after start OR before end (same day end time)
+		return (nowInZone.After(start) || nowInZone.Equal(start)) || nowInZone.Before(end)
+	}
+
+	// Normal window: check if we're between start and end
+	return (nowInZone.After(start) || nowInZone.Equal(start)) && nowInZone.Before(end)
+}
+
+// isWithinAbsoluteWindow checks if now falls within an absolute time window.
+func isWithinAbsoluteWindow(window TimeWindow, now time.Time) bool {
+	start, err := time.Parse(time.RFC3339, window.Start)
+	if err != nil {
+		return false
+	}
+	end, err := time.Parse(time.RFC3339, window.End)
+	if err != nil {
+		return false
+	}
+
+	return (now.After(start) || now.Equal(start)) && now.Before(end)
+}
+
+// NextTimeWindowBoundary calculates when the next time window opens or closes.
+// Returns the next boundary time and whether a window will be open at that time.
+func NextTimeWindowBoundary(windows []TimeWindow, now time.Time) (nextBoundary time.Time, willBeOpen bool) {
+	// No windows means always open
+	if len(windows) == 0 {
+		return time.Time{}, true
+	}
+
+	var earliestBoundary time.Time
+	var boundaryIsOpening bool
+
+	for _, window := range windows {
+		boundary, isOpening := nextBoundaryForWindow(window, now)
+		if !boundary.IsZero() && (earliestBoundary.IsZero() || boundary.Before(earliestBoundary)) {
+			earliestBoundary = boundary
+			boundaryIsOpening = isOpening
+		}
+	}
+
+	return earliestBoundary, boundaryIsOpening
+}
+
+// nextBoundaryForWindow calculates the next boundary (opening or closing) for a single window.
+func nextBoundaryForWindow(window TimeWindow, now time.Time) (boundary time.Time, isOpening bool) {
+	switch window.Type {
+	case TimeWindowRecurring:
+		return nextRecurringBoundary(window, now)
+	case TimeWindowAbsolute:
+		return nextAbsoluteBoundary(window, now)
+	default:
+		return time.Time{}, false
+	}
+}
+
+// nextRecurringBoundary finds the next start or end time for a recurring window.
+func nextRecurringBoundary(window TimeWindow, now time.Time) (boundary time.Time, isOpening bool) {
+	loc := time.UTC
+	if window.Timezone != "" {
+		var err error
+		loc, err = time.LoadLocation(window.Timezone)
+		if err != nil {
+			return time.Time{}, false
+		}
+	}
+
+	nowInZone := now.In(loc)
+	startParts := strings.Split(window.Start, ":")
+	endParts := strings.Split(window.End, ":")
+	if len(startParts) != 2 || len(endParts) != 2 {
+		return time.Time{}, false
+	}
+
+	startHour, _ := parseTimeComponents(startParts[0], startParts[1])
+	endHour, _ := parseTimeComponents(endParts[0], endParts[1])
+
+	// Check boundaries for the next 7 days
+	for daysAhead := 0; daysAhead < 8; daysAhead++ {
+		checkDate := nowInZone.AddDate(0, 0, daysAhead)
+
+		// Skip if day of week doesn't match
+		if len(window.DaysOfWeek) > 0 {
+			matched := false
+			for _, day := range window.DaysOfWeek {
+				if weekday, ok := normalizeWeekday(day); ok && weekday == checkDate.Weekday() {
+					matched = true
+					break
+				}
+			}
+			if !matched {
+				continue
+			}
+		}
+
+		start := time.Date(checkDate.Year(), checkDate.Month(), checkDate.Day(), startHour, parseMinute(startParts[1]), 0, 0, loc)
+		end := time.Date(checkDate.Year(), checkDate.Month(), checkDate.Day(), endHour, parseMinute(endParts[1]), 0, 0, loc)
+
+		// Handle wrap-around
+		if end.Before(start) || end.Equal(start) {
+			end = end.Add(24 * time.Hour)
+		}
+
+		// Check if start is in the future
+		if start.After(nowInZone) {
+			return start, true
+		}
+
+		// Check if end is in the future
+		if end.After(nowInZone) {
+			return end, false
+		}
+	}
+
+	return time.Time{}, false
+}
+
+// nextAbsoluteBoundary finds the next start or end time for an absolute window.
+func nextAbsoluteBoundary(window TimeWindow, now time.Time) (boundary time.Time, isOpening bool) {
+	start, err := time.Parse(time.RFC3339, window.Start)
+	if err != nil {
+		return time.Time{}, false
+	}
+	end, err := time.Parse(time.RFC3339, window.End)
+	if err != nil {
+		return time.Time{}, false
+	}
+
+	// If before start, next boundary is start (opening)
+	if now.Before(start) {
+		return start, true
+	}
+
+	// If between start and end, next boundary is end (closing)
+	if now.Before(end) {
+		return end, false
+	}
+
+	// After window has closed, no future boundary
+	return time.Time{}, false
+}
+
+// Helper functions
+func parseTimeComponents(hourStr, minStr string) (hour int, min int) {
+	fmt.Sscanf(hourStr, "%d", &hour)
+	fmt.Sscanf(minStr, "%d", &min)
+	return hour, min
+}
+
+func parseMinute(minStr string) int {
+	var min int
+	fmt.Sscanf(minStr, "%d", &min)
+	return min
+}

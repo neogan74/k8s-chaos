@@ -117,17 +117,17 @@ spec:
 ## Implementation Status
 
 ### Completed
-- [ ] None
+- [x] Add `TimeWindow` types to `api/v1alpha1` with validation tags and defaults
+- [x] Regenerate CRDs and manifests (`make manifests generate`)
+- [x] Implement time window parsing (HH:MM for recurring, RFC3339 for absolute) with timezone handling
+- [x] Add a matcher that supports wrap-around windows and empty `DaysOfWeek`
+- [x] Compute next boundary and requeue when blocked; avoid tight loops
+- [x] Emit a status condition (`BlockedByTimeWindow`) with next eligible time
+- [x] Add controller tests for window matching and boundary calculations
+- [x] Add sample manifests for recurring and absolute windows
 
 ### Planned
-- [ ] Add `TimeWindow` types to `api/v1alpha1` with validation tags and defaults.
-- [ ] Regenerate CRDs and manifests (`make manifests generate`).
-- [ ] Implement time window parsing (HH:MM for recurring, RFC3339 for absolute) with timezone handling.
-- [ ] Add a matcher that supports wrap-around windows and empty `DaysOfWeek`.
-- [ ] Compute next boundary and requeue when blocked; avoid tight loops.
-- [ ] Emit a status condition (e.g., `BlockedByTimeWindow`) with next eligible time.
-- [ ] Add controller tests for window matching and boundary calculations.
-- [ ] Add sample manifests and docs for recurring and absolute windows.
+- [ ] None
 
 ### Deferred
 - [ ] Calendar integrations and holiday-aware scheduling.

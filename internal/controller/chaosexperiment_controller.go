@@ -130,6 +130,19 @@ func (r *ChaosExperimentReconciler) Reconcile(ctx context.Context, req ctrl.Requ
 		return ctrl.Result{RequeueAfter: requeueAfter}, nil
 	}
 
+	// Check if we're within allowed time windows
+	inWindow, requeueAt, err := r.checkTimeWindows(ctx, &exp)
+	if err != nil {
+		log.Error(err, "Failed to check time windows")
+		exp.Status.Message = fmt.Sprintf("Time window error: %v", err)
+		_ = r.Status().Update(ctx, &exp)
+		return ctrl.Result{}, err
+	}
+	if !inWindow {
+		// Outside time window, requeue for the next window opening
+		return ctrl.Result{RequeueAfter: time.Until(requeueAt)}, nil
+	}
+
 	switch exp.Spec.Action {
 	case "pod-kill":
 		return r.handlePodKill(ctx, &exp)
@@ -2213,6 +2226,102 @@ func (r *ChaosExperimentReconciler) checkSchedule(ctx context.Context, exp *chao
 		"requeueAfter", untilNext)
 
 	return false, untilNext, nil
+}
+
+// checkTimeWindows determines if the current time is within allowed time windows.
+// Returns: inWindow (bool), requeueAt (time.Time), error
+func (r *ChaosExperimentReconciler) checkTimeWindows(ctx context.Context, exp *chaosv1alpha1.ChaosExperiment) (bool, time.Time, error) {
+	log := ctrl.LoggerFrom(ctx)
+
+	// If no time windows configured, always allowed
+	if len(exp.Spec.TimeWindows) == 0 {
+		return true, time.Time{}, nil
+	}
+
+	now := time.Now()
+
+	// Check if we're within any time window
+	inWindow := chaosv1alpha1.IsWithinTimeWindows(exp.Spec.TimeWindows, now)
+
+	if inWindow {
+		// We're in a window, clear the blocked condition if it exists
+		r.clearBlockedByTimeWindowCondition(ctx, exp)
+		log.V(1).Info("Experiment is within time window, proceeding")
+		return true, time.Time{}, nil
+	}
+
+	// We're outside all windows, calculate next opening
+	nextBoundary, willBeOpen := chaosv1alpha1.NextTimeWindowBoundary(exp.Spec.TimeWindows, now)
+
+	if nextBoundary.IsZero() {
+		// No future windows (e.g., absolute window in the past)
+		log.Info("No future time windows available for experiment")
+		r.setBlockedByTimeWindowCondition(ctx, exp, "No future time windows available", time.Time{})
+		return false, now.Add(24 * time.Hour), nil // Requeue in 24 hours
+	}
+
+	log.Info("Experiment blocked by time window",
+		"currentTime", now.Format(time.RFC3339),
+		"nextBoundary", nextBoundary.Format(time.RFC3339),
+		"boundaryOpens", willBeOpen)
+
+	// Set condition indicating we're blocked
+	r.setBlockedByTimeWindowCondition(ctx, exp,
+		fmt.Sprintf("Outside allowed time window. Next window %s at %s",
+			map[bool]string{true: "opens", false: "closes"}[willBeOpen],
+			nextBoundary.Format(time.RFC3339)),
+		nextBoundary)
+
+	return false, nextBoundary, nil
+}
+
+// setBlockedByTimeWindowCondition sets a condition indicating the experiment is blocked by time windows
+func (r *ChaosExperimentReconciler) setBlockedByTimeWindowCondition(ctx context.Context, exp *chaosv1alpha1.ChaosExperiment, message string, nextBoundary time.Time) {
+	condition := metav1.Condition{
+		Type:               "BlockedByTimeWindow",
+		Status:             metav1.ConditionTrue,
+		ObservedGeneration: exp.Generation,
+		LastTransitionTime: metav1.Now(),
+		Reason:             "OutsideTimeWindow",
+		Message:            message,
+	}
+
+	// Update or add the condition
+	updated := false
+	for i, existingCondition := range exp.Status.Conditions {
+		if existingCondition.Type == "BlockedByTimeWindow" {
+			exp.Status.Conditions[i] = condition
+			updated = true
+			break
+		}
+	}
+	if !updated {
+		exp.Status.Conditions = append(exp.Status.Conditions, condition)
+	}
+
+	// Update status
+	if err := r.Status().Update(ctx, exp); err != nil {
+		log := ctrl.LoggerFrom(ctx)
+		log.Error(err, "Failed to update BlockedByTimeWindow condition")
+	}
+}
+
+// clearBlockedByTimeWindowCondition removes the BlockedByTimeWindow condition
+func (r *ChaosExperimentReconciler) clearBlockedByTimeWindowCondition(ctx context.Context, exp *chaosv1alpha1.ChaosExperiment) {
+	// Find and remove the condition
+	for i, condition := range exp.Status.Conditions {
+		if condition.Type == "BlockedByTimeWindow" {
+			// Remove condition by slicing
+			exp.Status.Conditions = append(exp.Status.Conditions[:i], exp.Status.Conditions[i+1:]...)
+
+			// Update status
+			if err := r.Status().Update(ctx, exp); err != nil {
+				log := ctrl.LoggerFrom(ctx)
+				log.Error(err, "Failed to clear BlockedByTimeWindow condition")
+			}
+			break
+		}
+	}
 }
 
 // isEphemeralContainerRunning checks if an ephemeral container is currently running in a pod
