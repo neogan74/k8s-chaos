@@ -215,9 +215,16 @@ func (r *ChaosExperimentReconciler) handlePodKill(ctx context.Context, exp *chao
 		pod := eligiblePods[i]
 		log.Info("Deleting pod", "pod", pod.Name, "namespace", pod.Namespace)
 		if err := r.Delete(ctx, &pod); err != nil {
-			log.Error(err, "Failed to delete pod", "pod", pod.Name)
+			if client.IgnoreNotFound(err) == nil {
+				log.Info("Pod already deleted", "pod", pod.Name)
+			} else {
+				log.Error(err, "Failed to delete pod", "pod", pod.Name)
+				r.Recorder.Event(exp, corev1.EventTypeWarning, "PodKillFailed", fmt.Sprintf("Failed to kill pod %s/%s: %v", pod.Namespace, pod.Name, err))
+			}
 		} else {
 			killedPods = append(killedPods, pod.Name)
+			r.Recorder.Event(exp, corev1.EventTypeNormal, "PodKilled", fmt.Sprintf("Killed pod %s/%s", pod.Namespace, pod.Name))
+			r.Recorder.Event(&pod, corev1.EventTypeWarning, "ChaosKilled", fmt.Sprintf("Pod killed by chaos experiment %s", exp.Name))
 		}
 	}
 
@@ -330,8 +337,11 @@ func (r *ChaosExperimentReconciler) handlePodDelay(ctx context.Context, exp *cha
 		// Apply delay using tc (traffic control)
 		if err := r.applyNetworkDelay(ctx, &pod, delayMs); err != nil {
 			log.Error(err, "Failed to apply network delay", "pod", pod.Name)
+			r.Recorder.Event(exp, corev1.EventTypeWarning, "PodDelayFailed", fmt.Sprintf("Failed to delay pod %s/%s: %v", pod.Namespace, pod.Name, err))
 		} else {
 			affectedPods = append(affectedPods, pod.Name)
+			r.Recorder.Event(exp, corev1.EventTypeNormal, "PodDelayInjected", fmt.Sprintf("Injected %dms delay into pod %s/%s", delayMs, pod.Namespace, pod.Name))
+			r.Recorder.Event(&pod, corev1.EventTypeWarning, "ChaosDelayInjected", fmt.Sprintf("Network delay %dms injected by chaos experiment %s", delayMs, exp.Name))
 		}
 	}
 
@@ -456,10 +466,13 @@ func (r *ChaosExperimentReconciler) handlePodCPUStress(ctx context.Context, exp 
 		if err != nil {
 			log.Error(err, "Failed to inject CPU stress container", "pod", pod.Name)
 			chaosmetrics.ExperimentErrors.WithLabelValues("pod-cpu-stress", exp.Spec.Namespace).Inc()
+			r.Recorder.Event(exp, corev1.EventTypeWarning, "PodCPUStressFailed", fmt.Sprintf("Failed to inject CPU stress into pod %s/%s: %v", pod.Namespace, pod.Name, err))
 		} else if containerName != "" {
 			// Track the affected pod for cleanup later
 			r.trackAffectedPod(exp, pod.Namespace, pod.Name, containerName)
 			affectedPods = append(affectedPods, pod.Name)
+			r.Recorder.Event(exp, corev1.EventTypeNormal, "PodCPUStressInjected", fmt.Sprintf("Injected %d%% CPU stress into pod %s/%s", exp.Spec.CPULoad, pod.Namespace, pod.Name))
+			r.Recorder.Event(&pod, corev1.EventTypeWarning, "ChaosCPUStressInjected", fmt.Sprintf("CPU stress %d%% injected by chaos experiment %s", exp.Spec.CPULoad, exp.Name))
 		}
 	}
 
@@ -518,6 +531,11 @@ func (r *ChaosExperimentReconciler) injectCPUStressContainer(ctx context.Context
 	currentPod := &corev1.Pod{}
 	if err := r.Get(ctx, client.ObjectKeyFromObject(pod), currentPod); err != nil {
 		return "", fmt.Errorf("failed to get current pod state: %w", err)
+	}
+
+	// Check if pod is terminating
+	if currentPod.DeletionTimestamp != nil {
+		return "", fmt.Errorf("pod is terminating")
 	}
 
 	// Check if a chaos-cpu-stress ephemeral container is still running
@@ -621,6 +639,15 @@ func (r *ChaosExperimentReconciler) parseDurationToMs(durationStr string) (int, 
 // applyNetworkDelay adds network latency to a pod using tc (traffic control)
 func (r *ChaosExperimentReconciler) applyNetworkDelay(ctx context.Context, pod *corev1.Pod, delayMs int) error {
 	log := ctrl.LoggerFrom(ctx)
+
+	// Check if pod is terminating
+	currentPod := &corev1.Pod{}
+	if err := r.Get(ctx, client.ObjectKeyFromObject(pod), currentPod); err != nil {
+		return fmt.Errorf("failed to get current pod state: %w", err)
+	}
+	if currentPod.DeletionTimestamp != nil {
+		return fmt.Errorf("pod is terminating")
+	}
 
 	// Find the first container (we'll apply delay to the pod network namespace)
 	if len(pod.Spec.Containers) == 0 {
@@ -766,21 +793,26 @@ func (r *ChaosExperimentReconciler) handleNodeDrain(ctx context.Context, exp *ch
 		wasAlreadyCordoned, err := r.cordonNode(ctx, node)
 		if err != nil {
 			log.Error(err, "Failed to cordon node", "node", node.Name)
+			r.Recorder.Event(exp, corev1.EventTypeWarning, "NodeCordonFailed", fmt.Sprintf("Failed to cordon node %s: %v", node.Name, err))
 			continue
 		}
 
 		// Track nodes that we cordoned (not ones that were already cordoned)
 		if !wasAlreadyCordoned {
 			newlyCordonedNodes = append(newlyCordonedNodes, node.Name)
+			r.Recorder.Event(node, corev1.EventTypeWarning, "ChaosCordoned", fmt.Sprintf("Node cordoned by chaos experiment %s", exp.Name))
 		}
 
 		// Drain the node (evict pods)
 		if err := r.drainNode(ctx, node); err != nil {
 			log.Error(err, "Failed to drain node", "node", node.Name)
+			r.Recorder.Event(exp, corev1.EventTypeWarning, "NodeDrainFailed", fmt.Sprintf("Failed to drain node %s: %v", node.Name, err))
 			continue
 		}
 
 		drainedNodes = append(drainedNodes, node.Name)
+		r.Recorder.Event(exp, corev1.EventTypeNormal, "NodeDrained", fmt.Sprintf("Drained node %s", node.Name))
+		r.Recorder.Event(node, corev1.EventTypeWarning, "ChaosDrained", fmt.Sprintf("Node drained by chaos experiment %s", exp.Name))
 	}
 
 	// Update status to track newly cordoned nodes for later uncordon
@@ -921,8 +953,11 @@ func (r *ChaosExperimentReconciler) drainNode(ctx context.Context, node *corev1.
 
 		// Try to delete the pod gracefully
 		if err := r.Delete(ctx, &pod, client.GracePeriodSeconds(30)); err != nil {
-			log.Error(err, "Failed to evict pod", "pod", pod.Name, "namespace", pod.Namespace)
-			continue
+			if client.IgnoreNotFound(err) != nil {
+				log.Error(err, "Failed to evict pod", "pod", pod.Name, "namespace", pod.Namespace)
+				continue
+			}
+			// If not found, it's already gone, so we count it as evicted
 		}
 
 		evictedCount++
@@ -1401,12 +1436,15 @@ func (r *ChaosExperimentReconciler) handlePodMemoryStress(ctx context.Context, e
 		containerName, err := r.injectMemoryStressContainer(ctx, &pod, memoryWorkers, exp.Spec.MemorySize, timeoutSeconds)
 		if err != nil {
 			log.Error(err, "Failed to inject memory stress container", "pod", pod.Name)
+			r.Recorder.Event(exp, corev1.EventTypeWarning, "PodMemoryStressFailed", fmt.Sprintf("Failed to inject memory stress into pod %s/%s: %v", pod.Namespace, pod.Name, err))
 			continue
 		}
 
 		// Track the affected pod for cleanup later
 		r.trackAffectedPod(exp, pod.Namespace, pod.Name, containerName)
 		stressedPods = append(stressedPods, pod.Name)
+		r.Recorder.Event(exp, corev1.EventTypeNormal, "PodMemoryStressInjected", fmt.Sprintf("Injected %s memory stress into pod %s/%s", exp.Spec.MemorySize, pod.Namespace, pod.Name))
+		r.Recorder.Event(&pod, corev1.EventTypeWarning, "ChaosMemoryStressInjected", fmt.Sprintf("Memory stress %s injected by chaos experiment %s", exp.Spec.MemorySize, exp.Name))
 	}
 
 	// Update status
@@ -1473,6 +1511,11 @@ func (r *ChaosExperimentReconciler) injectMemoryStressContainer(ctx context.Cont
 		return "", fmt.Errorf("failed to get current pod: %w", err)
 	}
 
+	// Check if pod is terminating
+	if currentPod.DeletionTimestamp != nil {
+		return "", fmt.Errorf("pod is terminating")
+	}
+
 	// Add ephemeral container
 	currentPod.Spec.EphemeralContainers = append(currentPod.Spec.EphemeralContainers, ephemeralContainer)
 
@@ -1536,8 +1579,11 @@ func (r *ChaosExperimentReconciler) handlePodFailure(ctx context.Context, exp *c
 		if err := r.killContainerProcess(ctx, &pod); err != nil {
 			log.Error(err, "Failed to kill container process", "pod", pod.Name)
 			chaosmetrics.ExperimentErrors.WithLabelValues("pod-failure", exp.Spec.Namespace).Inc()
+			r.Recorder.Event(exp, corev1.EventTypeWarning, "PodFailureFailed", fmt.Sprintf("Failed to cause failure in pod %s/%s: %v", pod.Namespace, pod.Name, err))
 		} else {
 			failedPods = append(failedPods, pod.Name)
+			r.Recorder.Event(exp, corev1.EventTypeNormal, "PodFailureInjected", fmt.Sprintf("Caused failure in pod %s/%s", pod.Namespace, pod.Name))
+			r.Recorder.Event(&pod, corev1.EventTypeWarning, "ChaosFailureInjected", fmt.Sprintf("Process kill injected by chaos experiment %s", exp.Name))
 		}
 	}
 
@@ -1641,9 +1687,12 @@ func (r *ChaosExperimentReconciler) handlePodRestart(ctx context.Context, exp *c
 		if err := r.gracefullyRestartContainer(ctx, &pod); err != nil {
 			log.Error(err, "Failed to restart pod", "pod", pod.Name)
 			chaosmetrics.ExperimentErrors.WithLabelValues("pod-restart", exp.Spec.Namespace).Inc()
+			r.Recorder.Event(exp, corev1.EventTypeWarning, "PodRestartFailed", fmt.Sprintf("Failed to restart pod %s/%s: %v", pod.Namespace, pod.Name, err))
 			// Continue with other pods even if one fails
 		} else {
 			restartedPods = append(restartedPods, pod.Name)
+			r.Recorder.Event(exp, corev1.EventTypeNormal, "PodRestarted", fmt.Sprintf("Restarted pod %s/%s", pod.Namespace, pod.Name))
+			r.Recorder.Event(&pod, corev1.EventTypeWarning, "ChaosRestarted", fmt.Sprintf("Pod restarted by chaos experiment %s", exp.Name))
 		}
 	}
 
@@ -1748,12 +1797,15 @@ func (r *ChaosExperimentReconciler) handlePodNetworkLoss(ctx context.Context, ex
 		containerName, err := r.injectNetworkLossContainer(ctx, &pod, exp.Spec.LossPercentage, exp.Spec.LossCorrelation, timeoutSeconds)
 		if err != nil {
 			log.Error(err, "Failed to inject network loss container", "pod", pod.Name)
+			r.Recorder.Event(exp, corev1.EventTypeWarning, "PodNetworkLossFailed", fmt.Sprintf("Failed to inject network loss into pod %s/%s: %v", pod.Namespace, pod.Name, err))
 			continue
 		}
 
 		// Track the affected pod for cleanup later
 		r.trackAffectedPod(exp, pod.Namespace, pod.Name, containerName)
 		affectedPods = append(affectedPods, pod.Name)
+		r.Recorder.Event(exp, corev1.EventTypeNormal, "PodNetworkLossInjected", fmt.Sprintf("Injected %d%% network loss into pod %s/%s", exp.Spec.LossPercentage, pod.Namespace, pod.Name))
+		r.Recorder.Event(&pod, corev1.EventTypeWarning, "ChaosNetworkLossInjected", fmt.Sprintf("Network loss %d%% injected by chaos experiment %s", exp.Spec.LossPercentage, exp.Name))
 	}
 
 	// Update status
@@ -1869,6 +1921,7 @@ func (r *ChaosExperimentReconciler) handlePodDiskFill(ctx context.Context, exp *
 		if err != nil {
 			log.Error(err, "Failed to inject disk fill container", "pod", pod.Name)
 			chaosmetrics.ExperimentErrors.WithLabelValues("pod-disk-fill", exp.Spec.Namespace).Inc()
+			r.Recorder.Event(exp, corev1.EventTypeWarning, "PodDiskFillFailed", fmt.Sprintf("Failed to inject disk fill into pod %s/%s: %v", pod.Namespace, pod.Name, err))
 			continue
 		}
 		if containerName == "" {
@@ -1878,6 +1931,8 @@ func (r *ChaosExperimentReconciler) handlePodDiskFill(ctx context.Context, exp *
 		// Track the affected pod for cleanup later
 		r.trackAffectedPod(exp, pod.Namespace, pod.Name, containerName)
 		affectedPods = append(affectedPods, pod.Name)
+		r.Recorder.Event(exp, corev1.EventTypeNormal, "PodDiskFillInjected", fmt.Sprintf("Injected %d%% disk fill into pod %s/%s", fillPercentage, pod.Namespace, pod.Name))
+		r.Recorder.Event(&pod, corev1.EventTypeWarning, "ChaosDiskFillInjected", fmt.Sprintf("Disk fill %d%% injected by chaos experiment %s", fillPercentage, exp.Name))
 	}
 
 	// Update status
@@ -1949,6 +2004,11 @@ func (r *ChaosExperimentReconciler) injectNetworkLossContainer(ctx context.Conte
 		return "", fmt.Errorf("failed to get current pod: %w", err)
 	}
 
+	// Check if pod is terminating
+	if currentPod.DeletionTimestamp != nil {
+		return "", fmt.Errorf("pod is terminating")
+	}
+
 	// Add ephemeral container
 	currentPod.Spec.EphemeralContainers = append(currentPod.Spec.EphemeralContainers, ephemeralContainer)
 
@@ -1979,6 +2039,11 @@ func (r *ChaosExperimentReconciler) injectDiskFillContainer(ctx context.Context,
 	currentPod := &corev1.Pod{}
 	if err := r.Get(ctx, client.ObjectKeyFromObject(pod), currentPod); err != nil {
 		return "", fmt.Errorf("failed to get current pod state: %w", err)
+	}
+
+	// Check if pod is terminating
+	if currentPod.DeletionTimestamp != nil {
+		return "", fmt.Errorf("pod is terminating")
 	}
 
 	// Check if a disk-fill ephemeral container is still running
@@ -2088,6 +2153,15 @@ func resolveDiskFillTarget(pod *corev1.Pod, volumeName, targetPath string) (stri
 func (r *ChaosExperimentReconciler) killContainerProcess(ctx context.Context, pod *corev1.Pod) error {
 	log := ctrl.LoggerFrom(ctx)
 
+	// Check if pod is terminating
+	currentPod := &corev1.Pod{}
+	if err := r.Get(ctx, client.ObjectKeyFromObject(pod), currentPod); err != nil {
+		return fmt.Errorf("failed to get current pod state: %w", err)
+	}
+	if currentPod.DeletionTimestamp != nil {
+		return fmt.Errorf("pod is terminating")
+	}
+
 	// Find the first container
 	if len(pod.Spec.Containers) == 0 {
 		return fmt.Errorf("no containers found in pod")
@@ -2119,6 +2193,15 @@ func (r *ChaosExperimentReconciler) killContainerProcess(ctx context.Context, po
 // gracefullyRestartContainer sends SIGTERM to the main process (PID 1) to trigger graceful shutdown
 func (r *ChaosExperimentReconciler) gracefullyRestartContainer(ctx context.Context, pod *corev1.Pod) error {
 	log := ctrl.LoggerFrom(ctx)
+
+	// Check if pod is terminating
+	currentPod := &corev1.Pod{}
+	if err := r.Get(ctx, client.ObjectKeyFromObject(pod), currentPod); err != nil {
+		return fmt.Errorf("failed to get current pod state: %w", err)
+	}
+	if currentPod.DeletionTimestamp != nil {
+		return fmt.Errorf("pod is terminating")
+	}
 
 	// Find the first container (main application container)
 	if len(pod.Spec.Containers) == 0 {
