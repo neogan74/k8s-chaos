@@ -409,6 +409,8 @@ spec:
 
 	Context("Validation Tests", func() {
 		It("should reject memory stress experiment without duration", func() {
+			requireWebhookEnabled()
+
 			By("attempting to create experiment without duration")
 			experimentYAML := fmt.Sprintf(`
 apiVersion: chaos.gushchin.dev/v1alpha1
@@ -436,6 +438,8 @@ spec:
 		})
 
 		It("should reject memory stress experiment without memorySize", func() {
+			requireWebhookEnabled()
+
 			By("attempting to create experiment without memorySize")
 			experimentYAML := fmt.Sprintf(`
 apiVersion: chaos.gushchin.dev/v1alpha1
@@ -463,6 +467,8 @@ spec:
 		})
 
 		It("should reject invalid memorySize format", func() {
+			requireWebhookEnabled()
+
 			By("attempting to create experiment with invalid memorySize")
 			experimentYAML := fmt.Sprintf(`
 apiVersion: chaos.gushchin.dev/v1alpha1

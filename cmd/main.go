@@ -17,8 +17,10 @@ limitations under the License.
 package main
 
 import (
+	"context"
 	"crypto/tls"
 	"flag"
+	"net/http"
 	"os"
 
 	// Import all Kubernetes client auth plugins (e.g. Azure, GCP, OIDC, etc.)
@@ -54,11 +56,34 @@ func init() {
 	// +kubebuilder:scaffold:scheme
 }
 
+type disabledWebhookServer struct{}
+
+func (disabledWebhookServer) NeedLeaderElection() bool {
+	return false
+}
+
+func (disabledWebhookServer) Register(_ string, _ http.Handler) {}
+
+func (disabledWebhookServer) Start(_ context.Context) error {
+	return nil
+}
+
+func (disabledWebhookServer) StartedChecker() healthz.Checker {
+	return func(_ *http.Request) error {
+		return nil
+	}
+}
+
+func (disabledWebhookServer) WebhookMux() *http.ServeMux {
+	return http.NewServeMux()
+}
+
 // nolint:gocyclo
 func main() {
 	var metricsAddr string
 	var metricsCertPath, metricsCertName, metricsCertKey string
 	var webhookCertPath, webhookCertName, webhookCertKey string
+	var webhookEnabled bool
 	var enableLeaderElection bool
 	var probeAddr string
 	var secureMetrics bool
@@ -78,6 +103,8 @@ func main() {
 	flag.StringVar(&webhookCertPath, "webhook-cert-path", "", "The directory that contains the webhook certificate.")
 	flag.StringVar(&webhookCertName, "webhook-cert-name", "tls.crt", "The name of the webhook certificate file.")
 	flag.StringVar(&webhookCertKey, "webhook-cert-key", "tls.key", "The name of the webhook key file.")
+	flag.BoolVar(&webhookEnabled, "webhook-enabled", false,
+		"Enable admission webhooks (requires webhook certificates to be mounted).")
 	flag.StringVar(&metricsCertPath, "metrics-cert-path", "",
 		"The directory that contains the metrics server certificate.")
 	flag.StringVar(&metricsCertName, "metrics-cert-name", "tls.crt", "The name of the metrics server certificate file.")
@@ -115,20 +142,25 @@ func main() {
 
 	// Initial webhook TLS options
 	webhookTLSOpts := tlsOpts
-	webhookServerOptions := webhook.Options{
-		TLSOpts: webhookTLSOpts,
+	var webhookServer webhook.Server = disabledWebhookServer{}
+	if webhookEnabled {
+		webhookServerOptions := webhook.Options{
+			TLSOpts: webhookTLSOpts,
+		}
+
+		if len(webhookCertPath) > 0 {
+			setupLog.Info("Initializing webhook certificate watcher using provided certificates",
+				"webhook-cert-path", webhookCertPath, "webhook-cert-name", webhookCertName, "webhook-cert-key", webhookCertKey)
+
+			webhookServerOptions.CertDir = webhookCertPath
+			webhookServerOptions.CertName = webhookCertName
+			webhookServerOptions.KeyName = webhookCertKey
+		}
+
+		webhookServer = webhook.NewServer(webhookServerOptions)
+	} else {
+		setupLog.Info("webhooks disabled; skipping webhook server startup")
 	}
-
-	if len(webhookCertPath) > 0 {
-		setupLog.Info("Initializing webhook certificate watcher using provided certificates",
-			"webhook-cert-path", webhookCertPath, "webhook-cert-name", webhookCertName, "webhook-cert-key", webhookCertKey)
-
-		webhookServerOptions.CertDir = webhookCertPath
-		webhookServerOptions.CertName = webhookCertName
-		webhookServerOptions.KeyName = webhookCertKey
-	}
-
-	webhookServer := webhook.NewServer(webhookServerOptions)
 
 	// Metrics endpoint is enabled in 'config/default/kustomization.yaml'. The Metrics options configure the server.
 	// More info:
@@ -217,9 +249,11 @@ func main() {
 	}
 
 	// Setup webhooks
-	if err := (&chaosv1alpha1.ChaosExperiment{}).SetupWebhookWithManager(mgr); err != nil {
-		setupLog.Error(err, "unable to create webhook", "webhook", "ChaosExperiment")
-		os.Exit(1)
+	if webhookEnabled {
+		if err := (&chaosv1alpha1.ChaosExperiment{}).SetupWebhookWithManager(mgr); err != nil {
+			setupLog.Error(err, "unable to create webhook", "webhook", "ChaosExperiment")
+			os.Exit(1)
+		}
 	}
 	// +kubebuilder:scaffold:builder
 

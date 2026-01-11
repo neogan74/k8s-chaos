@@ -214,6 +214,11 @@ func (r *ChaosExperimentReconciler) handlePodKill(ctx context.Context, exp *chao
 	for i := 0; i < killCount; i++ {
 		pod := eligiblePods[i]
 		log.Info("Deleting pod", "pod", pod.Name, "namespace", pod.Namespace)
+
+		// Emit event on the pod before deleting it
+		r.Recorder.Event(&pod, corev1.EventTypeWarning, "ChaosPodKill",
+			fmt.Sprintf("Pod killed by chaos experiment %s", exp.Name))
+
 		if err := r.Delete(ctx, &pod); err != nil {
 			log.Error(err, "Failed to delete pod", "pod", pod.Name)
 		} else {
@@ -331,6 +336,9 @@ func (r *ChaosExperimentReconciler) handlePodDelay(ctx context.Context, exp *cha
 		if err := r.applyNetworkDelay(ctx, &pod, delayMs); err != nil {
 			log.Error(err, "Failed to apply network delay", "pod", pod.Name)
 		} else {
+			// Emit event on the affected pod
+			r.Recorder.Eventf(&pod, corev1.EventTypeWarning, "ChaosPodNetworkDelay",
+				"Injected %dms network delay by chaos experiment %s", delayMs, exp.Name)
 			affectedPods = append(affectedPods, pod.Name)
 		}
 	}
@@ -457,6 +465,11 @@ func (r *ChaosExperimentReconciler) handlePodCPUStress(ctx context.Context, exp 
 			log.Error(err, "Failed to inject CPU stress container", "pod", pod.Name)
 			chaosmetrics.ExperimentErrors.WithLabelValues("pod-cpu-stress", exp.Spec.Namespace).Inc()
 		} else if containerName != "" {
+			// Emit event on the affected pod
+			r.Recorder.Eventf(&pod, corev1.EventTypeWarning, "ChaosPodCPUStress",
+				"Injected CPU stress (%d%% load, %d workers) by chaos experiment %s",
+				exp.Spec.CPULoad, cpuWorkers, exp.Name)
+
 			// Track the affected pod for cleanup later
 			r.trackAffectedPod(exp, pod.Namespace, pod.Name, containerName)
 			affectedPods = append(affectedPods, pod.Name)
@@ -779,6 +792,10 @@ func (r *ChaosExperimentReconciler) handleNodeDrain(ctx context.Context, exp *ch
 			log.Error(err, "Failed to drain node", "node", node.Name)
 			continue
 		}
+
+		// Emit event on the affected node
+		r.Recorder.Eventf(node, corev1.EventTypeWarning, "ChaosNodeDrain",
+			"Node drained by chaos experiment %s", exp.Name)
 
 		drainedNodes = append(drainedNodes, node.Name)
 	}
@@ -1404,6 +1421,11 @@ func (r *ChaosExperimentReconciler) handlePodMemoryStress(ctx context.Context, e
 			continue
 		}
 
+		// Emit event on the affected pod
+		r.Recorder.Eventf(&pod, corev1.EventTypeWarning, "ChaosPodMemoryStress",
+			"Injected memory stress (%s, %d workers) by chaos experiment %s",
+			exp.Spec.MemorySize, memoryWorkers, exp.Name)
+
 		// Track the affected pod for cleanup later
 		r.trackAffectedPod(exp, pod.Namespace, pod.Name, containerName)
 		stressedPods = append(stressedPods, pod.Name)
@@ -1537,6 +1559,9 @@ func (r *ChaosExperimentReconciler) handlePodFailure(ctx context.Context, exp *c
 			log.Error(err, "Failed to kill container process", "pod", pod.Name)
 			chaosmetrics.ExperimentErrors.WithLabelValues("pod-failure", exp.Spec.Namespace).Inc()
 		} else {
+			// Emit event on the affected pod
+			r.Recorder.Event(&pod, corev1.EventTypeWarning, "ChaosPodFailure",
+				fmt.Sprintf("Caused container failure by chaos experiment %s", exp.Name))
 			failedPods = append(failedPods, pod.Name)
 		}
 	}
@@ -1643,6 +1668,9 @@ func (r *ChaosExperimentReconciler) handlePodRestart(ctx context.Context, exp *c
 			chaosmetrics.ExperimentErrors.WithLabelValues("pod-restart", exp.Spec.Namespace).Inc()
 			// Continue with other pods even if one fails
 		} else {
+			// Emit event on the affected pod
+			r.Recorder.Event(&pod, corev1.EventTypeWarning, "ChaosPodRestart",
+				fmt.Sprintf("Restarted pod by chaos experiment %s", exp.Name))
 			restartedPods = append(restartedPods, pod.Name)
 		}
 	}
@@ -1750,6 +1778,10 @@ func (r *ChaosExperimentReconciler) handlePodNetworkLoss(ctx context.Context, ex
 			log.Error(err, "Failed to inject network loss container", "pod", pod.Name)
 			continue
 		}
+
+		// Emit event on the affected pod
+		r.Recorder.Eventf(&pod, corev1.EventTypeWarning, "ChaosPodNetworkLoss",
+			"Injected %d%% packet loss by chaos experiment %s", exp.Spec.LossPercentage, exp.Name)
 
 		// Track the affected pod for cleanup later
 		r.trackAffectedPod(exp, pod.Namespace, pod.Name, containerName)
@@ -1874,6 +1906,10 @@ func (r *ChaosExperimentReconciler) handlePodDiskFill(ctx context.Context, exp *
 		if containerName == "" {
 			continue
 		}
+
+		// Emit event on the affected pod
+		r.Recorder.Eventf(&pod, corev1.EventTypeWarning, "ChaosPodDiskFill",
+			"Injected disk fill (%d%%) by chaos experiment %s", fillPercentage, exp.Name)
 
 		// Track the affected pod for cleanup later
 		r.trackAffectedPod(exp, pod.Namespace, pod.Name, containerName)

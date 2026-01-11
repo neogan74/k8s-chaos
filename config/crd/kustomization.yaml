@@ -3,6 +3,7 @@
 # It should be run by config/default
 resources:
 - bases/chaos.gushchin.dev_chaosexperiments.yaml
+- bases/chaos.gushchin.dev_chaosexperimenthistories.yaml
 # +kubebuilder:scaffold:crdkustomizeresource
 
 patches:

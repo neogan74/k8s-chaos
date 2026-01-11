@@ -43,6 +43,8 @@ var (
 	// projectImage is the name of the image which will be build and loaded
 	// with the code source changes to be tested.
 	projectImage = "example.com/k8s-chaos:v0.0.1"
+
+	webhookEnabled = os.Getenv("WEBHOOK_ENABLED") == "true"
 )
 
 // TestE2E runs the end-to-end (e2e) test suite for the project. These tests execute in an isolated,
@@ -53,6 +55,12 @@ func TestE2E(t *testing.T) {
 	RegisterFailHandler(Fail)
 	_, _ = fmt.Fprintf(GinkgoWriter, "Starting k8s-chaos integration test suite\n")
 	RunSpecs(t, "e2e suite")
+}
+
+func requireWebhookEnabled() {
+	if !webhookEnabled {
+		Skip("WEBHOOK_ENABLED is false; skipping webhook validation tests")
+	}
 }
 
 var _ = BeforeSuite(func() {
