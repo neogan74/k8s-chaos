@@ -74,23 +74,28 @@ var _ = Describe("Manager", Ordered, func() {
 		Expect(err).NotTo(HaveOccurred(), "Failed to deploy the controller-manager")
 	})
 
-	// After all tests have been executed, clean up by undeploying the controller, uninstalling CRDs,
-	// and deleting the namespace.
+	// After all tests have been executed, clean up by removing the controller deployment.
+	// Note: We use targeted cleanup instead of 'make undeploy' because undeploy also removes CRDs,
+	// which are needed by other test suites (Disk Fill, Memory Stress, etc.)
 	AfterAll(func() {
 		By("cleaning up the curl pod for metrics")
-		cmd := exec.Command("kubectl", "delete", "pod", "curl-metrics", "-n", namespace)
+		cmd := exec.Command("kubectl", "delete", "pod", "curl-metrics", "-n", namespace, "--ignore-not-found=true")
 		_, _ = utils.Run(cmd)
 
-		By("undeploying the controller-manager")
-		cmd = exec.Command("make", "undeploy")
+		By("cleaning up the metrics ClusterRoleBinding")
+		cmd = exec.Command("kubectl", "delete", "clusterrolebinding", metricsRoleBindingName, "--ignore-not-found=true")
 		_, _ = utils.Run(cmd)
 
-		By("uninstalling CRDs")
-		cmd = exec.Command("make", "uninstall")
+		By("deleting the controller-manager deployment")
+		cmd = exec.Command("kubectl", "delete", "deployment", "-n", namespace, "--all", "--ignore-not-found=true")
+		_, _ = utils.Run(cmd)
+
+		By("deleting controller RBAC resources")
+		cmd = exec.Command("kubectl", "delete", "clusterrole,clusterrolebinding", "-l", "app.kubernetes.io/name=k8s-chaos", "--ignore-not-found=true")
 		_, _ = utils.Run(cmd)
 
 		By("removing manager namespace")
-		cmd = exec.Command("kubectl", "delete", "ns", namespace)
+		cmd = exec.Command("kubectl", "delete", "ns", namespace, "--ignore-not-found=true")
 		_, _ = utils.Run(cmd)
 	})
 
