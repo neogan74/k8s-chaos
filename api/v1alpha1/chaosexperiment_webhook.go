@@ -199,6 +199,13 @@ func (w *ChaosExperimentWebhook) validateCrossFieldConstraints(spec *ChaosExperi
 		}
 	}
 
+	// Validate maintenance windows if provided
+	if len(spec.MaintenanceWindows) > 0 {
+		if err := ValidateMaintenanceWindows(spec.MaintenanceWindows); err != nil {
+			return err
+		}
+	}
+
 	// pod-cpu-stress action requires duration and cpuLoad
 	if spec.Action == "pod-cpu-stress" {
 		if spec.Duration == "" {

@@ -193,6 +193,11 @@ type ChaosExperimentSpec struct {
 	// +optional
 	TimeWindows []TimeWindow `json:"timeWindows,omitempty"`
 
+	// MaintenanceWindows define times when the experiment is strictly FORBIDDEN
+	// If the current time falls within ANY of these windows, the experiment will be blocked
+	// +optional
+	MaintenanceWindows []TimeWindow `json:"maintenanceWindows,omitempty"`
+
 	// RestartInterval specifies delay between restarting each pod (pod-restart only)
 	// Format: "30s", "1m", "2m30s"
 	// Default: "" (restart all immediately)

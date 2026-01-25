@@ -2268,13 +2268,38 @@ func (r *ChaosExperimentReconciler) checkSchedule(ctx context.Context, exp *chao
 // Returns: inWindow (bool), requeueAt (time.Time), error
 func (r *ChaosExperimentReconciler) checkTimeWindows(ctx context.Context, exp *chaosv1alpha1.ChaosExperiment) (bool, time.Time, error) {
 	log := ctrl.LoggerFrom(ctx)
+	now := time.Now()
 
-	// If no time windows configured, always allowed
-	if len(exp.Spec.TimeWindows) == 0 {
-		return true, time.Time{}, nil
+	// 1. Check Maintenance Windows (Blacklist) - these take precedence
+	if len(exp.Spec.MaintenanceWindows) > 0 {
+		inMaintenance := chaosv1alpha1.IsWithinTimeWindows(exp.Spec.MaintenanceWindows, now)
+		if inMaintenance {
+			// We are in a maintenance window, so we are BLOCKED
+			nextMaintenanceEnd, _ := chaosv1alpha1.NextTimeWindowBoundary(exp.Spec.MaintenanceWindows, now)
+
+			log.Info("Experiment blocked by maintenance window",
+				"currentTime", now.Format(time.RFC3339),
+				"maintenanceEnds", nextMaintenanceEnd.Format(time.RFC3339))
+
+			r.setBlockedByTimeWindowCondition(ctx, exp,
+				fmt.Sprintf("Blocked by maintenance window until %s", nextMaintenanceEnd.Format(time.RFC3339)),
+				nextMaintenanceEnd)
+
+			// Requeue when maintenance ends
+			if !nextMaintenanceEnd.IsZero() {
+				return false, nextMaintenanceEnd, nil
+			}
+			return false, now.Add(1 * time.Hour), nil // Fallback requeue
+		}
 	}
 
-	now := time.Now()
+	// 2. Check Time Windows (Whitelist)
+	// If no time windows configured, always allowed
+	if len(exp.Spec.TimeWindows) == 0 {
+		// Ensure we clear any stale blocked condition
+		r.clearBlockedByTimeWindowCondition(ctx, exp)
+		return true, time.Time{}, nil
+	}
 
 	// Check if we're within any time window
 	inWindow := chaosv1alpha1.IsWithinTimeWindows(exp.Spec.TimeWindows, now)
