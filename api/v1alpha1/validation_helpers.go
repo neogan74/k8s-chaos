@@ -109,6 +109,16 @@ func ValidateTimeWindows(windows []TimeWindow) error {
 	return nil
 }
 
+// ValidateMaintenanceWindows validates the maintenance window configuration.
+func ValidateMaintenanceWindows(windows []TimeWindow) error {
+	for i, window := range windows {
+		if err := validateTimeWindow(window); err != nil {
+			return fmt.Errorf("maintenanceWindows[%d]: %w", i, err)
+		}
+	}
+	return nil
+}
+
 func validateTimeWindow(window TimeWindow) error {
 	if window.Type != TimeWindowRecurring && window.Type != TimeWindowAbsolute {
 		return fmt.Errorf("type must be Recurring or Absolute")

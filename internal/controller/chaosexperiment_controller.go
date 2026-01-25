@@ -214,6 +214,11 @@ func (r *ChaosExperimentReconciler) handlePodKill(ctx context.Context, exp *chao
 	for i := 0; i < killCount; i++ {
 		pod := eligiblePods[i]
 		log.Info("Deleting pod", "pod", pod.Name, "namespace", pod.Namespace)
+
+		// Emit event on the pod before deleting it
+		r.Recorder.Event(&pod, corev1.EventTypeWarning, "ChaosPodKill",
+			fmt.Sprintf("Pod killed by chaos experiment %s", exp.Name))
+
 		if err := r.Delete(ctx, &pod); err != nil {
 			log.Error(err, "Failed to delete pod", "pod", pod.Name)
 		} else {
@@ -331,6 +336,9 @@ func (r *ChaosExperimentReconciler) handlePodDelay(ctx context.Context, exp *cha
 		if err := r.applyNetworkDelay(ctx, &pod, delayMs); err != nil {
 			log.Error(err, "Failed to apply network delay", "pod", pod.Name)
 		} else {
+			// Emit event on the affected pod
+			r.Recorder.Eventf(&pod, corev1.EventTypeWarning, "ChaosPodNetworkDelay",
+				"Injected %dms network delay by chaos experiment %s", delayMs, exp.Name)
 			affectedPods = append(affectedPods, pod.Name)
 		}
 	}
@@ -457,6 +465,11 @@ func (r *ChaosExperimentReconciler) handlePodCPUStress(ctx context.Context, exp 
 			log.Error(err, "Failed to inject CPU stress container", "pod", pod.Name)
 			chaosmetrics.ExperimentErrors.WithLabelValues("pod-cpu-stress", exp.Spec.Namespace).Inc()
 		} else if containerName != "" {
+			// Emit event on the affected pod
+			r.Recorder.Eventf(&pod, corev1.EventTypeWarning, "ChaosPodCPUStress",
+				"Injected CPU stress (%d%% load, %d workers) by chaos experiment %s",
+				exp.Spec.CPULoad, cpuWorkers, exp.Name)
+
 			// Track the affected pod for cleanup later
 			r.trackAffectedPod(exp, pod.Namespace, pod.Name, containerName)
 			affectedPods = append(affectedPods, pod.Name)
@@ -779,6 +792,10 @@ func (r *ChaosExperimentReconciler) handleNodeDrain(ctx context.Context, exp *ch
 			log.Error(err, "Failed to drain node", "node", node.Name)
 			continue
 		}
+
+		// Emit event on the affected node
+		r.Recorder.Eventf(node, corev1.EventTypeWarning, "ChaosNodeDrain",
+			"Node drained by chaos experiment %s", exp.Name)
 
 		drainedNodes = append(drainedNodes, node.Name)
 	}
@@ -1404,6 +1421,11 @@ func (r *ChaosExperimentReconciler) handlePodMemoryStress(ctx context.Context, e
 			continue
 		}
 
+		// Emit event on the affected pod
+		r.Recorder.Eventf(&pod, corev1.EventTypeWarning, "ChaosPodMemoryStress",
+			"Injected memory stress (%s, %d workers) by chaos experiment %s",
+			exp.Spec.MemorySize, memoryWorkers, exp.Name)
+
 		// Track the affected pod for cleanup later
 		r.trackAffectedPod(exp, pod.Namespace, pod.Name, containerName)
 		stressedPods = append(stressedPods, pod.Name)
@@ -1537,6 +1559,9 @@ func (r *ChaosExperimentReconciler) handlePodFailure(ctx context.Context, exp *c
 			log.Error(err, "Failed to kill container process", "pod", pod.Name)
 			chaosmetrics.ExperimentErrors.WithLabelValues("pod-failure", exp.Spec.Namespace).Inc()
 		} else {
+			// Emit event on the affected pod
+			r.Recorder.Event(&pod, corev1.EventTypeWarning, "ChaosPodFailure",
+				fmt.Sprintf("Caused container failure by chaos experiment %s", exp.Name))
 			failedPods = append(failedPods, pod.Name)
 		}
 	}
@@ -1643,6 +1668,9 @@ func (r *ChaosExperimentReconciler) handlePodRestart(ctx context.Context, exp *c
 			chaosmetrics.ExperimentErrors.WithLabelValues("pod-restart", exp.Spec.Namespace).Inc()
 			// Continue with other pods even if one fails
 		} else {
+			// Emit event on the affected pod
+			r.Recorder.Event(&pod, corev1.EventTypeWarning, "ChaosPodRestart",
+				fmt.Sprintf("Restarted pod by chaos experiment %s", exp.Name))
 			restartedPods = append(restartedPods, pod.Name)
 		}
 	}
@@ -1750,6 +1778,10 @@ func (r *ChaosExperimentReconciler) handlePodNetworkLoss(ctx context.Context, ex
 			log.Error(err, "Failed to inject network loss container", "pod", pod.Name)
 			continue
 		}
+
+		// Emit event on the affected pod
+		r.Recorder.Eventf(&pod, corev1.EventTypeWarning, "ChaosPodNetworkLoss",
+			"Injected %d%% packet loss by chaos experiment %s", exp.Spec.LossPercentage, exp.Name)
 
 		// Track the affected pod for cleanup later
 		r.trackAffectedPod(exp, pod.Namespace, pod.Name, containerName)
@@ -1874,6 +1906,10 @@ func (r *ChaosExperimentReconciler) handlePodDiskFill(ctx context.Context, exp *
 		if containerName == "" {
 			continue
 		}
+
+		// Emit event on the affected pod
+		r.Recorder.Eventf(&pod, corev1.EventTypeWarning, "ChaosPodDiskFill",
+			"Injected disk fill (%d%%) by chaos experiment %s", fillPercentage, exp.Name)
 
 		// Track the affected pod for cleanup later
 		r.trackAffectedPod(exp, pod.Namespace, pod.Name, containerName)
@@ -2232,13 +2268,38 @@ func (r *ChaosExperimentReconciler) checkSchedule(ctx context.Context, exp *chao
 // Returns: inWindow (bool), requeueAt (time.Time), error
 func (r *ChaosExperimentReconciler) checkTimeWindows(ctx context.Context, exp *chaosv1alpha1.ChaosExperiment) (bool, time.Time, error) {
 	log := ctrl.LoggerFrom(ctx)
+	now := time.Now()
 
-	// If no time windows configured, always allowed
-	if len(exp.Spec.TimeWindows) == 0 {
-		return true, time.Time{}, nil
+	// 1. Check Maintenance Windows (Blacklist) - these take precedence
+	if len(exp.Spec.MaintenanceWindows) > 0 {
+		inMaintenance := chaosv1alpha1.IsWithinTimeWindows(exp.Spec.MaintenanceWindows, now)
+		if inMaintenance {
+			// We are in a maintenance window, so we are BLOCKED
+			nextMaintenanceEnd, _ := chaosv1alpha1.NextTimeWindowBoundary(exp.Spec.MaintenanceWindows, now)
+
+			log.Info("Experiment blocked by maintenance window",
+				"currentTime", now.Format(time.RFC3339),
+				"maintenanceEnds", nextMaintenanceEnd.Format(time.RFC3339))
+
+			r.setBlockedByTimeWindowCondition(ctx, exp,
+				fmt.Sprintf("Blocked by maintenance window until %s", nextMaintenanceEnd.Format(time.RFC3339)),
+				nextMaintenanceEnd)
+
+			// Requeue when maintenance ends
+			if !nextMaintenanceEnd.IsZero() {
+				return false, nextMaintenanceEnd, nil
+			}
+			return false, now.Add(1 * time.Hour), nil // Fallback requeue
+		}
 	}
 
-	now := time.Now()
+	// 2. Check Time Windows (Whitelist)
+	// If no time windows configured, always allowed
+	if len(exp.Spec.TimeWindows) == 0 {
+		// Ensure we clear any stale blocked condition
+		r.clearBlockedByTimeWindowCondition(ctx, exp)
+		return true, time.Time{}, nil
+	}
 
 	// Check if we're within any time window
 	inWindow := chaosv1alpha1.IsWithinTimeWindows(exp.Spec.TimeWindows, now)

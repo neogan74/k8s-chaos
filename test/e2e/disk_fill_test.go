@@ -176,6 +176,8 @@ spec:
 
 	Context("Validation Tests", func() {
 		It("should reject disk fill experiment without duration", func() {
+			requireWebhookEnabled()
+
 			By("attempting to create experiment without duration")
 			experimentYAML := fmt.Sprintf(`
 apiVersion: chaos.gushchin.dev/v1alpha1
