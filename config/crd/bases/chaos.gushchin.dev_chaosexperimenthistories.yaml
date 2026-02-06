@@ -363,6 +363,11 @@ spec:
                       experiments
                     minLength: 1
                     type: string
+                  paused:
+                    default: false
+                    description: Paused indicates whether the experiment is currently
+                      paused
+                    type: boolean
                   restartInterval:
                     description: |-
                       RestartInterval specifies delay between restarting each pod (pod-restart only)

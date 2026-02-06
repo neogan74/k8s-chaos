@@ -165,6 +165,11 @@ type ChaosExperimentSpec struct {
 	// +optional
 	DryRun bool `json:"dryRun,omitempty"`
 
+	// Paused indicates whether the experiment is currently paused
+	// +kubebuilder:default=false
+	// +optional
+	Paused bool `json:"paused,omitempty"`
+
 	// MaxPercentage limits the percentage of matching resources that can be affected
 	// If count would affect more than this percentage, the experiment fails validation
 	// Range: 1-100. If not specified, no percentage limit is enforced.
@@ -257,7 +262,7 @@ type ChaosExperimentStatus struct {
 	Message string `json:"message,omitempty"`
 
 	// Phase represents the current state of the experiment
-	// +kubebuilder:validation:Enum=Pending;Running;Completed;Failed
+	// +kubebuilder:validation:Enum=Pending;Running;Completed;Failed;Paused
 	// +optional
 	Phase string `json:"phase,omitempty"`
 

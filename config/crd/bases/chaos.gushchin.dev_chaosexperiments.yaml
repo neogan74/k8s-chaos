@@ -211,6 +211,11 @@ spec:
                 description: Namespace specifies the target namespace for chaos experiments
                 minLength: 1
                 type: string
+              paused:
+                default: false
+                description: Paused indicates whether the experiment is currently
+                  paused
+                type: boolean
               restartInterval:
                 description: |-
                   RestartInterval specifies delay between restarting each pod (pod-restart only)
@@ -418,6 +423,7 @@ spec:
                 - Running
                 - Completed
                 - Failed
+                - Paused
                 type: string
               retryCount:
                 description: RetryCount tracks the current number of retry attempts

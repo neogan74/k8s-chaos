@@ -54,6 +54,7 @@ const (
 	phaseCompleted = "Completed"
 	phasePending   = "Pending"
 	phaseFailed    = "Failed"
+	phasePaused    = "Paused"
 
 	// Default retry configuration
 	defaultMaxRetries   = 3
@@ -105,6 +106,28 @@ func (r *ChaosExperimentReconciler) Reconcile(ctx context.Context, req ctrl.Requ
 		exp.Status.Message = "Error: Action not specified"
 		_ = r.Status().Update(ctx, &exp)
 		return ctrl.Result{}, nil
+	}
+
+	// Check if experiment is paused
+	if exp.Spec.Paused {
+		log.Info("Experiment is paused")
+		exp.Status.Phase = phasePaused
+		exp.Status.Message = "Experiment is paused"
+		if err := r.Status().Update(ctx, &exp); err != nil {
+			log.Error(err, "Failed to update status for paused experiment")
+			return ctrl.Result{}, err
+		}
+		return ctrl.Result{}, nil
+	}
+
+	// If resuming from pause, ensure phase is updated (cleared or set to running)
+	// The specific handler or next steps will update the phase appropriately
+	if exp.Status.Phase == phasePaused {
+		exp.Status.Phase = phaseRunning
+		if err := r.Status().Update(ctx, &exp); err != nil {
+			log.Error(err, "Failed to update status for resumed experiment")
+			return ctrl.Result{}, err
+		}
 	}
 
 	// Check experiment lifecycle (duration-based auto-stop)
