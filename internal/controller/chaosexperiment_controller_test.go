@@ -269,5 +269,68 @@ var _ = Describe("ChaosExperiment Controller", func() {
 			Expect(err).NotTo(HaveOccurred())
 			Expect(result.RequeueAfter).To(Equal(time.Minute))
 		})
+
+		It("Should handle paused experiments", func() {
+			By("Creating a paused ChaosExperiment")
+			experiment := &chaosv1alpha1.ChaosExperiment{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      experimentName,
+					Namespace: experimentNamespace,
+				},
+				Spec: chaosv1alpha1.ChaosExperimentSpec{
+					Action:    "pod-kill",
+					Namespace: targetNamespace,
+					Selector: map[string]string{
+						"app": "test",
+					},
+					Count:  1,
+					Paused: true,
+				},
+			}
+			Expect(k8sClient.Create(ctx, experiment)).Should(Succeed())
+
+			By("Reconciling the paused experiment")
+			reconciler := &ChaosExperimentReconciler{
+				Client:        k8sClient,
+				Scheme:        k8sClient.Scheme(),
+				Recorder:      record.NewFakeRecorder(100),
+				HistoryConfig: DefaultHistoryConfig(),
+			}
+
+			_, err := reconciler.Reconcile(ctx, reconcile.Request{
+				NamespacedName: typeNamespacedName,
+			})
+			Expect(err).NotTo(HaveOccurred())
+
+			By("Verifying status is Paused")
+			exp := &chaosv1alpha1.ChaosExperiment{}
+			Eventually(func() string {
+				_ = k8sClient.Get(ctx, typeNamespacedName, exp)
+				return exp.Status.Phase
+			}, timeout, interval).Should(Equal("Paused"))
+			Expect(exp.Status.Message).To(Equal("Experiment is paused"))
+
+			By("Unpausing the experiment")
+			Eventually(func() error {
+				if err := k8sClient.Get(ctx, typeNamespacedName, exp); err != nil {
+					return err
+				}
+				exp.Spec.Paused = false
+				return k8sClient.Update(ctx, exp)
+			}, timeout, interval).Should(Succeed())
+
+			By("Reconciling the unpaused experiment")
+			// We trigger reconcile again to process the change
+			_, err = reconciler.Reconcile(ctx, reconcile.Request{
+				NamespacedName: typeNamespacedName,
+			})
+			Expect(err).NotTo(HaveOccurred())
+
+			By("Verifying status is no longer Paused")
+			Eventually(func() string {
+				_ = k8sClient.Get(ctx, typeNamespacedName, exp)
+				return exp.Status.Phase
+			}, timeout, interval).ShouldNot(Equal("Paused"))
+		})
 	})
 })

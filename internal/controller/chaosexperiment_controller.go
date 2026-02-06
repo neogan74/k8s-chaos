@@ -54,6 +54,7 @@ const (
 	phaseCompleted = "Completed"
 	phasePending   = "Pending"
 	phaseFailed    = "Failed"
+	phasePaused    = "Paused"
 
 	// Default retry configuration
 	defaultMaxRetries   = 3
@@ -80,7 +81,7 @@ type ChaosExperimentReconciler struct {
 // +kubebuilder:rbac:groups="",resources=pods/ephemeralcontainers,verbs=get;update;patch
 // +kubebuilder:rbac:groups="",resources=nodes,verbs=get;list;watch;update;patch
 // +kubebuilder:rbac:groups="",resources=pods/eviction,verbs=create
-// +kubebuilder:rbac:groups="",resources=namespaces,verbs=get;list
+// +kubebuilder:rbac:groups="",resources=namespaces,verbs=get;list;watch
 // +kubebuilder:rbac:groups="",resources=events,verbs=create;patch
 
 // Reconcile is part of the main kubernetes reconciliation loop which aims to
@@ -105,6 +106,28 @@ func (r *ChaosExperimentReconciler) Reconcile(ctx context.Context, req ctrl.Requ
 		exp.Status.Message = "Error: Action not specified"
 		_ = r.Status().Update(ctx, &exp)
 		return ctrl.Result{}, nil
+	}
+
+	// Check if experiment is paused
+	if exp.Spec.Paused {
+		log.Info("Experiment is paused")
+		exp.Status.Phase = phasePaused
+		exp.Status.Message = "Experiment is paused"
+		if err := r.Status().Update(ctx, &exp); err != nil {
+			log.Error(err, "Failed to update status for paused experiment")
+			return ctrl.Result{}, err
+		}
+		return ctrl.Result{}, nil
+	}
+
+	// If resuming from pause, ensure phase is updated (cleared or set to running)
+	// The specific handler or next steps will update the phase appropriately
+	if exp.Status.Phase == phasePaused {
+		exp.Status.Phase = phaseRunning
+		if err := r.Status().Update(ctx, &exp); err != nil {
+			log.Error(err, "Failed to update status for resumed experiment")
+			return ctrl.Result{}, err
+		}
 	}
 
 	// Check experiment lifecycle (duration-based auto-stop)
@@ -519,6 +542,49 @@ func (r *ChaosExperimentReconciler) handlePodCPUStress(ctx context.Context, exp 
 	return ctrl.Result{RequeueAfter: time.Minute}, nil
 }
 
+// updatePodWithEphemeralContainer updates a pod with a new ephemeral container, with retry logic for conflict errors
+func (r *ChaosExperimentReconciler) updatePodWithEphemeralContainer(ctx context.Context, pod *corev1.Pod, ephemeralContainer corev1.EphemeralContainer) error {
+	log := ctrl.LoggerFrom(ctx)
+	maxRetries := 5
+	backoff := time.Millisecond * 100
+
+	for attempt := 0; attempt < maxRetries; attempt++ {
+		// Get the current pod state to ensure we have the latest resource version
+		currentPod := &corev1.Pod{}
+		if err := r.Get(ctx, client.ObjectKeyFromObject(pod), currentPod); err != nil {
+			return fmt.Errorf("failed to get current pod state: %w", err)
+		}
+
+		// Append the ephemeral container
+		currentPod.Spec.EphemeralContainers = append(currentPod.Spec.EphemeralContainers, ephemeralContainer)
+
+		// Try to update the pod with the ephemeral container
+		err := r.Client.SubResource("ephemeralcontainers").Update(ctx, currentPod)
+		if err == nil {
+			return nil // Success
+		}
+
+		// Check if it's a conflict error (object has been modified)
+		if strings.Contains(err.Error(), "the object has been modified") || strings.Contains(err.Error(), "Operation cannot be fulfilled") {
+			if attempt < maxRetries-1 {
+				log.Info("Conflict detected during ephemeral container injection, retrying",
+					"pod", pod.Name,
+					"attempt", attempt+1,
+					"maxRetries", maxRetries,
+					"backoff", backoff)
+				time.Sleep(backoff)
+				backoff *= 2 // Exponential backoff
+				continue
+			}
+		}
+
+		// For non-conflict errors or max retries exceeded, return the error
+		return fmt.Errorf("failed to inject ephemeral container after %d attempts: %w", attempt+1, err)
+	}
+
+	return fmt.Errorf("failed to inject ephemeral container: max retries exceeded")
+}
+
 // injectCPUStressContainer adds an ephemeral container with stress-ng to the pod
 // Returns the container name for tracking purposes
 func (r *ChaosExperimentReconciler) injectCPUStressContainer(ctx context.Context, pod *corev1.Pod, cpuLoad, cpuWorkers, durationSeconds int) (string, error) {
@@ -575,13 +641,9 @@ func (r *ChaosExperimentReconciler) injectCPUStressContainer(ctx context.Context
 		},
 	}
 
-	// Append the ephemeral container
-	currentPod.Spec.EphemeralContainers = append(currentPod.Spec.EphemeralContainers, ephemeralContainer)
-
-	// Update the pod with the ephemeral container
-	// Use SubResource to update ephemeralcontainers
-	if err := r.Client.SubResource("ephemeralcontainers").Update(ctx, currentPod); err != nil {
-		return "", fmt.Errorf("failed to inject ephemeral container: %w", err)
+	// Update the pod with the ephemeral container using retry logic
+	if err := r.updatePodWithEphemeralContainer(ctx, pod, ephemeralContainer); err != nil {
+		return "", err
 	}
 
 	log.Info("Successfully injected CPU stress ephemeral container",
@@ -1490,17 +1552,9 @@ func (r *ChaosExperimentReconciler) injectMemoryStressContainer(ctx context.Cont
 	}
 
 	// Get the latest pod version
-	currentPod := &corev1.Pod{}
-	if err := r.Get(ctx, client.ObjectKey{Namespace: pod.Namespace, Name: pod.Name}, currentPod); err != nil {
-		return "", fmt.Errorf("failed to get current pod: %w", err)
-	}
-
-	// Add ephemeral container
-	currentPod.Spec.EphemeralContainers = append(currentPod.Spec.EphemeralContainers, ephemeralContainer)
-
-	// Update pod with ephemeral container
-	if err := r.Client.SubResource("ephemeralcontainers").Update(ctx, currentPod); err != nil {
-		return "", fmt.Errorf("failed to inject ephemeral container: %w", err)
+	// Update the pod with the ephemeral container using retry logic
+	if err := r.updatePodWithEphemeralContainer(ctx, pod, ephemeralContainer); err != nil {
+		return "", err
 	}
 
 	log.Info("Successfully injected memory stress ephemeral container", "pod", pod.Name, "container", containerName)
@@ -1979,18 +2033,9 @@ func (r *ChaosExperimentReconciler) injectNetworkLossContainer(ctx context.Conte
 		},
 	}
 
-	// Get the latest pod version
-	currentPod := &corev1.Pod{}
-	if err := r.Get(ctx, client.ObjectKey{Namespace: pod.Namespace, Name: pod.Name}, currentPod); err != nil {
-		return "", fmt.Errorf("failed to get current pod: %w", err)
-	}
-
-	// Add ephemeral container
-	currentPod.Spec.EphemeralContainers = append(currentPod.Spec.EphemeralContainers, ephemeralContainer)
-
-	// Update pod with ephemeral container
-	if err := r.Client.SubResource("ephemeralcontainers").Update(ctx, currentPod); err != nil {
-		return "", fmt.Errorf("failed to inject ephemeral container: %w", err)
+	// Update the pod with the ephemeral container using retry logic
+	if err := r.updatePodWithEphemeralContainer(ctx, pod, ephemeralContainer); err != nil {
+		return "", err
 	}
 
 	log.Info("Successfully injected network loss ephemeral container",
@@ -2077,10 +2122,9 @@ rm -f "$FILE"
 		},
 	}
 
-	currentPod.Spec.EphemeralContainers = append(currentPod.Spec.EphemeralContainers, ephemeralContainer)
-
-	if err := r.Client.SubResource("ephemeralcontainers").Update(ctx, currentPod); err != nil {
-		return "", fmt.Errorf("failed to inject ephemeral container: %w", err)
+	// Update the pod with the ephemeral container using retry logic
+	if err := r.updatePodWithEphemeralContainer(ctx, pod, ephemeralContainer); err != nil {
+		return "", err
 	}
 
 	log.Info("Successfully injected disk fill ephemeral container",
