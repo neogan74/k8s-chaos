@@ -70,6 +70,7 @@ spec:
                 - pod-network-loss
                 - pod-disk-fill
                 - pod-restart
+                - network-partition
                 type: string
               allowProduction:
                 default: false
@@ -95,6 +96,15 @@ spec:
                 maximum: 32
                 minimum: 1
                 type: integer
+              direction:
+                default: both
+                description: Direction specifies the direction of network traffic
+                  to block (for network-partition)
+                enum:
+                - both
+                - ingress
+                - egress
+                type: string
               dryRun:
                 default: false
                 description: |-

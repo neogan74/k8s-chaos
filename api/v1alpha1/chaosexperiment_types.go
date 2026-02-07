@@ -46,7 +46,7 @@ type ChaosExperimentSpec struct {
 
 	// Action specifies the chaos action to perform
 	// +kubebuilder:validation:Required
-	// +kubebuilder:validation:Enum=pod-kill;pod-delay;node-drain;pod-cpu-stress;pod-memory-stress;pod-failure;pod-network-loss;pod-disk-fill;pod-restart
+	// +kubebuilder:validation:Enum=pod-kill;pod-delay;node-drain;pod-cpu-stress;pod-memory-stress;pod-failure;pod-network-loss;pod-disk-fill;pod-restart;network-partition
 	Action string `json:"action"`
 
 	// Namespace specifies the target namespace for chaos experiments
@@ -158,6 +158,12 @@ type ChaosExperimentSpec struct {
 	// If set, the controller resolves the first matching mount path and uses it instead of targetPath.
 	// +optional
 	VolumeName string `json:"volumeName,omitempty"`
+
+	// Direction specifies the direction of network traffic to block (for network-partition)
+	// +kubebuilder:validation:Enum=both;ingress;egress
+	// +kubebuilder:default=both
+	// +optional
+	Direction string `json:"direction,omitempty"`
 
 	// DryRun mode previews affected resources without executing chaos
 	// When enabled, the controller lists resources that would be affected and updates status without performing actions

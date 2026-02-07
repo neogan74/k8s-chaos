@@ -253,6 +253,13 @@ func (w *ChaosExperimentWebhook) validateCrossFieldConstraints(spec *ChaosExperi
 		}
 	}
 
+	// network-partition action requires duration
+	if spec.Action == "network-partition" {
+		if spec.Duration == "" {
+			return fmt.Errorf("duration is required for network-partition action")
+		}
+	}
+
 	// Validate restartInterval format if provided
 	if spec.RestartInterval != "" {
 		if err := ValidateDurationFormat(spec.RestartInterval); err != nil {
