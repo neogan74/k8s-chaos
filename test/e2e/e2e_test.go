@@ -187,8 +187,10 @@ var _ = Describe("Manager", Ordered, func() {
 				"--clusterrole=k8s-chaos-metrics-reader",
 				fmt.Sprintf("--serviceaccount=%s:%s", namespace, serviceAccountName),
 			)
-			_, err := utils.Run(cmd)
-			Expect(err).NotTo(HaveOccurred(), "Failed to create ClusterRoleBinding")
+			output, err := utils.Run(cmd)
+			if err != nil && !strings.Contains(output, "already exists") {
+				Fail(fmt.Sprintf("Failed to create ClusterRoleBinding: %s", output))
+			}
 
 			By("validating that the metrics service is available")
 			cmd = exec.Command("kubectl", "get", "service", metricsServiceName, "-n", namespace)
