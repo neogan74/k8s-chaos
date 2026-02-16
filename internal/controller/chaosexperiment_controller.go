@@ -2707,32 +2707,58 @@ func (r *ChaosExperimentReconciler) handleNetworkPartition(ctx context.Context, 
 func (r *ChaosExperimentReconciler) injectNetworkPartitionContainer(ctx context.Context, pod *corev1.Pod, direction string, timeoutSeconds int) (string, error) {
 	log := ctrl.LoggerFrom(ctx)
 
-	// Build iptables command script
-	// We need to:
-	// 1. Allow loopback traffic
-	// 2. Drop other traffic based on direction
-	// 3. Sleep for duration
-	// 4. Cleanup rules (flush)
+	// Generate unique chain name using timestamp to avoid collisions
+	chainName := fmt.Sprintf("CHAOS_PARTITION_%d", time.Now().Unix())
+
+	// Build iptables command script using custom chains
+	// This approach is safer than direct rule injection:
+	// 1. Creates isolated chain for chaos rules
+	// 2. Prevents conflicts with CNI/mesh networking rules
+	// 3. Cleanup removes only chaos chain, not system rules
+	// 4. Easy debugging (inspect chain separately)
+	//
+	// Script flow:
+	// 1. Create custom chain
+	// 2. Insert jump rules to custom chain (high priority)
+	// 3. Add rules to custom chain: allow loopback, drop traffic
+	// 4. Sleep for duration
+	// 5. Cleanup: remove only custom chain (safe)
 
 	script := fmt.Sprintf(`
-# Allow loopback
-iptables -A INPUT -i lo -j ACCEPT
-iptables -A OUTPUT -o lo -j ACCEPT
+# Create custom iptables chain for isolation
+iptables -N %s
 
-# Block traffic based on direction
+# Insert jump to custom chain at high priority (position 1)
+iptables -I INPUT 1 -j %s
+iptables -I OUTPUT 1 -j %s
+
+# Allow loopback traffic in custom chain to prevent process lockup
+iptables -A %s -i lo -j ACCEPT
+iptables -A %s -o lo -j ACCEPT
+
+# Block traffic based on direction in custom chain
 if [ "%s" = "both" ] || [ "%s" = "ingress" ]; then
-  iptables -A INPUT -j DROP
+  iptables -A %s -j DROP
 fi
 if [ "%s" = "both" ] || [ "%s" = "egress" ]; then
-  iptables -A OUTPUT -j DROP
+  iptables -A %s -j DROP
 fi
 
-# Wait for duration
+# Wait for partition duration
 sleep %d
 
-# Cleanup
-iptables -F
-`, direction, direction, direction, direction, timeoutSeconds)
+# Safe cleanup: Remove only chaos chain, not system rules
+# Using '|| true' for idempotency on retries
+iptables -D INPUT -j %s || true
+iptables -D OUTPUT -j %s || true
+iptables -F %s || true
+iptables -X %s || true
+`, chainName, chainName, chainName,
+		chainName, chainName,
+		direction, direction, chainName,
+		direction, direction, chainName,
+		timeoutSeconds,
+		chainName, chainName, chainName, chainName)
 
 	// Generate unique container name
 	containerName := fmt.Sprintf("network-partition-%d", time.Now().Unix())
@@ -2759,6 +2785,7 @@ iptables -F
 	log.Info("Successfully injected network partition ephemeral container",
 		"pod", pod.Name,
 		"container", containerName,
+		"chain", chainName,
 		"direction", direction,
 		"duration", timeoutSeconds)
 

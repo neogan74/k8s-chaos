@@ -41,8 +41,10 @@ var _ = Describe("Memory Stress Chaos Experiments", Ordered, func() {
 	BeforeAll(func() {
 		By("creating test namespace")
 		cmd := exec.Command("kubectl", "create", "namespace", testNamespace)
-		_, err := utils.Run(cmd)
-		Expect(err).NotTo(HaveOccurred(), "Failed to create test namespace")
+		output, err := utils.Run(cmd)
+		if err != nil && !strings.Contains(output, "already exists") {
+			Fail(fmt.Sprintf("Failed to create test namespace: %s", output))
+		}
 
 		By("deploying test application")
 		deploymentYAML := fmt.Sprintf(`

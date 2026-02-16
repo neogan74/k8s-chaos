@@ -165,6 +165,42 @@ type ChaosExperimentSpec struct {
 	// +optional
 	Direction string `json:"direction,omitempty"`
 
+	// TargetIPs specifies exact IP addresses to block (for network-partition)
+	// If empty, blocks all traffic (full partition - current behavior)
+	// Examples: ["10.96.0.50", "192.168.1.100"]
+	// Can be combined with targetCIDRs, targetPorts, and targetProtocols
+	// Applied based on direction field (ingress, egress, or both)
+	// +optional
+	TargetIPs []string `json:"targetIPs,omitempty"`
+
+	// TargetCIDRs specifies IP ranges to block using CIDR notation (for network-partition)
+	// If empty along with targetIPs, blocks all traffic (full partition)
+	// Examples: ["10.96.0.0/12", "192.168.0.0/16"]
+	// Format: x.x.x.x/y where each x is 0-255 and y is 0-32
+	// Can be combined with targetIPs, targetPorts, and targetProtocols
+	// Applied based on direction field (ingress, egress, or both)
+	// +optional
+	TargetCIDRs []string `json:"targetCIDRs,omitempty"`
+
+	// TargetPorts specifies ports to block (for network-partition)
+	// If specified without targetIPs/targetCIDRs, blocks these ports for all IPs
+	// Can be combined with targetIPs/targetCIDRs for more specific targeting
+	// Examples: [80, 443, 8080]
+	// If targetProtocols is not specified, defaults to TCP
+	// Applied based on direction field (ingress, egress, or both)
+	// Port range: 1-65535
+	// +optional
+	TargetPorts []int32 `json:"targetPorts,omitempty"`
+
+	// TargetProtocols specifies protocols to block (for network-partition)
+	// If specified with targetPorts, applies to those specific ports
+	// If specified without targetPorts, applies to all ports of the protocol
+	// Examples: ["tcp"], ["tcp", "udp"], ["icmp"]
+	// If targetPorts is specified but targetProtocols is not, defaults to ["tcp"]
+	// +kubebuilder:validation:Enum=tcp;udp;icmp
+	// +optional
+	TargetProtocols []string `json:"targetProtocols,omitempty"`
+
 	// DryRun mode previews affected resources without executing chaos
 	// When enabled, the controller lists resources that would be affected and updates status without performing actions
 	// +kubebuilder:default=false

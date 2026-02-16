@@ -77,9 +77,10 @@ var _ = Describe("Manager", Ordered, func() {
 		Expect(err).NotTo(HaveOccurred(), "Failed to deploy the controller-manager")
 	})
 
-	// After all tests have been executed, clean up by removing the controller deployment.
-	// Note: We use targeted cleanup instead of 'make undeploy' because undeploy also removes CRDs,
-	// which are needed by other test suites (Disk Fill, Memory Stress, etc.)
+	// After all tests have been executed, clean up test-specific resources only.
+	// We keep the controller-manager running because other test suites (Disk Fill,
+	// Memory Stress, Network Partition) depend on it to reconcile experiments.
+	// The full cleanup happens in AfterSuite.
 	AfterAll(func() {
 		By("cleaning up the curl pod for metrics")
 		cmd := exec.Command("kubectl", "delete", "pod", "curl-metrics", "-n", namespace, "--ignore-not-found=true")
@@ -87,18 +88,6 @@ var _ = Describe("Manager", Ordered, func() {
 
 		By("cleaning up the metrics ClusterRoleBinding")
 		cmd = exec.Command("kubectl", "delete", "clusterrolebinding", metricsRoleBindingName, "--ignore-not-found=true")
-		_, _ = utils.Run(cmd)
-
-		By("deleting the controller-manager deployment")
-		cmd = exec.Command("kubectl", "delete", "deployment", "-n", namespace, "--all", "--ignore-not-found=true")
-		_, _ = utils.Run(cmd)
-
-		By("deleting controller RBAC resources")
-		cmd = exec.Command("kubectl", "delete", "clusterrole,clusterrolebinding", "-l", "app.kubernetes.io/name=k8s-chaos", "--ignore-not-found=true")
-		_, _ = utils.Run(cmd)
-
-		By("removing manager namespace")
-		cmd = exec.Command("kubectl", "delete", "ns", namespace, "--ignore-not-found=true")
 		_, _ = utils.Run(cmd)
 	})
 
@@ -222,6 +211,11 @@ var _ = Describe("Manager", Ordered, func() {
 			Eventually(verifyMetricsServerStarted).Should(Succeed())
 
 			By("creating the curl-metrics pod to access the metrics endpoint")
+			// Delete any existing curl-metrics pod first
+			cmd = exec.Command("kubectl", "delete", "pod", "curl-metrics", "-n", namespace, "--ignore-not-found=true")
+			_, _ = utils.Run(cmd)
+			time.Sleep(2 * time.Second)
+
 			cmd = exec.Command("kubectl", "run", "curl-metrics", "--restart=Never",
 				"--namespace", namespace,
 				"--image=curlimages/curl:latest",
@@ -279,8 +273,10 @@ var _ = Describe("Manager", Ordered, func() {
 		BeforeEach(func() {
 			By("creating test namespace")
 			cmd := exec.Command("kubectl", "create", "ns", testNamespace)
-			_, err := utils.Run(cmd)
-			Expect(err).NotTo(HaveOccurred(), "Failed to create test namespace")
+			output, err := utils.Run(cmd)
+			if err != nil && !strings.Contains(output, "already exists") {
+				Fail(fmt.Sprintf("Failed to create test namespace: %s", output))
+			}
 
 			By("deploying test pods")
 			cmd = exec.Command("kubectl", "run", "test-pod-1",
@@ -288,24 +284,30 @@ var _ = Describe("Manager", Ordered, func() {
 				"--labels=app=test-app",
 				"--namespace", testNamespace,
 				"--command", "--", "sleep", "3600")
-			_, err = utils.Run(cmd)
-			Expect(err).NotTo(HaveOccurred(), "Failed to create test-pod-1")
+			output, err = utils.Run(cmd)
+			if err != nil && !strings.Contains(output, "already exists") {
+				Fail(fmt.Sprintf("Failed to create test-pod-1: %s", output))
+			}
 
 			cmd = exec.Command("kubectl", "run", "test-pod-2",
 				"--image=busybox:1.36",
 				"--labels=app=test-app",
 				"--namespace", testNamespace,
 				"--command", "--", "sleep", "3600")
-			_, err = utils.Run(cmd)
-			Expect(err).NotTo(HaveOccurred(), "Failed to create test-pod-2")
+			output, err = utils.Run(cmd)
+			if err != nil && !strings.Contains(output, "already exists") {
+				Fail(fmt.Sprintf("Failed to create test-pod-2: %s", output))
+			}
 
 			cmd = exec.Command("kubectl", "run", "test-pod-3",
 				"--image=busybox:1.36",
 				"--labels=app=test-app",
 				"--namespace", testNamespace,
 				"--command", "--", "sleep", "3600")
-			_, err = utils.Run(cmd)
-			Expect(err).NotTo(HaveOccurred(), "Failed to create test-pod-3")
+			output, err = utils.Run(cmd)
+			if err != nil && !strings.Contains(output, "already exists") {
+				Fail(fmt.Sprintf("Failed to create test-pod-3: %s", output))
+			}
 
 			By("waiting for test pods to be ready")
 			Eventually(func(g Gomega) {
@@ -332,7 +334,7 @@ var _ = Describe("Manager", Ordered, func() {
 
 		AfterEach(func() {
 			By("cleaning up test namespace")
-			cmd := exec.Command("kubectl", "delete", "ns", testNamespace, "--ignore-not-found=true")
+			cmd := exec.Command("kubectl", "delete", "ns", testNamespace, "--ignore-not-found=true", "--timeout=60s")
 			_, _ = utils.Run(cmd)
 		})
 
@@ -583,12 +585,16 @@ spec:
 		BeforeEach(func() {
 			By("creating test namespaces")
 			cmd := exec.Command("kubectl", "create", "ns", advancedTestNamespace)
-			_, err := utils.Run(cmd)
-			Expect(err).NotTo(HaveOccurred(), "Failed to create advanced test namespace")
+			output, err := utils.Run(cmd)
+			if err != nil && !strings.Contains(output, "already exists") {
+				Fail(fmt.Sprintf("Failed to create advanced test namespace: %s", output))
+			}
 
 			cmd = exec.Command("kubectl", "create", "ns", controlNamespace)
-			_, err = utils.Run(cmd)
-			Expect(err).NotTo(HaveOccurred(), "Failed to create control namespace")
+			output, err = utils.Run(cmd)
+			if err != nil && !strings.Contains(output, "already exists") {
+				Fail(fmt.Sprintf("Failed to create control namespace: %s", output))
+			}
 
 			By("deploying targeted pods")
 			// Pods that SHOULD be targeted
@@ -597,16 +603,20 @@ spec:
 				"--labels=app=target-app,tier=backend",
 				"--namespace", advancedTestNamespace,
 				"--command", "--", "sleep", "3600")
-			_, err = utils.Run(cmd)
-			Expect(err).NotTo(HaveOccurred())
+			output, err = utils.Run(cmd)
+			if err != nil && !strings.Contains(output, "already exists") {
+				Fail(fmt.Sprintf("Failed to create target-pod-1: %s", output))
+			}
 
 			cmd = exec.Command("kubectl", "run", "target-pod-2",
 				"--image=busybox:1.36",
 				"--labels=app=target-app,tier=backend",
 				"--namespace", advancedTestNamespace,
 				"--command", "--", "sleep", "3600")
-			_, err = utils.Run(cmd)
-			Expect(err).NotTo(HaveOccurred())
+			output, err = utils.Run(cmd)
+			if err != nil && !strings.Contains(output, "already exists") {
+				Fail(fmt.Sprintf("Failed to create target-pod-2: %s", output))
+			}
 
 			// Pods that should NOT be targeted (wrong label)
 			cmd = exec.Command("kubectl", "run", "ignored-pod",
@@ -614,8 +624,10 @@ spec:
 				"--labels=app=target-app,tier=frontend",
 				"--namespace", advancedTestNamespace,
 				"--command", "--", "sleep", "3600")
-			_, err = utils.Run(cmd)
-			Expect(err).NotTo(HaveOccurred())
+			output, err = utils.Run(cmd)
+			if err != nil && !strings.Contains(output, "already exists") {
+				Fail(fmt.Sprintf("Failed to create ignored-pod: %s", output))
+			}
 
 			// Pods that should NOT be targeted (wrong namespace)
 			cmd = exec.Command("kubectl", "run", "control-pod",
@@ -623,8 +635,10 @@ spec:
 				"--labels=app=target-app,tier=backend",
 				"--namespace", controlNamespace,
 				"--command", "--", "sleep", "3600")
-			_, err = utils.Run(cmd)
-			Expect(err).NotTo(HaveOccurred())
+			output, err = utils.Run(cmd)
+			if err != nil && !strings.Contains(output, "already exists") {
+				Fail(fmt.Sprintf("Failed to create control-pod: %s", output))
+			}
 
 			By("waiting for pods to be ready")
 			Eventually(func(g Gomega) {
@@ -670,9 +684,9 @@ spec:
 
 		AfterEach(func() {
 			By("cleaning up namespaces")
-			cmd := exec.Command("kubectl", "delete", "ns", advancedTestNamespace, "--ignore-not-found=true")
+			cmd := exec.Command("kubectl", "delete", "ns", advancedTestNamespace, "--ignore-not-found=true", "--timeout=60s")
 			_, _ = utils.Run(cmd)
-			cmd = exec.Command("kubectl", "delete", "ns", controlNamespace, "--ignore-not-found=true")
+			cmd = exec.Command("kubectl", "delete", "ns", controlNamespace, "--ignore-not-found=true", "--timeout=60s")
 			_, _ = utils.Run(cmd)
 		})
 
