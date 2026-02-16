@@ -76,7 +76,7 @@ type ChaosExperimentReconciler struct {
 // +kubebuilder:rbac:groups=chaos.gushchin.dev,resources=chaosexperiments/status,verbs=get;update;patch
 // +kubebuilder:rbac:groups=chaos.gushchin.dev,resources=chaosexperiments/finalizers,verbs=update
 // +kubebuilder:rbac:groups=chaos.gushchin.dev,resources=chaosexperimenthistories,verbs=create;get;list;watch;delete
-// +kubebuilder:rbac:groups="",resources=pods,verbs=get;list;delete;patch
+// +kubebuilder:rbac:groups="",resources=pods,verbs=get;list;watch;delete;patch
 // +kubebuilder:rbac:groups="",resources=pods/exec,verbs=create
 // +kubebuilder:rbac:groups="",resources=pods/ephemeralcontainers,verbs=get;update;patch
 // +kubebuilder:rbac:groups="",resources=nodes,verbs=get;list;watch;update;patch
@@ -183,6 +183,8 @@ func (r *ChaosExperimentReconciler) Reconcile(ctx context.Context, req ctrl.Requ
 		return r.handlePodRestart(ctx, &exp)
 	case "pod-network-loss":
 		return r.handlePodNetworkLoss(ctx, &exp)
+	case "network-partition":
+		return r.handleNetworkPartition(ctx, &exp)
 	case "pod-disk-fill":
 		return r.handlePodDiskFill(ctx, &exp)
 	default:
@@ -555,8 +557,22 @@ func (r *ChaosExperimentReconciler) updatePodWithEphemeralContainer(ctx context.
 			return fmt.Errorf("failed to get current pod state: %w", err)
 		}
 
-		// Append the ephemeral container
-		currentPod.Spec.EphemeralContainers = append(currentPod.Spec.EphemeralContainers, ephemeralContainer)
+		// Check if ephemeral container already exists
+		exists := false
+		for _, c := range currentPod.Spec.EphemeralContainers {
+			if c.Name == ephemeralContainer.Name {
+				exists = true
+				break
+			}
+		}
+
+		if !exists {
+			// Append the ephemeral container
+			currentPod.Spec.EphemeralContainers = append(currentPod.Spec.EphemeralContainers, ephemeralContainer)
+		} else {
+			// Already exists, nothing to do
+			return nil
+		}
 
 		// Try to update the pod with the ephemeral container
 		err := r.Client.SubResource("ephemeralcontainers").Update(ctx, currentPod)
@@ -2572,21 +2588,211 @@ func (r *ChaosExperimentReconciler) SetupWithManager(mgr ctrl.Manager) error {
 		Complete(r)
 }
 
-// startPeriodicTTLCleanup runs TTL cleanup periodically in the background
-func (r *ChaosExperimentReconciler) startPeriodicTTLCleanup(c client.Client) {
-	// Use a logger for this background task
-	log := ctrl.Log.WithName("ttl-cleanup")
+// handleNetworkPartition injects network partition into pods using iptables to drop traffic
+func (r *ChaosExperimentReconciler) handleNetworkPartition(ctx context.Context, exp *chaosv1alpha1.ChaosExperiment) (ctrl.Result, error) {
+	log := ctrl.LoggerFrom(ctx)
+	startTime := time.Now()
 
-	// Set cleanup interval to 1 hour
-	ticker := time.NewTicker(1 * time.Hour)
-	defer ticker.Stop()
+	// Track active experiments
+	chaosmetrics.ActiveExperiments.WithLabelValues("network-partition").Inc()
+	defer chaosmetrics.ActiveExperiments.WithLabelValues("network-partition").Dec()
 
-	log.Info("Started periodic TTL cleanup",
-		"interval", "1h",
-		"ttl", r.HistoryConfig.RetentionTTL)
-
-	for range ticker.C {
-		ctx := context.Background()
-		r.cleanupExpiredHistory(ctx)
+	// Validate required fields
+	if exp.Spec.Duration == "" {
+		return r.handleExperimentFailure(ctx, exp, "Duration is required for network-partition action")
 	}
+
+	// Validate direction
+	direction := exp.Spec.Direction
+	if direction == "" {
+		direction = "both" // Default
+	}
+	if direction != "both" && direction != "ingress" && direction != "egress" {
+		return r.handleExperimentFailure(ctx, exp, fmt.Sprintf("Invalid direction: %s. Must be one of: both, ingress, egress", direction))
+	}
+
+	// Parse duration to seconds
+	duration, err := r.parseDuration(exp.Spec.Duration)
+	if err != nil {
+		return r.handleExperimentFailure(ctx, exp, fmt.Sprintf("Invalid duration format: %v", err))
+	}
+	timeoutSeconds := int(duration.Seconds())
+
+	// Get eligible pods
+	eligiblePods, err := r.getEligiblePods(ctx, exp)
+	if err != nil {
+		return ctrl.Result{}, err
+	}
+
+	if len(eligiblePods) == 0 {
+		log.Info("No eligible pods found for selector", "selector", exp.Spec.Selector)
+		exp.Status.Message = "No eligible pods found matching selector"
+		_ = r.Status().Update(ctx, exp)
+		return ctrl.Result{RequeueAfter: time.Minute}, nil
+	}
+
+	// Handle dry-run mode
+	if exp.Spec.DryRun {
+		return r.handleDryRun(ctx, exp, eligiblePods, fmt.Sprintf("network-partition (%s)", direction))
+	}
+
+	// Shuffle the list of pods
+	rand.Shuffle(len(eligiblePods), func(i, j int) {
+		eligiblePods[i], eligiblePods[j] = eligiblePods[j], eligiblePods[i]
+	})
+
+	// Determine how many pods to affect
+	affectCount := exp.Spec.Count
+	if affectCount <= 0 {
+		affectCount = 1
+	}
+	if affectCount > len(eligiblePods) {
+		affectCount = len(eligiblePods)
+	}
+
+	// Inject ephemeral containers to apply network partition
+	affectedPods := []string{}
+	for i := 0; i < affectCount; i++ {
+		pod := eligiblePods[i]
+		log.Info("Injecting network partition into pod",
+			"pod", pod.Name,
+			"namespace", pod.Namespace,
+			"direction", direction,
+			"duration", timeoutSeconds)
+
+		containerName, err := r.injectNetworkPartitionContainer(ctx, &pod, direction, timeoutSeconds)
+		if err != nil {
+			log.Error(err, "Failed to inject network partition container", "pod", pod.Name)
+			chaosmetrics.ExperimentErrors.WithLabelValues("network-partition", exp.Spec.Namespace, "injection_error").Inc()
+			continue
+		}
+
+		// Emit event on the affected pod
+		r.Recorder.Eventf(&pod, corev1.EventTypeWarning, "ChaosNetworkPartition",
+			"Injected network partition (%s) by chaos experiment %s", direction, exp.Name)
+
+		// Track the affected pod for cleanup later
+		r.trackAffectedPod(exp, pod.Namespace, pod.Name, containerName)
+		affectedPods = append(affectedPods, pod.Name)
+	}
+
+	// Update status
+	now := metav1.Now()
+	exp.Status.LastRunTime = &now
+	status := statusSuccess
+	if len(affectedPods) > 0 {
+		exp.Status.Message = fmt.Sprintf("Successfully injected network partition (%s) into %d pod(s) for %s",
+			direction, len(affectedPods), exp.Spec.Duration)
+	} else {
+		exp.Status.Message = "Failed to inject network partition into any pods"
+		status = statusFailure
+	}
+	if err := r.Status().Update(ctx, exp); err != nil {
+		log.Error(err, "Failed to update ChaosExperiment status")
+		return ctrl.Result{}, err
+	}
+
+	// Record metrics
+	elapsed := time.Since(startTime)
+	chaosmetrics.ExperimentsTotal.WithLabelValues("network-partition", exp.Spec.Namespace, status).Inc()
+	chaosmetrics.ExperimentDuration.WithLabelValues("network-partition", exp.Spec.Namespace).Observe(elapsed.Seconds())
+	chaosmetrics.ResourcesAffected.WithLabelValues("network-partition", exp.Spec.Namespace, exp.Name).Set(float64(len(affectedPods)))
+
+	// Create history record
+	affectedResources := buildResourceReferences(fmt.Sprintf("network-partition-%s", direction), exp.Spec.Namespace, affectedPods, "Pod")
+	if err := r.createHistoryRecord(ctx, exp, status, affectedResources, startTime, nil); err != nil {
+		log.Error(err, "Failed to create history record")
+		// Don't fail the experiment if history recording fails
+	}
+
+	return ctrl.Result{RequeueAfter: time.Minute}, nil
+}
+
+// injectNetworkPartitionContainer injects an ephemeral container that applies network partition using iptables
+func (r *ChaosExperimentReconciler) injectNetworkPartitionContainer(ctx context.Context, pod *corev1.Pod, direction string, timeoutSeconds int) (string, error) {
+	log := ctrl.LoggerFrom(ctx)
+
+	// Generate unique chain name using timestamp to avoid collisions
+	chainName := fmt.Sprintf("CHAOS_PARTITION_%d", time.Now().Unix())
+
+	// Build iptables command script using custom chains
+	// This approach is safer than direct rule injection:
+	// 1. Creates isolated chain for chaos rules
+	// 2. Prevents conflicts with CNI/mesh networking rules
+	// 3. Cleanup removes only chaos chain, not system rules
+	// 4. Easy debugging (inspect chain separately)
+	//
+	// Script flow:
+	// 1. Create custom chain
+	// 2. Insert jump rules to custom chain (high priority)
+	// 3. Add rules to custom chain: allow loopback, drop traffic
+	// 4. Sleep for duration
+	// 5. Cleanup: remove only custom chain (safe)
+
+	script := fmt.Sprintf(`
+# Create custom iptables chain for isolation
+iptables -N %s
+
+# Insert jump to custom chain at high priority (position 1)
+iptables -I INPUT 1 -j %s
+iptables -I OUTPUT 1 -j %s
+
+# Allow loopback traffic in custom chain to prevent process lockup
+iptables -A %s -i lo -j ACCEPT
+iptables -A %s -o lo -j ACCEPT
+
+# Block traffic based on direction in custom chain
+if [ "%s" = "both" ] || [ "%s" = "ingress" ]; then
+  iptables -A %s -j DROP
+fi
+if [ "%s" = "both" ] || [ "%s" = "egress" ]; then
+  iptables -A %s -j DROP
+fi
+
+# Wait for partition duration
+sleep %d
+
+# Safe cleanup: Remove only chaos chain, not system rules
+# Using '|| true' for idempotency on retries
+iptables -D INPUT -j %s || true
+iptables -D OUTPUT -j %s || true
+iptables -F %s || true
+iptables -X %s || true
+`, chainName, chainName, chainName,
+		chainName, chainName,
+		direction, direction, chainName,
+		direction, direction, chainName,
+		timeoutSeconds,
+		chainName, chainName, chainName, chainName)
+
+	// Generate unique container name
+	containerName := fmt.Sprintf("network-partition-%d", time.Now().Unix())
+
+	// Create ephemeral container with NET_ADMIN capability
+	ephemeralContainer := corev1.EphemeralContainer{
+		EphemeralContainerCommon: corev1.EphemeralContainerCommon{
+			Name:    containerName,
+			Image:   "nicolaka/netshoot", // Public image with iptables
+			Command: []string{"/bin/sh", "-c", script},
+			SecurityContext: &corev1.SecurityContext{
+				Capabilities: &corev1.Capabilities{
+					Add: []corev1.Capability{"NET_ADMIN"},
+				},
+			},
+		},
+	}
+
+	// Update the pod with the ephemeral container using retry logic
+	if err := r.updatePodWithEphemeralContainer(ctx, pod, ephemeralContainer); err != nil {
+		return "", err
+	}
+
+	log.Info("Successfully injected network partition ephemeral container",
+		"pod", pod.Name,
+		"container", containerName,
+		"chain", chainName,
+		"direction", direction,
+		"duration", timeoutSeconds)
+
+	return containerName, nil
 }

@@ -332,5 +332,112 @@ var _ = Describe("ChaosExperiment Controller", func() {
 				return exp.Status.Phase
 			}, timeout, interval).ShouldNot(Equal("Paused"))
 		})
+
+		It("Should handle network-partition action", func() {
+			// Use a unique namespace for this test to avoid race conditions with BeforeEach/AfterEach cleanup
+			uniqueNamespace := "test-ns-" + generateShortUID()
+
+			// Create namespace via unstructured or Typed Client.
+			// We have k8sClient.
+			realNs := &corev1.Namespace{ObjectMeta: metav1.ObjectMeta{Name: uniqueNamespace}}
+			Expect(k8sClient.Create(ctx, realNs)).Should(Succeed())
+			defer func() {
+				_ = k8sClient.Delete(ctx, realNs)
+			}()
+
+			By("Creating a valid ChaosExperiment with network-partition action")
+			experiment := &chaosv1alpha1.ChaosExperiment{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      experimentName + "-network", // unique name too
+					Namespace: experimentNamespace,
+				},
+				Spec: chaosv1alpha1.ChaosExperimentSpec{
+					Action:    "network-partition",
+					Namespace: uniqueNamespace,
+					Selector: map[string]string{
+						"app": "test",
+					},
+					Count:     1,
+					Duration:  "5s",
+					Direction: "ingress",
+				},
+			}
+			Expect(k8sClient.Create(ctx, experiment)).Should(Succeed())
+			defer func() {
+				_ = k8sClient.Delete(ctx, experiment)
+			}()
+
+			By("Creating a target Pod")
+			pod := &corev1.Pod{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      "test-pod-network",
+					Namespace: uniqueNamespace,
+					Labels: map[string]string{
+						"app": "test",
+					},
+				},
+				Spec: corev1.PodSpec{
+					Containers: []corev1.Container{
+						{
+							Name:  "test",
+							Image: "busybox",
+							Command: []string{
+								"sh", "-c", "sleep 3600",
+							},
+						},
+					},
+				},
+			}
+			Expect(k8sClient.Create(ctx, pod)).Should(Succeed())
+
+			// We need to update pod status to Running so getEligiblePods picks it up
+			By("Updating Pod status to Running")
+			// Need to get the pod again or ensure we have the latest version before update status?
+			// Create returns the updated object.
+			pod.Status.Phase = corev1.PodRunning
+			pod.Status.Conditions = []corev1.PodCondition{
+				{
+					Type:   corev1.PodReady,
+					Status: corev1.ConditionTrue,
+				},
+			}
+			// Use Status().Update() to update the status subresource
+			Expect(k8sClient.Status().Update(ctx, pod)).Should(Succeed())
+
+			By("Reconciling the experiment")
+			// Recreate reconciler or reuse? Reuse is fine, but we need to create a new Request
+			reconciler := &ChaosExperimentReconciler{
+				Client:        k8sClient,
+				Scheme:        k8sClient.Scheme(),
+				Recorder:      record.NewFakeRecorder(100),
+				HistoryConfig: DefaultHistoryConfig(),
+			}
+
+			_, err := reconciler.Reconcile(ctx, reconcile.Request{
+				NamespacedName: types.NamespacedName{Name: experiment.Name, Namespace: experiment.Namespace},
+			})
+			Expect(err).NotTo(HaveOccurred())
+
+			By("Verifying ephemeral container was injected")
+			updatedPod := &corev1.Pod{}
+			Eventually(func() bool {
+				if err := k8sClient.Get(ctx, types.NamespacedName{Name: pod.Name, Namespace: uniqueNamespace}, updatedPod); err != nil {
+					return false
+				}
+				for _, ec := range updatedPod.Spec.EphemeralContainers {
+					if len(ec.Name) > 0 { // Check if any ephemeral container exists
+						return true
+					}
+				}
+				return false
+			}, timeout, interval).Should(BeTrue())
+
+			By("Verifying experiment status")
+			exp := &chaosv1alpha1.ChaosExperiment{}
+			Eventually(func() string {
+				_ = k8sClient.Get(ctx, types.NamespacedName{Name: experiment.Name, Namespace: experiment.Namespace}, exp)
+				return exp.Status.Message
+			}, timeout, interval).Should(ContainSubstring("Successfully injected network partition"))
+		})
 	})
 })

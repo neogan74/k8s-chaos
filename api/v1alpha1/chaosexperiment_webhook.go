@@ -253,12 +253,63 @@ func (w *ChaosExperimentWebhook) validateCrossFieldConstraints(spec *ChaosExperi
 		}
 	}
 
+	// network-partition action requires duration
+	if spec.Action == "network-partition" {
+		if spec.Duration == "" {
+			return fmt.Errorf("duration is required for network-partition action")
+		}
+
+		// Validate selective targeting fields for network-partition
+		if err := w.validateNetworkPartitionTargets(spec); err != nil {
+			return err
+		}
+	}
+
 	// Validate restartInterval format if provided
 	if spec.RestartInterval != "" {
 		if err := ValidateDurationFormat(spec.RestartInterval); err != nil {
 			return fmt.Errorf("invalid restartInterval format: %w", err)
 		}
 	}
+
+	return nil
+}
+
+// validateNetworkPartitionTargets validates selective targeting fields for network-partition action
+func (w *ChaosExperimentWebhook) validateNetworkPartitionTargets(spec *ChaosExperimentSpec) error {
+	// Validate targetIPs
+	for i, ip := range spec.TargetIPs {
+		if err := ValidateIP(ip); err != nil {
+			return fmt.Errorf("targetIPs[%d]: %w", i, err)
+		}
+	}
+
+	// Validate targetCIDRs
+	for i, cidr := range spec.TargetCIDRs {
+		if err := ValidateCIDR(cidr); err != nil {
+			return fmt.Errorf("targetCIDRs[%d]: %w", i, err)
+		}
+	}
+
+	// Validate targetPorts
+	for i, port := range spec.TargetPorts {
+		if err := ValidatePortRange(port); err != nil {
+			return fmt.Errorf("targetPorts[%d]: %w", i, err)
+		}
+	}
+
+	// Validate targetProtocols (already validated by enum, but check for consistency)
+	if len(spec.TargetProtocols) > 0 {
+		validProtocols := map[string]bool{"tcp": true, "udp": true, "icmp": true}
+		for i, protocol := range spec.TargetProtocols {
+			if !validProtocols[protocol] {
+				return fmt.Errorf("targetProtocols[%d]: invalid protocol %q, must be one of: tcp, udp, icmp", i, protocol)
+			}
+		}
+	}
+
+	// Warn if ports specified without protocols (will default to TCP)
+	// This is handled in warnings, not as an error
 
 	return nil
 }
@@ -298,6 +349,28 @@ func (w *ChaosExperimentWebhook) validateSafetyConstraints(ctx context.Context, 
 
 	if exp.Spec.DryRun {
 		warnings = append(warnings, "DRY RUN mode enabled: No actual chaos will be executed")
+	}
+
+	// 6. Warn about dangerous targets for network-partition
+	if exp.Spec.Action == "network-partition" {
+		// Check target IPs for dangerous targets
+		for _, ip := range exp.Spec.TargetIPs {
+			if isDangerous, reason := IsDangerousTarget(ip); isDangerous {
+				warnings = append(warnings, fmt.Sprintf("WARNING: Targeting %s - %s", ip, reason))
+			}
+		}
+
+		// Check target CIDRs for dangerous ranges
+		for _, cidr := range exp.Spec.TargetCIDRs {
+			if isDangerous, reason := IsDangerousCIDR(cidr); isDangerous {
+				warnings = append(warnings, fmt.Sprintf("WARNING: Targeting CIDR %s - %s", cidr, reason))
+			}
+		}
+
+		// Warn if ports specified without protocols (will default to TCP)
+		if len(exp.Spec.TargetPorts) > 0 && len(exp.Spec.TargetProtocols) == 0 {
+			warnings = append(warnings, "No targetProtocols specified; will default to TCP for all target ports")
+		}
 	}
 
 	return warnings, nil

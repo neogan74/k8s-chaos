@@ -981,3 +981,177 @@ func TestNextTimeWindowBoundary(t *testing.T) {
 		})
 	}
 }
+
+// TestValidateCIDR tests CIDR validation
+func TestValidateCIDR(t *testing.T) {
+	tests := []struct {
+		name    string
+		cidr    string
+		wantErr bool
+	}{
+		// Valid CIDRs
+		{name: "valid CIDR - /24", cidr: "192.168.1.0/24", wantErr: false},
+		{name: "valid CIDR - /16", cidr: "10.0.0.0/16", wantErr: false},
+		{name: "valid CIDR - /12", cidr: "10.96.0.0/12", wantErr: false},
+		{name: "valid CIDR - /32", cidr: "192.168.1.1/32", wantErr: false},
+		{name: "valid CIDR - /8", cidr: "10.0.0.0/8", wantErr: false},
+
+		// Invalid CIDRs
+		{name: "empty CIDR", cidr: "", wantErr: true},
+		{name: "invalid CIDR - no mask", cidr: "192.168.1.0", wantErr: true},
+		{name: "invalid CIDR - wrong format", cidr: "192.168.1.0/", wantErr: true},
+		{name: "invalid CIDR - mask too large", cidr: "192.168.1.0/33", wantErr: true},
+		{name: "invalid CIDR - negative mask", cidr: "192.168.1.0/-1", wantErr: true},
+		{name: "invalid CIDR - malformed IP", cidr: "256.1.1.1/24", wantErr: true},
+		{name: "invalid CIDR - text", cidr: "not-a-cidr/24", wantErr: true},
+		{name: "IPv6 CIDR (unsupported)", cidr: "2001:db8::/32", wantErr: true},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			err := ValidateCIDR(tt.cidr)
+			if (err != nil) != tt.wantErr {
+				t.Errorf("ValidateCIDR(%q) error = %v, wantErr %v", tt.cidr, err, tt.wantErr)
+			}
+		})
+	}
+}
+
+// TestValidateIP tests IP address validation
+func TestValidateIP(t *testing.T) {
+	tests := []struct {
+		name    string
+		ip      string
+		wantErr bool
+	}{
+		// Valid IPs
+		{name: "valid IP - loopback", ip: "127.0.0.1", wantErr: false},
+		{name: "valid IP - private 10.x", ip: "10.96.100.50", wantErr: false},
+		{name: "valid IP - private 192.168.x", ip: "192.168.1.100", wantErr: false},
+		{name: "valid IP - private 172.16.x", ip: "172.16.0.1", wantErr: false},
+		{name: "valid IP - public", ip: "8.8.8.8", wantErr: false},
+		{name: "valid IP - broadcast", ip: "255.255.255.255", wantErr: false},
+		{name: "valid IP - all zeros", ip: "0.0.0.0", wantErr: false},
+
+		// Invalid IPs
+		{name: "empty IP", ip: "", wantErr: true},
+		{name: "invalid IP - out of range octet", ip: "256.1.1.1", wantErr: true},
+		{name: "invalid IP - too many octets", ip: "1.2.3.4.5", wantErr: true},
+		{name: "invalid IP - too few octets", ip: "1.2.3", wantErr: true},
+		{name: "invalid IP - text", ip: "not-an-ip", wantErr: true},
+		{name: "invalid IP - hostname", ip: "example.com", wantErr: true},
+		{name: "IPv6 (unsupported)", ip: "::1", wantErr: true},
+		{name: "IPv6 (unsupported)", ip: "2001:db8::1", wantErr: true},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			err := ValidateIP(tt.ip)
+			if (err != nil) != tt.wantErr {
+				t.Errorf("ValidateIP(%q) error = %v, wantErr %v", tt.ip, err, tt.wantErr)
+			}
+		})
+	}
+}
+
+// TestValidatePortRange tests port range validation
+func TestValidatePortRange(t *testing.T) {
+	tests := []struct {
+		name    string
+		port    int32
+		wantErr bool
+	}{
+		// Valid ports
+		{name: "valid port - minimum", port: 1, wantErr: false},
+		{name: "valid port - HTTP", port: 80, wantErr: false},
+		{name: "valid port - HTTPS", port: 443, wantErr: false},
+		{name: "valid port - high", port: 8080, wantErr: false},
+		{name: "valid port - maximum", port: 65535, wantErr: false},
+
+		// Invalid ports
+		{name: "invalid port - zero", port: 0, wantErr: true},
+		{name: "invalid port - negative", port: -1, wantErr: true},
+		{name: "invalid port - too high", port: 65536, wantErr: true},
+		{name: "invalid port - way too high", port: 100000, wantErr: true},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			err := ValidatePortRange(tt.port)
+			if (err != nil) != tt.wantErr {
+				t.Errorf("ValidatePortRange(%d) error = %v, wantErr %v", tt.port, err, tt.wantErr)
+			}
+		})
+	}
+}
+
+// TestIsDangerousTarget tests dangerous target detection
+func TestIsDangerousTarget(t *testing.T) {
+	tests := []struct {
+		name           string
+		ip             string
+		wantDangerous  bool
+		wantReasonPart string
+	}{
+		// Dangerous targets
+		{name: "loopback", ip: "127.0.0.1", wantDangerous: true, wantReasonPart: "Loopback"},
+		{name: "link-local", ip: "169.254.1.1", wantDangerous: true, wantReasonPart: "Link-local"},
+		{name: "k8s API server", ip: "10.96.0.1", wantDangerous: true, wantReasonPart: "Kubernetes API"},
+		{name: "cluster DNS", ip: "10.96.0.10", wantDangerous: true, wantReasonPart: "Cluster DNS"},
+		{name: "cluster service IP", ip: "10.96.100.50", wantDangerous: true, wantReasonPart: "Cluster service"},
+
+		// Safe targets
+		{name: "public IP", ip: "8.8.8.8", wantDangerous: false, wantReasonPart: ""},
+		{name: "private IP outside cluster", ip: "192.168.1.100", wantDangerous: false, wantReasonPart: ""},
+
+		// Invalid IPs (return false, not an error)
+		{name: "invalid IP", ip: "not-an-ip", wantDangerous: false, wantReasonPart: ""},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			gotDangerous, gotReason := IsDangerousTarget(tt.ip)
+			if gotDangerous != tt.wantDangerous {
+				t.Errorf("IsDangerousTarget(%q) dangerous = %v, want %v", tt.ip, gotDangerous, tt.wantDangerous)
+			}
+			if tt.wantReasonPart != "" && gotReason == "" {
+				t.Errorf("IsDangerousTarget(%q) expected reason containing %q, got empty", tt.ip, tt.wantReasonPart)
+			}
+		})
+	}
+}
+
+// TestIsDangerousCIDR tests dangerous CIDR detection
+func TestIsDangerousCIDR(t *testing.T) {
+	tests := []struct {
+		name           string
+		cidr           string
+		wantDangerous  bool
+		wantReasonPart string
+	}{
+		// Dangerous CIDRs
+		{name: "loopback range", cidr: "127.0.0.0/8", wantDangerous: true, wantReasonPart: "loopback"},
+		{name: "cluster service CIDR", cidr: "10.96.0.0/12", wantDangerous: true, wantReasonPart: "overlaps"},
+		{name: "private 10.x", cidr: "10.0.0.0/8", wantDangerous: true, wantReasonPart: "overlaps"},
+		{name: "private 172.16.x", cidr: "172.16.0.0/12", wantDangerous: true, wantReasonPart: "overlaps"},
+
+		// Safe CIDRs
+		{name: "public CIDR", cidr: "8.8.8.0/24", wantDangerous: false, wantReasonPart: ""},
+		{name: "specific non-cluster private", cidr: "192.168.1.0/24", wantDangerous: false, wantReasonPart: ""},
+
+		// Invalid CIDRs (return false, not an error)
+		{name: "invalid CIDR", cidr: "not-a-cidr", wantDangerous: false, wantReasonPart: ""},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			gotDangerous, gotReason := IsDangerousCIDR(tt.cidr)
+			if gotDangerous != tt.wantDangerous {
+				t.Errorf("IsDangerousCIDR(%q) dangerous = %v, want %v", tt.cidr, gotDangerous, tt.wantDangerous)
+			}
+			if tt.wantReasonPart != "" && gotReason == "" {
+				t.Errorf("IsDangerousCIDR(%q) expected reason containing %q, got empty", tt.cidr, tt.wantReasonPart)
+			}
+		})
+	}
+}

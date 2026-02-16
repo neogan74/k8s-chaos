@@ -220,6 +220,7 @@ spec:
                     - pod-network-loss
                     - pod-disk-fill
                     - pod-restart
+                    - network-partition
                     type: string
                   allowProduction:
                     default: false
@@ -246,6 +247,15 @@ spec:
                     maximum: 32
                     minimum: 1
                     type: integer
+                  direction:
+                    default: both
+                    description: Direction specifies the direction of network traffic
+                      to block (for network-partition)
+                    enum:
+                    - both
+                    - ingress
+                    - egress
+                    type: string
                   dryRun:
                     default: false
                     description: |-
@@ -405,12 +415,60 @@ spec:
                       resources
                     minProperties: 1
                     type: object
+                  targetCIDRs:
+                    description: |-
+                      TargetCIDRs specifies IP ranges to block using CIDR notation (for network-partition)
+                      If empty along with targetIPs, blocks all traffic (full partition)
+                      Examples: ["10.96.0.0/12", "192.168.0.0/16"]
+                      Format: x.x.x.x/y where each x is 0-255 and y is 0-32
+                      Can be combined with targetIPs, targetPorts, and targetProtocols
+                      Applied based on direction field (ingress, egress, or both)
+                    items:
+                      type: string
+                    type: array
+                  targetIPs:
+                    description: |-
+                      TargetIPs specifies exact IP addresses to block (for network-partition)
+                      If empty, blocks all traffic (full partition - current behavior)
+                      Examples: ["10.96.0.50", "192.168.1.100"]
+                      Can be combined with targetCIDRs, targetPorts, and targetProtocols
+                      Applied based on direction field (ingress, egress, or both)
+                    items:
+                      type: string
+                    type: array
                   targetPath:
                     default: /tmp
                     description: |-
                       TargetPath specifies where to create the fill file (for pod-disk-fill)
                       Default: /tmp
                     type: string
+                  targetPorts:
+                    description: |-
+                      TargetPorts specifies ports to block (for network-partition)
+                      If specified without targetIPs/targetCIDRs, blocks these ports for all IPs
+                      Can be combined with targetIPs/targetCIDRs for more specific targeting
+                      Examples: [80, 443, 8080]
+                      If targetProtocols is not specified, defaults to TCP
+                      Applied based on direction field (ingress, egress, or both)
+                      Port range: 1-65535
+                    items:
+                      format: int32
+                      type: integer
+                    type: array
+                  targetProtocols:
+                    description: |-
+                      TargetProtocols specifies protocols to block (for network-partition)
+                      If specified with targetPorts, applies to those specific ports
+                      If specified without targetPorts, applies to all ports of the protocol
+                      Examples: ["tcp"], ["tcp", "udp"], ["icmp"]
+                      If targetPorts is specified but targetProtocols is not, defaults to ["tcp"]
+                    enum:
+                    - tcp
+                    - udp
+                    - icmp
+                    items:
+                      type: string
+                    type: array
                   timeWindows:
                     description: |-
                       TimeWindows restrict when the experiment may execute

@@ -213,6 +213,26 @@ func (in *ChaosExperimentSpec) DeepCopyInto(out *ChaosExperimentSpec) {
 			(*out)[key] = val
 		}
 	}
+	if in.TargetIPs != nil {
+		in, out := &in.TargetIPs, &out.TargetIPs
+		*out = make([]string, len(*in))
+		copy(*out, *in)
+	}
+	if in.TargetCIDRs != nil {
+		in, out := &in.TargetCIDRs, &out.TargetCIDRs
+		*out = make([]string, len(*in))
+		copy(*out, *in)
+	}
+	if in.TargetPorts != nil {
+		in, out := &in.TargetPorts, &out.TargetPorts
+		*out = make([]int32, len(*in))
+		copy(*out, *in)
+	}
+	if in.TargetProtocols != nil {
+		in, out := &in.TargetProtocols, &out.TargetProtocols
+		*out = make([]string, len(*in))
+		copy(*out, *in)
+	}
 	if in.TimeWindows != nil {
 		in, out := &in.TimeWindows, &out.TimeWindows
 		*out = make([]TimeWindow, len(*in))
