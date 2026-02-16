@@ -2577,6 +2577,11 @@ func (r *ChaosExperimentReconciler) trackAffectedPod(exp *chaosv1alpha1.ChaosExp
 
 // SetupWithManager sets up the controller with the Manager.
 func (r *ChaosExperimentReconciler) SetupWithManager(mgr ctrl.Manager) error {
+	// Start periodic TTL cleanup goroutine
+	if r.HistoryConfig.Enabled && r.HistoryConfig.RetentionTTL > 0 {
+		go r.startPeriodicTTLCleanup(mgr.GetClient())
+	}
+
 	return ctrl.NewControllerManagedBy(mgr).
 		For(&chaosv1alpha1.ChaosExperiment{}).
 		Named("chaosexperiment").

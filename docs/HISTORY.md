@@ -31,6 +31,9 @@ Configure history recording via operator flags:
 
 # Maximum records per experiment (default: 100)
 --history-retention-limit=100
+
+# Time-to-live for history records (default: 720h / 30 days, 0 = disabled)
+--history-ttl=720h
 ```
 
 Example deployment with custom history configuration:
@@ -49,6 +52,7 @@ spec:
         - --history-enabled=true
         - --history-namespace=chaos-history
         - --history-retention-limit=200
+        - --history-ttl=2160h  # 90 days for compliance
 ```
 
 ## Querying History
@@ -204,14 +208,51 @@ kubectl get cehist -n chaos-system \
 
 ## Retention and Cleanup
 
-The operator automatically cleans up old history records when they exceed the retention limit. The cleanup process:
+The operator implements dual-strategy automatic cleanup for history records:
+
+### Count-Based Cleanup (Retention Limit)
+
+Deletes oldest records when they exceed the per-experiment limit:
 
 1. Runs after each experiment execution
-2. Sorts records by age (oldest first)
-3. Deletes excess records beyond the retention limit
-4. Logs cleanup operations for audit
+2. Counts records for the specific experiment
+3. Deletes oldest records if count exceeds `--history-retention-limit`
+4. Tracks cleanup via `chaosexperiment_history_cleanup_total{reason="retention_limit"}` metric
 
-Manual cleanup (if needed):
+### TTL-Based Cleanup (Time-To-Live)
+
+Deletes records older than the configured TTL duration:
+
+1. Runs periodically every hour in the background
+2. Also runs after each experiment execution
+3. Deletes all records (across all experiments) older than `--history-ttl`
+4. Tracks cleanup via `chaosexperiment_history_cleanup_total{reason="ttl_expired"}` metric
+
+**Both strategies work independently** - a record is deleted if it violates either limit.
+
+### TTL Configuration Examples
+
+```bash
+# Default: 30 days TTL
+--history-ttl=720h
+
+# Compliance: Keep records for 90 days
+--history-ttl=2160h
+
+# Aggressive cleanup: Keep only 7 days
+--history-ttl=168h
+
+# Disable TTL cleanup (count-based only)
+--history-ttl=0
+```
+
+**Minimum TTL:** 1 hour (values below 1h are rejected)
+**Warning:** TTL values less than 24h may cause aggressive cleanup
+
+### Manual Cleanup
+
+For ad-hoc cleanup needs:
+
 ```bash
 # Delete all history for an experiment
 kubectl delete cehist -n chaos-system \
@@ -228,19 +269,31 @@ kubectl get cehist -n chaos-system -o json | \
 The operator exports metrics for history operations:
 
 - `chaosexperiment_history_records_total{action,status}` - Total history records created
-- `chaosexperiment_history_cleanup_total{reason}` - Total records deleted by retention
+- `chaosexperiment_history_cleanup_total{reason}` - Total records deleted by retention policies
+  - `reason="retention_limit"` - Deleted due to count-based cleanup
+  - `reason="ttl_expired"` - Deleted due to TTL-based cleanup
 - `chaosexperiment_history_records_count{experiment,namespace}` - Current count per experiment
 
-Query example (PromQL):
+Query examples (PromQL):
+
 ```promql
 # History creation rate
 rate(chaosexperiment_history_records_total[5m])
 
-# Cleanup rate
+# Overall cleanup rate
 rate(chaosexperiment_history_cleanup_total[1h])
+
+# TTL cleanup rate specifically
+rate(chaosexperiment_history_cleanup_total{reason="ttl_expired"}[1h])
+
+# Count-based cleanup rate
+rate(chaosexperiment_history_cleanup_total{reason="retention_limit"}[1h])
 
 # Current history count per experiment
 chaosexperiment_history_records_count
+
+# Total records cleaned up by reason
+sum by (reason) (chaosexperiment_history_cleanup_total)
 ```
 
 ## Use Cases

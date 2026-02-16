@@ -22,6 +22,7 @@ import (
 	"flag"
 	"net/http"
 	"os"
+	"time"
 
 	// Import all Kubernetes client auth plugins (e.g. Azure, GCP, OIDC, etc.)
 	// to ensure that exec-entrypoint and run can make use of them.
@@ -92,6 +93,7 @@ func main() {
 	var historyEnabled bool
 	var historyNamespace string
 	var historyRetentionLimit int
+	var historyTTL time.Duration
 	flag.StringVar(&metricsAddr, "metrics-bind-address", "0", "The address the metrics endpoint binds to. "+
 		"Use :8443 for HTTPS or :8080 for HTTP, or leave as 0 to disable the metrics service.")
 	flag.StringVar(&probeAddr, "health-probe-bind-address", ":8081", "The address the probe endpoint binds to.")
@@ -117,6 +119,9 @@ func main() {
 		"Namespace where history records are stored")
 	flag.IntVar(&historyRetentionLimit, "history-retention-limit", 100,
 		"Maximum number of history records to retain per experiment")
+	flag.DurationVar(&historyTTL, "history-ttl", 30*24*time.Hour,
+		"Time-to-live for history records. Records older than this duration will be automatically deleted. "+
+			"Set to 0 to disable TTL-based cleanup. Minimum value: 1h. Default: 720h (30 days)")
 	opts := zap.Options{
 		Development: true,
 	}
@@ -124,6 +129,15 @@ func main() {
 	flag.Parse()
 
 	ctrl.SetLogger(zap.New(zap.UseFlagOptions(&opts)))
+
+	// Validate history TTL
+	if historyTTL > 0 && historyTTL < time.Hour {
+		setupLog.Error(nil, "history-ttl must be at least 1h or 0 to disable", "value", historyTTL)
+		os.Exit(1)
+	}
+	if historyTTL > 0 && historyTTL < 24*time.Hour {
+		setupLog.Info("Warning: history-ttl is less than 24h, which may cause aggressive cleanup", "value", historyTTL)
+	}
 
 	// if the enable-http2 flag is false (the default), http/2 should be disabled
 	// due to its vulnerabilities. More specifically, disabling http/2 will
@@ -234,6 +248,7 @@ func main() {
 		Enabled:        historyEnabled,
 		Namespace:      historyNamespace,
 		RetentionLimit: historyRetentionLimit,
+		RetentionTTL:   historyTTL,
 	}
 
 	if err := (&controller.ChaosExperimentReconciler{
