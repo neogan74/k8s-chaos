@@ -54,13 +54,22 @@ Document existing implementation, create samples, improve cleanup safety.
 - ✅ Enhanced E2E tests with custom chain verification
 - ✅ All tests passing (unit tests, fmt, vet)
 
-### Phase 2: API Design for Selective Targeting [READY]
-**Status**: ⏳ Not Started
-**Effort**: 6-8 hours
+### Phase 2: API Design for Selective Targeting [COMPLETED]
+**Status**: ✅ Completed (2026-02-16)
+**Effort**: 6-8 hours (actual: ~7 hours)
 **Risk**: Medium
-**Files**: 4 modified, 1 new
+**Files**: 4 modified, 1 new (test file updated)
 
 Design and validate API schema for targetIPs, targetCIDRs, targetPorts fields.
+
+**Deliverables**:
+- ✅ API fields: targetIPs, targetCIDRs, targetPorts, targetProtocols
+- ✅ Validation helpers with 67+ unit tests
+- ✅ Webhook validation with dangerous target warnings
+- ✅ CRD regenerated successfully
+- ✅ Documentation updated (ADR 0011, CLAUDE.md)
+- ✅ Sample YAML with selective targeting examples
+- ✅ All tests passing (coverage: 45.7%)
 
 ### Phase 3: Basic Selective Targeting Implementation [READY]
 **Status**: ⏳ Not Started
