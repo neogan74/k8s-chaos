@@ -10,12 +10,12 @@ k8s-chaos aims to be the go-to lightweight chaos engineering operator that balan
 
 ---
 
-## Current Status (v0.1.0 - December 2025)
+## Current Status (v0.2.0 - February 2026)
 
 ### ✅ Core Features (Implemented)
 
 **Chaos Actions:**
-- ✅ Pod chaos: kill, delay, CPU stress, memory stress, failure
+- ✅ Pod chaos: kill, delay, CPU stress, memory stress, failure, network loss
 - ✅ Node chaos: drain with auto-uncordon
 
 **Safety & Control:**
@@ -37,7 +37,12 @@ k8s-chaos aims to be the go-to lightweight chaos engineering operator that balan
 - ✅ Comprehensive user guides (Getting Started, Best Practices, Troubleshooting, Scenarios)
 - ✅ API documentation
 - ✅ CLI tool with rich commands
-- ✅ Hands-on labs infrastructure
+- ✅ Hands-on labs infrastructure (8 labs)
+- ✅ ADRs for all implemented chaos actions
+
+**Deployment:**
+- ✅ Helm chart (production-ready, `charts/k8s-chaos/`)
+- ✅ GitOps support: ArgoCD, Flux, Kustomize overlays (`deploy/`)
 
 ---
 
@@ -47,46 +52,42 @@ k8s-chaos aims to be the go-to lightweight chaos engineering operator that balan
 
 **Goal:** Make k8s-chaos enterprise-ready
 
-#### High Priority
+#### Completed ✅
 
-**Helm Chart** ✅ **COMPLETED**
-- ✅ Official Helm chart created (`charts/k8s-chaos/`)
-- ✅ Comprehensive values.yaml with 50+ parameters
-- ✅ Support for dev/staging/prod configurations
-- ✅ One-command installation
-- ✅ Production-ready security defaults
-- ✅ cert-manager integration
-- ✅ ServiceMonitor support
-- **Impact:** Major adoption barrier removed!
+**Helm Chart** ✅
+- Official Helm chart (`charts/k8s-chaos/`), 50+ parameters, one-command install, cert-manager, ServiceMonitor
+
+**GitOps Support** ✅
+- ArgoCD Application/ApplicationSet, Flux HelmRelease/Kustomization, Kustomize env overlays
+
+**Pod Network Loss** ✅
+- `pod-network-loss` action with `tc netem`, ephemeral containers, safety wiring, Prometheus metrics
+
+#### In Progress / Remaining 🚧
 
 **Test Coverage** 🧪
-- Increase unit test coverage to 80%
-- Add integration tests for all chaos actions
-- E2E test scenarios
-- Chaos test the chaos operator
-- **Impact:** Increases reliability and confidence
+- Increase unit test coverage to 80% (currently ~50–60%)
+- Integration tests for all chaos actions
+- E2E test scenarios (Kind)
+- **Impact:** Reliability and confidence for production adoption
 
-**Performance Optimization** ⚡
-- Profile and optimize memory usage
-- Implement rate limiting
-- Batch operations support
-- Resource optimization
-- **Impact:** Better scalability for large clusters
-
-#### Medium Priority
-
-**Contributing Guide** 📝
-- How to add new chaos actions
-- Development environment setup
-- Testing guidelines
-- PR and code review process
-- **Impact:** Enables community contributions
+**pod-disk-fill Implementation** 💽
+- ADR and docs complete; controller/webhook/tests pending
+- See `docs/adr/0008-pod-disk-fill-implementation.md` and `docs/BACKLOG.md`
+- **Impact:** Completes the core infrastructure chaos action set
 
 **Kubernetes Events** 📢
-- Emit events on ChaosExperiment resources
-- Emit events on affected pods/nodes
-- Integration with event-based monitoring
-- **Impact:** Better integration with K8s ecosystem
+- Emit events on ChaosExperiment and affected pods/nodes
+- Populate `status.affectedPods` list
+- **Impact:** Better K8s ecosystem integration and debuggability
+
+**Contributing Guide** 📝
+- `CONTRIBUTING.md` with dev setup, how to add actions, PR process
+- **Impact:** Opens the door to community contributions
+
+**Performance Optimization** ⚡
+- Rate limiting, batch operations, memory/CPU profiling
+- **Impact:** Scalability for large clusters
 
 ---
 
@@ -97,15 +98,15 @@ k8s-chaos aims to be the go-to lightweight chaos engineering operator that balan
 #### New Chaos Actions
 
 **Network Chaos** 🌐
-- `pod-network-loss`: Packet loss simulation
-- `pod-network-corruption`: Packet corruption
-- `network-partition`: Simulate network splits
+- `pod-network-corruption`: Packet corruption (follows pod-network-loss pattern)
+- `pod-network-partition`: Block traffic between pod groups
 - `dns-chaos`: DNS resolution failures
 - **Impact:** Critical for testing network resilience
 
 **Infrastructure Chaos** 🏗️
+- `pod-disk-fill`: Fill pod disk space (ADR+docs done; controller in Q1 2026 backlog)
 - `node-taint`: Add taints to nodes
-- `node-disk-fill`: Fill disk space
+- `node-disk-fill`: Fill node disk space
 - `node-cpu-stress`: Stress node CPU
 - **Impact:** Test infrastructure-level failures
 
@@ -242,10 +243,11 @@ k8s-chaos aims to be the go-to lightweight chaos engineering operator that balan
 We welcome contributions in these areas:
 
 ### Immediate Needs (Q1 2026)
-1. **Helm Chart** - Help create production-ready Helm chart
-2. **Test Coverage** - Write unit and integration tests
-3. **Documentation** - Improve examples and tutorials
-4. **Bug Fixes** - Address issues as they arise
+1. **pod-disk-fill** - Implement controller, webhook validation, and tests (ADR 0008 ready)
+2. **Test Coverage** - Write unit and integration tests to reach 80%
+3. **Kubernetes Events** - Emit events on experiments and affected pods
+4. **Contributing Guide** - Help new contributors get started
+5. **Bug Fixes** - Address issues as they arise
 
 ### Medium Term (Q2-Q3 2026)
 1. **New Chaos Actions** - Implement network/infrastructure chaos
@@ -365,7 +367,7 @@ This roadmap is a living document. We value community input!
 
 ---
 
-*Last Updated: December 2, 2025*
-*Next Review: March 1, 2026*
+*Last Updated: February 23, 2026*
+*Next Review: April 1, 2026*
 
 **Questions?** Open a [GitHub Discussion](https://github.com/neogan74/k8s-chaos/discussions)

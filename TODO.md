@@ -56,7 +56,8 @@
 - [x] **pod-delay** - Add network latency to pods
 - [x] **pod-cpu-stress** - Consume CPU resources
 - [x] **pod-memory-stress** - Consume memory resources
-- [ ] **pod-network-loss** - Simulate packet loss
+- [x] **pod-network-loss** - Simulate packet loss (see ADR 0007)
+- [ ] **pod-disk-fill** - Fill pod disk space (see ADR 0008; docs/ADR done, implementation pending)
 - [ ] **pod-network-corruption** - Corrupt network packets
 - [ ] **pod-restart** - Restart pods instead of delete
 
@@ -139,6 +140,7 @@
 
 ### Operations
 - [x] **Helm Chart** - Create Helm chart for easier deployment ✅ COMPLETED (charts/k8s-chaos/)
+- [x] **GitOps Support** - ArgoCD, Flux, and Kustomize manifests ✅ COMPLETED (deploy/)
 - [ ] **Operator Lifecycle Manager (OLM)** - Support for OLM
 - [ ] **Multi-tenancy** - Support for multiple teams/projects
 - [ ] **Backup/Restore** - Experiment history backup
@@ -303,6 +305,38 @@ Pick items from the High Priority section first, then move to features that alig
 
 - **Testing**: All tests passing, code properly formatted
 - **Impact**: Enhanced production readiness with better cleanup, automatic recovery, and comprehensive safety monitoring
+
+## Recent Completions (2025-12-18)
+
+### Pod Network Loss ✅
+- **Status**: Fully implemented and production-ready
+- **Architecture**: ADR documented in `docs/adr/0007-pod-network-loss-implementation.md`
+- **Features Implemented**:
+  - CRD/schema: `lossPercentage`, `correlation`, `direction` fields with validation
+  - Webhook: loss percentage caps (≤40% default), zero-duration guard, direction validation, dry-run support
+  - Controller: ephemeral container with `tc netem` via `NET_ADMIN` capability; inject/cleanup lifecycle
+  - Safety: exclusion labels, `maxPercentage`, namespace protection, retry/backoff flow
+  - Observability: Prometheus metrics for inject/cleanup; parameters in status/history
+  - Sample: `config/samples/chaos_v1alpha1_chaosexperiment_network_loss.yaml`
+  - Docs: API.md updated, ADR 0007 finalized
+  - Tests: unit tests for validation and reconcile
+
+### GitOps Support ✅
+- **Status**: Complete with ArgoCD, Flux, and Kustomize
+- **Features Implemented**:
+  - ArgoCD Application and ApplicationSet for single and multi-cluster deployments
+  - Flux GitRepository, HelmRelease, and Kustomization resources
+  - Kustomize overlays for dev, staging, and production environments
+  - Comprehensive README for each GitOps tool under `deploy/`
+
+### Pod Disk Fill (Docs/ADR) ✅ (implementation pending)
+- **Status**: Design complete; controller implementation in backlog
+- **Architecture**: ADR documented in `docs/adr/0008-pod-disk-fill-implementation.md`
+- **Completed**:
+  - ADR with full implementation spec
+  - Scenario examples added to `docs/SCENARIOS.md`
+  - CRD field design: `fillPercentage`, `targetPath`, `volumeName`
+- **Still Needed**: Controller logic, webhook validation, tests (tracked in BACKLOG.md)
 
 ## Recent Completions (2025-12-02)
 
