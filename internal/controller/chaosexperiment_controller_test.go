@@ -196,6 +196,84 @@ var _ = Describe("ChaosExperiment Controller", func() {
 			}, timeout, interval).Should(ContainSubstring("No eligible pods found"))
 		})
 
+		It("Should skip terminating pods", func() {
+			By("Creating a terminating pod")
+			pod := &corev1.Pod{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      "terminating-pod",
+					Namespace: targetNamespace,
+					Labels: map[string]string{
+						"app": "test-terminating",
+					},
+				},
+				Spec: corev1.PodSpec{
+					Containers: []corev1.Container{
+						{
+							Name:  "test",
+							Image: "busybox",
+							Command: []string{
+								"sh", "-c", "sleep 3600",
+							},
+						},
+					},
+				},
+			}
+			Expect(k8sClient.Create(ctx, pod)).Should(Succeed())
+
+			By("Adding finalizer to keep pod in Terminating state when deleted")
+			podWithFinalizer := &corev1.Pod{}
+			Expect(k8sClient.Get(ctx, types.NamespacedName{Name: pod.Name, Namespace: pod.Namespace}, podWithFinalizer)).Should(Succeed())
+			podWithFinalizer.Finalizers = append(podWithFinalizer.Finalizers, "chaos-test-finalizer")
+			Expect(k8sClient.Update(ctx, podWithFinalizer)).Should(Succeed())
+
+			By("Deleting the pod to set DeletionTimestamp")
+			Expect(k8sClient.Delete(ctx, podWithFinalizer)).Should(Succeed())
+
+			By("Creating a ChaosExperiment targeting the terminating pod")
+			experiment := &chaosv1alpha1.ChaosExperiment{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      experimentName + "-term",
+					Namespace: experimentNamespace,
+				},
+				Spec: chaosv1alpha1.ChaosExperimentSpec{
+					Action:    "pod-kill",
+					Namespace: targetNamespace,
+					Selector: map[string]string{
+						"app": "test-terminating",
+					},
+					Count: 1,
+				},
+			}
+			Expect(k8sClient.Create(ctx, experiment)).Should(Succeed())
+
+			By("Reconciling the experiment")
+			reconciler := &ChaosExperimentReconciler{
+				Client:        k8sClient,
+				Scheme:        k8sClient.Scheme(),
+				Recorder:      record.NewFakeRecorder(100),
+				HistoryConfig: DefaultHistoryConfig(),
+			}
+
+			result, err := reconciler.Reconcile(ctx, reconcile.Request{
+				NamespacedName: types.NamespacedName{Name: experiment.Name, Namespace: experiment.Namespace},
+			})
+			Expect(err).NotTo(HaveOccurred())
+			Expect(result.RequeueAfter).To(Equal(time.Minute))
+
+			By("Verifying message in status")
+			exp := &chaosv1alpha1.ChaosExperiment{}
+			Eventually(func() string {
+				_ = k8sClient.Get(ctx, types.NamespacedName{Name: experiment.Name, Namespace: experiment.Namespace}, exp)
+				return exp.Status.Message
+			}, timeout, interval).Should(ContainSubstring("No eligible pods found"))
+
+			By("Cleaning up")
+			_ = k8sClient.Delete(ctx, experiment)
+			Expect(k8sClient.Get(ctx, types.NamespacedName{Name: pod.Name, Namespace: pod.Namespace}, podWithFinalizer)).Should(Succeed())
+			podWithFinalizer.Finalizers = []string{}
+			Expect(k8sClient.Update(ctx, podWithFinalizer)).Should(Succeed())
+		})
+
 		It("Should handle pod-delay action", func() {
 			By("Creating a ChaosExperiment with pod-delay action")
 			experiment := &chaosv1alpha1.ChaosExperiment{

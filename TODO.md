@@ -25,7 +25,7 @@
 - [x] **Add Retry Logic** - Implement exponential backoff for transient failures (completed with configurable strategies)
 - [x] **Handle Edge Cases**
   - [x] What if namespace doesn't exist? - Webhook validates this
-  - [ ] What if pods are already terminating?
+  - [x] What if pods are already terminating?
   - [ ] Handle permission denied errors gracefully
 
 ## 📊 Observability
@@ -59,7 +59,7 @@
 - [x] **pod-network-loss** - Simulate packet loss
 - [x] **pod-disk-fill** - Fill pod disk space
 - [ ] **pod-network-corruption** - Corrupt network packets
-- [ ] **pod-restart** - Restart pods instead of delete
+- [x] **pod-restart** - Restart pods instead of delete
 
 ### Node Chaos
 - [x] **node-drain** - Drain nodes temporarily

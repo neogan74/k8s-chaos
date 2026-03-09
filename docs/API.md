@@ -79,6 +79,7 @@ Specifies the type of chaos action to perform.
 | `pod-failure` | Kills main process (PID 1) to cause container crash | action, namespace, selector |
 | `pod-network-loss` | Injects packet loss using tc netem | action, namespace, selector, duration, lossPercentage |
 | `pod-disk-fill` | Fills disk space using an ephemeral container | action, namespace, selector, duration, fillPercentage |
+| `pod-restart` | Gracefully restarts containers (SIGTERM to PID 1) | action, namespace, selector |
 
 #### Examples
 
@@ -141,6 +142,13 @@ spec:
   duration: "2m"
   fillPercentage: 80
   targetPath: "/tmp"
+```
+
+```yaml
+# Pod restart (graceful container restart)
+spec:
+  action: "pod-restart"
+  restartInterval: "30s" # Optional delay between restarts
 ```
 
 #### Notes
@@ -645,6 +653,24 @@ spec:
   duration: "2m"
   fillPercentage: 80
   volumeName: "data"
+```
+
+---
+
+### restartInterval
+
+**Type:** `string`
+**Required:** No
+**Validation:** Pattern `^([0-9]+(s|m|h))+$`
+
+Delay between restarting each pod when `action` is `pod-restart`. Useful for rolling restarts.
+
+#### Example
+
+```yaml
+spec:
+  action: "pod-restart"
+  restartInterval: "1m"  # Wait 1 minute between restarts
 ```
 
 ---
