@@ -317,3 +317,27 @@ func generateShortUID() string {
 //
 //     return ctrl.Result{RequeueAfter: time.Minute}, nil
 // }
+
+// startPeriodicTTLCleanup runs a background goroutine to clean up expired history
+func (r *ChaosExperimentReconciler) startPeriodicTTLCleanup(c client.Client) {
+	// Run cleanup every hour
+	// Note: We use a ticker to run periodically. The first run happens after the interval.
+	// This gives time for the manager to start and inject the client.
+	ticker := time.NewTicker(time.Hour)
+	defer ticker.Stop()
+
+	log := ctrl.Log.WithName("history-cleanup")
+	log.Info("Starting periodic TTL history cleanup")
+
+	// Create a context with the logger attached?
+	// cleanupExpiredHistory uses ctrl.LoggerFrom(ctx), so we should provide one if possible,
+	// or rely on default logger. Passing context.Background() is usually fine as LoggerFrom handles it.
+	ctx := context.Background()
+
+	for {
+		select {
+		case <-ticker.C:
+			r.cleanupExpiredHistory(ctx)
+		}
+	}
+}
