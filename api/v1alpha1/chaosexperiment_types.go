@@ -46,7 +46,7 @@ type ChaosExperimentSpec struct {
 
 	// Action specifies the chaos action to perform
 	// +kubebuilder:validation:Required
-	// +kubebuilder:validation:Enum=pod-kill;pod-delay;node-drain;pod-cpu-stress;pod-memory-stress;pod-failure;pod-network-loss;pod-network-corruption;pod-disk-fill;pod-restart;network-partition
+	// +kubebuilder:validation:Enum=pod-kill;pod-delay;node-drain;node-taint;pod-cpu-stress;pod-memory-stress;pod-failure;pod-network-loss;pod-network-corruption;pod-disk-fill;pod-restart;network-partition
 	Action string `json:"action"`
 
 	// Namespace specifies the target namespace for chaos experiments
@@ -267,6 +267,20 @@ type ChaosExperimentSpec struct {
 	// +kubebuilder:validation:Pattern="^([0-9]+(s|m|h))+$"
 	// +optional
 	RestartInterval string `json:"restartInterval,omitempty"`
+
+	// TaintKey specifies the key of the taint to apply to nodes (for node-taint)
+	// +optional
+	TaintKey string `json:"taintKey,omitempty"`
+
+	// TaintValue specifies the value of the taint to apply to nodes (for node-taint)
+	// +optional
+	TaintValue string `json:"taintValue,omitempty"`
+
+	// TaintEffect specifies the effect of the taint (for node-taint)
+	// +kubebuilder:validation:Enum=NoSchedule;PreferNoSchedule;NoExecute
+	// +kubebuilder:default=NoSchedule
+	// +optional
+	TaintEffect string `json:"taintEffect,omitempty"`
 }
 
 // TimeWindowType defines the time window mode for experiments.
@@ -358,6 +372,11 @@ type ChaosExperimentStatus struct {
 	// Used for auto-uncordon when the experiment completes
 	// +optional
 	CordonedNodes []string `json:"cordonedNodes,omitempty"`
+
+	// TaintedNodes tracks nodes that were tainted by this experiment
+	// Used for removing taints when the experiment completes
+	// +optional
+	TaintedNodes []string `json:"taintedNodes,omitempty"`
 
 	// Conditions represents the latest available observations of the experiment
 	// +optional

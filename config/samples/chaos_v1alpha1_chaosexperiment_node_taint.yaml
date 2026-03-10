@@ -1,0 +1,53 @@
+apiVersion: chaos.gushchin.dev/v1alpha1
+kind: ChaosExperiment
+metadata:
+  labels:
+    app.kubernetes.io/name: chaosexperiment
+    app.kubernetes.io/managed-by: kustomize
+  name: node-taint-sample
+spec:
+  # ACTION: node-taint
+  # SIMULATES: Node becoming unschedulable or affecting running pods via taints
+  # BEHAVIOR: Applies a specified taint to the selected nodes
+  action: node-taint
+  
+  # Target nodes in this namespace context (though nodes are cluster-scoped)
+  namespace: default
+  
+  # Select which nodes to affect
+  # If empty or not provided, affects all nodes
+  selector:
+    # Example: only target nodes with a specific label
+    # node-role.kubernetes.io/worker: "true"
+    
+  # How many matching nodes to taint (default is 1)
+  count: 1
+  
+  # DURATION (Required for node-taint)
+  # How long the node should remain tainted before being automatically untainted.
+  # Formats: "10s", "1m", "1h"
+  duration: 2m
+  
+  # TAINT KEY (Required)
+  # The key of the taint to apply
+  taintKey: chaos.gushchin.dev/taint
+  
+  # TAINT VALUE (Optional)
+  # The value of the taint to apply
+  taintValue: "true"
+  
+  # TAINT EFFECT (Required)
+  # The effect of the taint. Valid values: NoSchedule, PreferNoSchedule, NoExecute
+  # Default if not specified: NoSchedule
+  taintEffect: NoSchedule
+  
+  # --- SAFETY FEATURES ---
+  
+  # MAX PERCENTAGE (Optional)
+  # Protects against selecting too many nodes if count is high
+  # e.g., never affect more than 20% of matching nodes
+  maxPercentage: 20
+  
+  # DRY RUN (Optional)
+  # Set to true to see which nodes would be tainted without actually doing it
+  dryRun: false

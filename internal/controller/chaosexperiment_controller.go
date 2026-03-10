@@ -28,10 +28,12 @@ import (
 
 	"github.com/robfig/cron/v3"
 	corev1 "k8s.io/api/core/v1"
+	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/labels"
 	"k8s.io/apimachinery/pkg/runtime"
+	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/client-go/kubernetes"
 	"k8s.io/client-go/kubernetes/scheme"
 	"k8s.io/client-go/rest"
@@ -173,6 +175,8 @@ func (r *ChaosExperimentReconciler) Reconcile(ctx context.Context, req ctrl.Requ
 		return r.handlePodDelay(ctx, &exp)
 	case "node-drain":
 		return r.handleNodeDrain(ctx, &exp)
+	case "node-taint":
+		return r.handleNodeTaint(ctx, &exp)
 	case "pod-cpu-stress":
 		return r.handlePodCPUStress(ctx, &exp)
 	case "pod-memory-stress":
@@ -979,6 +983,227 @@ func (r *ChaosExperimentReconciler) uncordonNode(ctx context.Context, nodeName s
 	return nil
 }
 
+// handleNodeTaint taints nodes matching the selector
+func (r *ChaosExperimentReconciler) handleNodeTaint(ctx context.Context, exp *chaosv1alpha1.ChaosExperiment) (ctrl.Result, error) {
+	log := ctrl.LoggerFrom(ctx)
+	startTime := time.Now()
+
+	// Track active experiments
+	chaosmetrics.ActiveExperiments.WithLabelValues("node-taint").Inc()
+	defer chaosmetrics.ActiveExperiments.WithLabelValues("node-taint").Dec()
+
+	// Validate required fields
+	if exp.Spec.TaintKey == "" || exp.Spec.TaintEffect == "" {
+		return r.handleExperimentFailure(ctx, exp, "TaintKey and TaintEffect must be specified")
+	}
+
+	// List nodes by selector
+	nodeList := &corev1.NodeList{}
+	selector := labels.SelectorFromSet(exp.Spec.Selector)
+	if err := r.List(ctx, nodeList, client.MatchingLabelsSelector{Selector: selector}); err != nil {
+		log.Error(err, "Failed to list nodes")
+		exp.Status.Message = "Error: Failed to list nodes"
+		_ = r.Status().Update(ctx, exp)
+		return ctrl.Result{}, err
+	}
+
+	if len(nodeList.Items) == 0 {
+		log.Info("No nodes found for selector", "selector", exp.Spec.Selector)
+		exp.Status.Message = "No nodes found matching selector"
+		_ = r.Status().Update(ctx, exp)
+		return ctrl.Result{RequeueAfter: time.Minute}, nil
+	}
+
+	// Handle dry-run mode for nodes
+	if exp.Spec.DryRun {
+		count := exp.Spec.Count
+		if count <= 0 {
+			count = 1
+		}
+		if count > len(nodeList.Items) {
+			count = len(nodeList.Items)
+		}
+
+		nodeNames := []string{}
+		for i := 0; i < count && i < len(nodeList.Items); i++ {
+			nodeNames = append(nodeNames, nodeList.Items[i].Name)
+		}
+
+		now := metav1.Now()
+		exp.Status.LastRunTime = &now
+		exp.Status.Message = fmt.Sprintf("DRY RUN: Would taint %d node(s) with %s: %v", count, exp.Spec.TaintKey, nodeNames)
+		exp.Status.Phase = "Completed"
+
+		if err := r.Status().Update(ctx, exp); err != nil {
+			log.Error(err, "Failed to update ChaosExperiment status")
+			return ctrl.Result{}, err
+		}
+
+		log.Info("Dry run completed", "action", "node-taint", "wouldAffect", count, "nodes", nodeNames)
+		return ctrl.Result{}, nil
+	}
+
+	// Shuffle the list of nodes
+	rand.Shuffle(len(nodeList.Items), func(i, j int) {
+		nodeList.Items[i], nodeList.Items[j] = nodeList.Items[j], nodeList.Items[i]
+	})
+
+	// Determine how many nodes to taint
+	taintCount := exp.Spec.Count
+	if taintCount <= 0 {
+		taintCount = 1 // Default to 1 if not specified or invalid
+	}
+	if taintCount > len(nodeList.Items) {
+		taintCount = len(nodeList.Items)
+	}
+
+	// Taint selected nodes
+	taintedNodes := []string{}
+	newlyTaintedNodes := []string{}
+	for i := 0; i < taintCount; i++ {
+		node := &nodeList.Items[i]
+		log.Info("Tainting node", "node", node.Name, "key", exp.Spec.TaintKey, "value", exp.Spec.TaintValue, "effect", exp.Spec.TaintEffect)
+
+		// Taint the node
+		wasAlreadyTainted, err := r.taintNode(ctx, node, exp.Spec.TaintKey, exp.Spec.TaintValue, exp.Spec.TaintEffect)
+		if err != nil {
+			log.Error(err, "Failed to taint node", "node", node.Name)
+			continue
+		}
+
+		// Track nodes that we tainted (not ones that were already tainted)
+		if !wasAlreadyTainted {
+			newlyTaintedNodes = append(newlyTaintedNodes, node.Name)
+		}
+
+		// Emit event on the affected node
+		r.Recorder.Eventf(node, corev1.EventTypeWarning, "ChaosNodeTaint",
+			"Node tainted with %s=%s:%s by chaos experiment %s", exp.Spec.TaintKey, exp.Spec.TaintValue, exp.Spec.TaintEffect, exp.Name)
+
+		taintedNodes = append(taintedNodes, node.Name)
+	}
+
+	// Update status to track newly tainted nodes for later untaint
+	if len(newlyTaintedNodes) > 0 {
+		// Append newly tainted nodes to the existing list (avoid duplicates)
+		existingNodes := make(map[string]bool)
+		for _, nodeName := range exp.Status.TaintedNodes {
+			existingNodes[nodeName] = true
+		}
+		for _, nodeName := range newlyTaintedNodes {
+			if !existingNodes[nodeName] {
+				exp.Status.TaintedNodes = append(exp.Status.TaintedNodes, nodeName)
+			}
+		}
+	}
+
+	// Update status
+	now := metav1.Now()
+	exp.Status.LastRunTime = &now
+	status := statusSuccess
+	if len(taintedNodes) > 0 {
+		exp.Status.Message = fmt.Sprintf("Successfully tainted %d node(s): %v", len(taintedNodes), taintedNodes)
+	} else {
+		exp.Status.Message = "Failed to taint any nodes"
+		status = statusFailure
+	}
+	if err := r.Status().Update(ctx, exp); err != nil {
+		log.Error(err, "Failed to update ChaosExperiment status")
+		return ctrl.Result{}, err
+	}
+
+	// Record metrics
+	duration := time.Since(startTime).Seconds()
+	chaosmetrics.ExperimentsTotal.WithLabelValues("node-taint", exp.Spec.Namespace, status).Inc()
+	chaosmetrics.ExperimentDuration.WithLabelValues("node-taint", exp.Spec.Namespace).Observe(duration)
+	chaosmetrics.ResourcesAffected.WithLabelValues("node-taint", exp.Spec.Namespace, exp.Name).Set(float64(len(taintedNodes)))
+
+	// Create history record
+	affectedResources := buildResourceReferences("tainted", "", taintedNodes, "Node")
+	var errorDetails *chaosv1alpha1.ErrorDetails
+	if status == statusFailure {
+		errorDetails = &chaosv1alpha1.ErrorDetails{
+			Message:       exp.Status.Message,
+			FailureReason: "ExecutionError",
+		}
+	}
+	if err := r.createHistoryRecord(ctx, exp, status, affectedResources, startTime, errorDetails); err != nil {
+		log.Error(err, "Failed to create history record")
+		// Don't fail the experiment if history recording fails
+	}
+
+	return ctrl.Result{RequeueAfter: time.Minute}, nil
+}
+
+// taintNode adds a taint to the node if it doesn't already have it
+// Returns (wasAlreadyTainted bool, error)
+func (r *ChaosExperimentReconciler) taintNode(ctx context.Context, node *corev1.Node, key, value, effect string) (bool, error) {
+	taintEffect := corev1.TaintEffect(effect)
+
+	// Check if already tainted
+	for _, t := range node.Spec.Taints {
+		if t.Key == key && t.Effect == taintEffect {
+			return true, nil // Already tainted with the same key and effect
+		}
+	}
+
+	node.Spec.Taints = append(node.Spec.Taints, corev1.Taint{
+		Key:    key,
+		Value:  value,
+		Effect: taintEffect,
+	})
+
+	if err := r.Update(ctx, node); err != nil {
+		return false, fmt.Errorf("failed to taint node: %w", err)
+	}
+
+	return false, nil
+}
+
+// untaintNode removes a specific taint from a node
+func (r *ChaosExperimentReconciler) untaintNode(ctx context.Context, nodeName, key, effect string) error {
+	log := ctrl.LoggerFrom(ctx)
+	
+	if nodeName == "" {
+		return fmt.Errorf("node name cannot be empty")
+	}
+
+	node := &corev1.Node{}
+	if err := r.Get(ctx, types.NamespacedName{Name: nodeName}, node); err != nil {
+		if apierrors.IsNotFound(err) {
+			log.Info("Node not found for untainting, it might have been removed", "node", nodeName)
+			return nil
+		}
+		return fmt.Errorf("failed to get node %s: %w", nodeName, err)
+	}
+
+	taintEffect := corev1.TaintEffect(effect)
+	newTaints := []corev1.Taint{}
+	found := false
+
+	// Filter out the applied taint
+	for _, t := range node.Spec.Taints {
+		if t.Key == key && t.Effect == taintEffect {
+			found = true
+			continue
+		}
+		newTaints = append(newTaints, t)
+	}
+
+	if !found {
+		log.Info("Node does not have the taint, nothing to remove", "node", nodeName, "key", key)
+		return nil
+	}
+
+	node.Spec.Taints = newTaints
+	if err := r.Update(ctx, node); err != nil {
+		return fmt.Errorf("failed to untaint node %s: %w", nodeName, err)
+	}
+
+	log.Info("Successfully untainted node", "node", nodeName, "key", key)
+	return nil
+}
+
 // drainNode evicts all pods from a node
 func (r *ChaosExperimentReconciler) drainNode(ctx context.Context, node *corev1.Node) error {
 	log := ctrl.LoggerFrom(ctx)
@@ -1308,6 +1533,20 @@ func (r *ChaosExperimentReconciler) checkExperimentLifecycle(ctx context.Context
 			}
 			// Clear the list after uncordoning
 			exp.Status.CordonedNodes = nil
+		}
+
+		// Untaint nodes that were tainted by this experiment (for node-taint action)
+		if exp.Spec.Action == "node-taint" && len(exp.Status.TaintedNodes) > 0 {
+			log.Info("Removing taints from nodes that were tainted by this experiment",
+				"nodes", exp.Status.TaintedNodes)
+			for _, nodeName := range exp.Status.TaintedNodes {
+				if err := r.untaintNode(ctx, nodeName, exp.Spec.TaintKey, exp.Spec.TaintEffect); err != nil {
+					log.Error(err, "Failed to untaint node", "node", nodeName)
+					// Continue with other nodes even if one fails
+				}
+			}
+			// Clear the list after untainting
+			exp.Status.TaintedNodes = nil
 		}
 
 		// Cleanup ephemeral containers for experiments using them (pod-cpu-stress, pod-memory-stress, pod-network-loss, pod-disk-fill)

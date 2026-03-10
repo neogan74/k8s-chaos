@@ -171,6 +171,19 @@ func (w *ChaosExperimentWebhook) validateCrossFieldConstraints(spec *ChaosExperi
 		}
 	}
 
+	// node-taint action requires duration, taintKey, and taintEffect
+	if spec.Action == "node-taint" {
+		if spec.Duration == "" {
+			return fmt.Errorf("duration is required for node-taint action")
+		}
+		if spec.TaintKey == "" {
+			return fmt.Errorf("taintKey must be specified for node-taint action")
+		}
+		if spec.TaintEffect == "" {
+			return fmt.Errorf("taintEffect must be specified for node-taint action")
+		}
+	}
+
 	// Validate duration format if provided
 	if spec.Duration != "" {
 		if err := ValidateDurationFormat(spec.Duration); err != nil {
