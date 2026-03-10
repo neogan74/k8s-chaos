@@ -68,6 +68,7 @@ spec:
                 - pod-memory-stress
                 - pod-failure
                 - pod-network-loss
+                - pod-network-corruption
                 - pod-disk-fill
                 - pod-restart
                 - network-partition
@@ -78,6 +79,22 @@ spec:
                   AllowProduction explicitly allows experiments in production namespaces
                   Production namespaces are identified by annotations or labels (environment=production, env=prod)
                 type: boolean
+              corruptionCorrelation:
+                default: 0
+                description: |-
+                  CorruptionCorrelation specifies correlation for packet corruption (for pod-network-corruption)
+                  Higher values make corruptions cluster together. Range: 0-100.
+                maximum: 100
+                minimum: 0
+                type: integer
+              corruptionPercentage:
+                default: 5
+                description: |-
+                  CorruptionPercentage specifies the packet corruption percentage (for pod-network-corruption)
+                  Range: 1-100. Percentage of packets to corrupt.
+                maximum: 100
+                minimum: 1
+                type: integer
               count:
                 default: 1
                 description: Count specifies the number of resources to affect

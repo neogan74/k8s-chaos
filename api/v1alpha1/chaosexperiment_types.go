@@ -46,7 +46,7 @@ type ChaosExperimentSpec struct {
 
 	// Action specifies the chaos action to perform
 	// +kubebuilder:validation:Required
-	// +kubebuilder:validation:Enum=pod-kill;pod-delay;node-drain;pod-cpu-stress;pod-memory-stress;pod-failure;pod-network-loss;pod-disk-fill;pod-restart;network-partition
+	// +kubebuilder:validation:Enum=pod-kill;pod-delay;node-drain;pod-cpu-stress;pod-memory-stress;pod-failure;pod-network-loss;pod-network-corruption;pod-disk-fill;pod-restart;network-partition
 	Action string `json:"action"`
 
 	// Namespace specifies the target namespace for chaos experiments
@@ -139,6 +139,22 @@ type ChaosExperimentSpec struct {
 	// +kubebuilder:default=0
 	// +optional
 	LossCorrelation int `json:"lossCorrelation,omitempty"`
+
+	// CorruptionPercentage specifies the packet corruption percentage (for pod-network-corruption)
+	// Range: 1-100. Percentage of packets to corrupt.
+	// +kubebuilder:validation:Minimum=1
+	// +kubebuilder:validation:Maximum=100
+	// +kubebuilder:default=5
+	// +optional
+	CorruptionPercentage int `json:"corruptionPercentage,omitempty"`
+
+	// CorruptionCorrelation specifies correlation for packet corruption (for pod-network-corruption)
+	// Higher values make corruptions cluster together. Range: 0-100.
+	// +kubebuilder:validation:Minimum=0
+	// +kubebuilder:validation:Maximum=100
+	// +kubebuilder:default=0
+	// +optional
+	CorruptionCorrelation int `json:"corruptionCorrelation,omitempty"`
 
 	// FillPercentage specifies the percentage of disk space to fill (for pod-disk-fill)
 	// Range: 50-95. Conservative limits to avoid total exhaustion.

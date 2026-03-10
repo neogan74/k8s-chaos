@@ -240,6 +240,16 @@ func (w *ChaosExperimentWebhook) validateCrossFieldConstraints(spec *ChaosExperi
 		}
 	}
 
+	// pod-network-corruption action requires duration and corruptionPercentage
+	if spec.Action == "pod-network-corruption" {
+		if spec.Duration == "" {
+			return fmt.Errorf("duration is required for pod-network-corruption action")
+		}
+		if spec.CorruptionPercentage <= 0 {
+			return fmt.Errorf("corruptionPercentage must be specified and greater than 0 for pod-network-corruption action")
+		}
+	}
+
 	// pod-disk-fill action requires duration and fillPercentage
 	if spec.Action == "pod-disk-fill" {
 		if spec.Duration == "" {
