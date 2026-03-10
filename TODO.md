@@ -26,7 +26,7 @@
 - [x] **Handle Edge Cases**
   - [x] What if namespace doesn't exist? - Webhook validates this
   - [x] What if pods are already terminating?
-  - [ ] Handle permission denied errors gracefully
+  - [] Handle permission denied errors gracefully
 
 ## 📊 Observability
 
@@ -48,7 +48,7 @@
   - [x] Add `affectedPods` list with pod names
   - [x] Add `startTime` and `completedAt` timestamps
   - [x] Add retry tracking fields (retryCount, nextRetryTime, lastError)
-- [ ] **Kubernetes Events** - Emit events on ChaosExperiment and affected pods
+- [x] **Kubernetes Events** - Emit events on ChaosExperiment and affected pods
 
 ## 🚀 New Chaos Actions
 
@@ -58,7 +58,7 @@
 - [x] **pod-memory-stress** - Consume memory resources
 - [x] **pod-network-loss** - Simulate packet loss
 - [x] **pod-disk-fill** - Fill pod disk space
-- [ ] **pod-network-corruption** - Corrupt network packets
+- [x] **pod-network-corruption** - Corrupt network packets
 - [x] **pod-restart** - Restart pods instead of delete
 
 ### Node Chaos

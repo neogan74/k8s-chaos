@@ -183,6 +183,8 @@ func (r *ChaosExperimentReconciler) Reconcile(ctx context.Context, req ctrl.Requ
 		return r.handlePodRestart(ctx, &exp)
 	case "pod-network-loss":
 		return r.handlePodNetworkLoss(ctx, &exp)
+	case "pod-network-corruption":
+		return r.handlePodNetworkCorruption(ctx, &exp)
 	case "network-partition":
 		return r.handleNetworkPartition(ctx, &exp)
 	case "pod-disk-fill":
@@ -2016,6 +2018,176 @@ func (r *ChaosExperimentReconciler) handlePodDiskFill(ctx context.Context, exp *
 	}
 
 	return ctrl.Result{RequeueAfter: time.Minute}, nil
+}
+
+// handlePodNetworkCorruption injects ephemeral containers to corrupt packets
+func (r *ChaosExperimentReconciler) handlePodNetworkCorruption(ctx context.Context, exp *chaosv1alpha1.ChaosExperiment) (ctrl.Result, error) {
+	log := ctrl.LoggerFrom(ctx)
+	startTime := time.Now()
+
+	// Track active experiments
+	chaosmetrics.ActiveExperiments.WithLabelValues("pod-network-corruption").Inc()
+	defer chaosmetrics.ActiveExperiments.WithLabelValues("pod-network-corruption").Dec()
+
+	// Validate namespace
+	if exp.Spec.Namespace == "" {
+		return r.handleExperimentFailure(ctx, exp, "Namespace not specified")
+	}
+
+	// Validate required fields
+	if exp.Spec.CorruptionPercentage <= 0 {
+		return r.handleExperimentFailure(ctx, exp, "CorruptionPercentage must be greater than 0")
+	}
+
+	if exp.Spec.Duration == "" {
+		return r.handleExperimentFailure(ctx, exp, "Duration is required for network corruption")
+	}
+
+	// Parse duration to seconds for tc timeout
+	duration, err := r.parseDuration(exp.Spec.Duration)
+	if err != nil {
+		return r.handleExperimentFailure(ctx, exp, fmt.Sprintf("Invalid duration format: %v", err))
+	}
+	timeoutSeconds := int(duration.Seconds())
+
+	// Get eligible pods
+	eligiblePods, err := r.getEligiblePods(ctx, exp)
+	if err != nil {
+		return ctrl.Result{}, err
+	}
+
+	if len(eligiblePods) == 0 {
+		log.Info("No eligible pods found for selector", "selector", exp.Spec.Selector)
+		exp.Status.Message = "No eligible pods found matching selector"
+		_ = r.Status().Update(ctx, exp)
+		return ctrl.Result{RequeueAfter: time.Minute}, nil
+	}
+
+	// Handle dry-run mode
+	if exp.Spec.DryRun {
+		return r.handleDryRun(ctx, exp, eligiblePods, "pod-network-corruption")
+	}
+
+	// Shuffle the list of pods
+	rand.Shuffle(len(eligiblePods), func(i, j int) {
+		eligiblePods[i], eligiblePods[j] = eligiblePods[j], eligiblePods[i]
+	})
+
+	// Determine how many pods to affect
+	affectCount := exp.Spec.Count
+	if affectCount <= 0 {
+		affectCount = 1
+	}
+	if affectCount > len(eligiblePods) {
+		affectCount = len(eligiblePods)
+	}
+
+	// Inject ephemeral containers to apply packet corruption
+	affectedPods := []string{}
+	for i := 0; i < affectCount; i++ {
+		pod := eligiblePods[i]
+		log.Info("Injecting network corruption into pod",
+			"pod", pod.Name,
+			"namespace", pod.Namespace,
+			"corruptionPercentage", exp.Spec.CorruptionPercentage,
+			"correlation", exp.Spec.CorruptionCorrelation)
+
+		containerName, err := r.injectNetworkCorruptionContainer(ctx, &pod, exp.Spec.CorruptionPercentage, exp.Spec.CorruptionCorrelation, timeoutSeconds)
+		if err != nil {
+			log.Error(err, "Failed to inject network corruption container", "pod", pod.Name)
+			continue
+		}
+
+		// Emit event on the affected pod
+		r.Recorder.Eventf(&pod, corev1.EventTypeWarning, "ChaosPodNetworkCorruption",
+			"Injected %d%% packet corruption by chaos experiment %s", exp.Spec.CorruptionPercentage, exp.Name)
+
+		// Track the affected pod for cleanup later
+		r.trackAffectedPod(exp, pod.Namespace, pod.Name, containerName)
+		affectedPods = append(affectedPods, pod.Name)
+	}
+
+	// Update status
+	now := metav1.Now()
+	exp.Status.LastRunTime = &now
+	status := statusSuccess
+	if len(affectedPods) > 0 {
+		exp.Status.Message = fmt.Sprintf("Successfully injected %d%% packet corruption into %d pod(s) for %s",
+			exp.Spec.CorruptionPercentage, len(affectedPods), exp.Spec.Duration)
+	} else {
+		exp.Status.Message = "Failed to inject network corruption into any pods"
+		status = statusFailure
+	}
+	if err := r.Status().Update(ctx, exp); err != nil {
+		log.Error(err, "Failed to update ChaosExperiment status")
+		return ctrl.Result{}, err
+	}
+
+	// Record metrics
+	elapsed := time.Since(startTime)
+	chaosmetrics.ExperimentsTotal.WithLabelValues("pod-network-corruption", exp.Spec.Namespace, status).Inc()
+	chaosmetrics.ExperimentDuration.WithLabelValues("pod-network-corruption", exp.Spec.Namespace).Observe(elapsed.Seconds())
+	chaosmetrics.ResourcesAffected.WithLabelValues("pod-network-corruption", exp.Spec.Namespace, exp.Name).Set(float64(len(affectedPods)))
+
+	// Create history record
+	affectedResources := buildResourceReferences(fmt.Sprintf("network-corruption-%d%%", exp.Spec.CorruptionPercentage), exp.Spec.Namespace, affectedPods, "Pod")
+	var errorDetails *chaosv1alpha1.ErrorDetails
+	if status == statusFailure {
+		errorDetails = &chaosv1alpha1.ErrorDetails{
+			Message:       exp.Status.Message,
+			FailureReason: "ExecutionError",
+		}
+	}
+	if err := r.createHistoryRecord(ctx, exp, status, affectedResources, startTime, errorDetails); err != nil {
+		log.Error(err, "Failed to create history record")
+	}
+
+	return ctrl.Result{RequeueAfter: time.Minute}, nil
+}
+
+// injectNetworkCorruptionContainer adds an ephemeral container with tc netem to corrupt packets
+func (r *ChaosExperimentReconciler) injectNetworkCorruptionContainer(ctx context.Context, pod *corev1.Pod, percentage, correlation, durationSeconds int) (string, error) {
+	log := ctrl.LoggerFrom(ctx)
+
+	// Build tc command with correlation if specified
+	var tcCmd string
+	if correlation > 0 {
+		tcCmd = fmt.Sprintf("tc qdisc add dev eth0 root netem corrupt %d%% %d%% && sleep %d && tc qdisc del dev eth0 root",
+			percentage, correlation, durationSeconds)
+	} else {
+		tcCmd = fmt.Sprintf("tc qdisc add dev eth0 root netem corrupt %d%% && sleep %d && tc qdisc del dev eth0 root",
+			percentage, durationSeconds)
+	}
+
+	// Generate unique container name
+	containerName := fmt.Sprintf("network-corrupt-%d", time.Now().Unix())
+
+	// Create ephemeral container with NET_ADMIN capability
+	ephemeralContainer := corev1.EphemeralContainer{
+		EphemeralContainerCommon: corev1.EphemeralContainerCommon{
+			Name:    containerName,
+			Image:   "ghcr.io/neogan74/iproute2:latest",
+			Command: []string{"/bin/sh", "-c", tcCmd},
+			SecurityContext: &corev1.SecurityContext{
+				Capabilities: &corev1.Capabilities{
+					Add: []corev1.Capability{"NET_ADMIN"},
+				},
+			},
+		},
+	}
+
+	// Use the generic retry wrapper to inject the container
+	if err := r.updatePodWithEphemeralContainer(ctx, pod, ephemeralContainer); err != nil {
+		return "", err
+	}
+
+	log.Info("Successfully injected network corruption ephemeral container",
+		"pod", pod.Name,
+		"container", containerName,
+		"percentage", percentage,
+		"correlation", correlation)
+
+	return containerName, nil
 }
 
 // injectNetworkLossContainer injects an ephemeral container that applies packet loss using tc netem

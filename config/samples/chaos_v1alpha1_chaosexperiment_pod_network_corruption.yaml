@@ -1,0 +1,49 @@
+apiVersion: chaos.gushchin.dev/v1alpha1
+kind: ChaosExperiment
+metadata:
+  labels:
+    app.kubernetes.io/name: chaosexperiment
+    app.kubernetes.io/managed-by: kustomize
+  name: pod-network-corruption-sample
+spec:
+  # ACTION: pod-network-corruption
+  # SIMULATES: Packet corruption in network communication.
+  # BEHAVIOR: Injects an ephemeral container running the 'tc' command to corrupt packets on eth0 interface.
+  action: pod-network-corruption
+  
+  # Target resources in the default namespace
+  namespace: default
+  
+  # Select which pods to affect
+  # This example targets pods with the label "app=frontend"
+  selector:
+    app: frontend
+    
+  # How many matching pods to affect (default is 1)
+  count: 1
+  
+  # DURATION (Required for pod-network-corruption)
+  # How long the network corruption should be applied.
+  # The ephemeral container will remove the tc rule and sleep.
+  # Formats: "10s", "1m", "1h"
+  duration: 30s
+  
+  # CORRUPTION PERCENTAGE (Required)
+  # Percentage of packets that should be corrupted (1-100)
+  corruptionPercentage: 10
+  
+  # CORRUPTION CORRELATION (Optional)
+  # Correlation controls how likely a corruption is to follow a previous corrupted packet.
+  # Range: 0-100. Default: 0
+  corruptionCorrelation: 20
+  
+  # --- SAFETY FEATURES ---
+  
+  # MAX PERCENTAGE (Optional)
+  # Protects against selecting too many pods if count is high
+  # e.g., never affect more than 50% of matching pods
+  maxPercentage: 50
+  
+  # DRY RUN (Optional)
+  # Set to true to see which pods would be affected without actually doing it
+  dryRun: false
