@@ -161,13 +161,13 @@ func (w *ChaosExperimentWebhook) validateCrossFieldConstraints(spec *ChaosExperi
 		return fmt.Errorf("duration is required for pod-delay action")
 	}
 
-	// pod-cpu-stress action requires duration and cpuLoad
-	if spec.Action == "pod-cpu-stress" {
+	// pod-cpu-stress and node-cpu-stress actions require duration and cpuLoad
+	if spec.Action == "pod-cpu-stress" || spec.Action == "node-cpu-stress" {
 		if spec.Duration == "" {
-			return fmt.Errorf("duration is required for pod-cpu-stress action")
+			return fmt.Errorf("duration is required for %s action", spec.Action)
 		}
 		if spec.CPULoad <= 0 {
-			return fmt.Errorf("cpuLoad must be specified and greater than 0 for pod-cpu-stress action")
+			return fmt.Errorf("cpuLoad must be specified and greater than 0 for %s action", spec.Action)
 		}
 	}
 
@@ -219,13 +219,13 @@ func (w *ChaosExperimentWebhook) validateCrossFieldConstraints(spec *ChaosExperi
 		}
 	}
 
-	// pod-cpu-stress action requires duration and cpuLoad
-	if spec.Action == "pod-cpu-stress" {
+	// pod-cpu-stress and node-cpu-stress actions require duration and cpuLoad
+	if spec.Action == "pod-cpu-stress" || spec.Action == "node-cpu-stress" {
 		if spec.Duration == "" {
-			return fmt.Errorf("duration is required for pod-cpu-stress action")
+			return fmt.Errorf("duration is required for %s action", spec.Action)
 		}
 		if spec.CPULoad <= 0 {
-			return fmt.Errorf("cpuLoad must be specified and greater than 0 for pod-cpu-stress action")
+			return fmt.Errorf("cpuLoad must be specified and greater than 0 for %s action", spec.Action)
 		}
 	}
 

@@ -46,7 +46,7 @@ type ChaosExperimentSpec struct {
 
 	// Action specifies the chaos action to perform
 	// +kubebuilder:validation:Required
-	// +kubebuilder:validation:Enum=pod-kill;pod-delay;node-drain;node-taint;pod-cpu-stress;pod-memory-stress;pod-failure;pod-network-loss;pod-network-corruption;pod-disk-fill;pod-restart;network-partition
+	// +kubebuilder:validation:Enum=pod-kill;pod-delay;node-drain;node-taint;node-cpu-stress;pod-cpu-stress;pod-memory-stress;pod-failure;pod-network-loss;pod-network-corruption;pod-disk-fill;pod-restart;network-partition
 	Action string `json:"action"`
 
 	// Namespace specifies the target namespace for chaos experiments
