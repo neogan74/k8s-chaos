@@ -197,11 +197,20 @@ var _ = Describe("ChaosExperiment Controller", func() {
 		})
 
 		It("Should skip terminating pods", func() {
+			// Use a unique namespace for this test to avoid race conditions with BeforeEach/AfterEach cleanup
+			uniqueNamespace := "test-term-ns-" + generateShortUID()
+
+			realNs := &corev1.Namespace{ObjectMeta: metav1.ObjectMeta{Name: uniqueNamespace}}
+			Expect(k8sClient.Create(ctx, realNs)).Should(Succeed())
+			defer func() {
+				_ = k8sClient.Delete(ctx, realNs)
+			}()
+
 			By("Creating a terminating pod")
 			pod := &corev1.Pod{
 				ObjectMeta: metav1.ObjectMeta{
 					Name:      "terminating-pod",
-					Namespace: targetNamespace,
+					Namespace: uniqueNamespace,
 					Labels: map[string]string{
 						"app": "test-terminating",
 					},
@@ -222,8 +231,8 @@ var _ = Describe("ChaosExperiment Controller", func() {
 
 			By("Adding finalizer to keep pod in Terminating state when deleted")
 			podWithFinalizer := &corev1.Pod{}
-			Expect(k8sClient.Get(ctx, types.NamespacedName{Name: pod.Name, Namespace: pod.Namespace}, podWithFinalizer)).Should(Succeed())
-			podWithFinalizer.Finalizers = append(podWithFinalizer.Finalizers, "chaos-test-finalizer")
+			Expect(k8sClient.Get(ctx, types.NamespacedName{Name: pod.Name, Namespace: uniqueNamespace}, podWithFinalizer)).Should(Succeed())
+			podWithFinalizer.Finalizers = append(podWithFinalizer.Finalizers, "chaos.gushchin.dev/test-finalizer")
 			Expect(k8sClient.Update(ctx, podWithFinalizer)).Should(Succeed())
 
 			By("Deleting the pod to set DeletionTimestamp")
@@ -237,7 +246,7 @@ var _ = Describe("ChaosExperiment Controller", func() {
 				},
 				Spec: chaosv1alpha1.ChaosExperimentSpec{
 					Action:    "pod-kill",
-					Namespace: targetNamespace,
+					Namespace: uniqueNamespace,
 					Selector: map[string]string{
 						"app": "test-terminating",
 					},

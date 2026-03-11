@@ -64,6 +64,7 @@ spec:
                 - pod-kill
                 - pod-delay
                 - node-drain
+                - node-taint
                 - pod-cpu-stress
                 - pod-memory-stress
                 - pod-failure
@@ -279,6 +280,22 @@ spec:
                 description: Selector specifies the label selector for target resources
                 minProperties: 1
                 type: object
+              taintEffect:
+                default: NoSchedule
+                description: TaintEffect specifies the effect of the taint (for node-taint)
+                enum:
+                - NoSchedule
+                - PreferNoSchedule
+                - NoExecute
+                type: string
+              taintKey:
+                description: TaintKey specifies the key of the taint to apply to nodes
+                  (for node-taint)
+                type: string
+              taintValue:
+                description: TaintValue specifies the value of the taint to apply
+                  to nodes (for node-taint)
+                type: string
               targetCIDRs:
                 description: |-
                   TargetCIDRs specifies IP ranges to block using CIDR notation (for network-partition)
@@ -507,6 +524,13 @@ spec:
                 description: StartTime indicates when the experiment started running
                 format: date-time
                 type: string
+              taintedNodes:
+                description: |-
+                  TaintedNodes tracks nodes that were tainted by this experiment
+                  Used for removing taints when the experiment completes
+                items:
+                  type: string
+                type: array
             type: object
         required:
         - spec

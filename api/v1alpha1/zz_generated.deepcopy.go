@@ -291,6 +291,11 @@ func (in *ChaosExperimentStatus) DeepCopyInto(out *ChaosExperimentStatus) {
 		*out = make([]string, len(*in))
 		copy(*out, *in)
 	}
+	if in.TaintedNodes != nil {
+		in, out := &in.TaintedNodes, &out.TaintedNodes
+		*out = make([]string, len(*in))
+		copy(*out, *in)
+	}
 	if in.Conditions != nil {
 		in, out := &in.Conditions, &out.Conditions
 		*out = make([]v1.Condition, len(*in))
