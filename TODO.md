@@ -77,7 +77,7 @@
 
 ### Scheduling
 - [x] **Cron Scheduling** - Add cron expression support for recurring experiments ✅ COMPLETED
-- [ ] **Time Windows** - Define maintenance windows for experiments
+- [x] **Time Windows** - Define maintenance windows for experiments
 - [ ] **Dependency Management** - Wait for other experiments to complete
 
 ### Duration Control

@@ -23,6 +23,7 @@ import (
 	"github.com/spf13/cobra"
 	"k8s.io/apimachinery/pkg/types"
 
+	"github.com/neogan74/k8s-chaos/api/v1alpha1"
 	chaosv1alpha1 "github.com/neogan74/k8s-chaos/api/v1alpha1"
 )
 
@@ -91,6 +92,32 @@ func printExperimentDetails(exp *chaosv1alpha1.ChaosExperiment) {
 		fmt.Printf("  Experiment Duration: %s\n", exp.Spec.ExperimentDuration)
 	} else {
 		fmt.Printf("  Experiment Duration: ∞ (runs indefinitely)\n")
+	}
+
+	if exp.Spec.Schedule != "" {
+		fmt.Printf("  Schedule:            %s\n", exp.Spec.Schedule)
+	}
+
+	if len(exp.Spec.TimeWindows) > 0 {
+		fmt.Printf("  Time Windows:        %d configured\n", len(exp.Spec.TimeWindows))
+		for i, w := range exp.Spec.TimeWindows {
+			if w.Type == v1alpha1.TimeWindowRecurring {
+				fmt.Printf("    [%d] Recurring: %s-%s (%v) TZ:%s\n", i+1, w.Start, w.End, w.DaysOfWeek, w.Timezone)
+			} else {
+				fmt.Printf("    [%d] Absolute:  %s to %s\n", i+1, w.Start, w.End)
+			}
+		}
+	}
+
+	if len(exp.Spec.MaintenanceWindows) > 0 {
+		fmt.Printf("  Maintenance Windows: %d configured\n", len(exp.Spec.MaintenanceWindows))
+		for i, w := range exp.Spec.MaintenanceWindows {
+			if w.Type == v1alpha1.TimeWindowRecurring {
+				fmt.Printf("    [%d] Recurring: %s-%s (%v) TZ:%s\n", i+1, w.Start, w.End, w.DaysOfWeek, w.Timezone)
+			} else {
+				fmt.Printf("    [%d] Absolute:  %s to %s\n", i+1, w.Start, w.End)
+			}
+		}
 	}
 
 	fmt.Println()
