@@ -168,6 +168,19 @@ func (r *ChaosExperimentReconciler) Reconcile(ctx context.Context, req ctrl.Requ
 		return ctrl.Result{RequeueAfter: time.Until(requeueAt)}, nil
 	}
 
+	// Check experiment dependencies
+	dependenciesMet, err := r.checkDependencies(ctx, &exp)
+	if err != nil {
+		log.Error(err, "Failed to check dependencies")
+		exp.Status.Message = fmt.Sprintf("Dependency error: %v", err)
+		_ = r.Status().Update(ctx, &exp)
+		return ctrl.Result{}, err
+	}
+	if !dependenciesMet {
+		// Dependencies not met, requeue and wait
+		return ctrl.Result{RequeueAfter: 15 * time.Second}, nil
+	}
+
 	switch exp.Spec.Action {
 	case "pod-kill":
 		return r.handlePodKill(ctx, &exp)
@@ -3079,6 +3092,32 @@ func (r *ChaosExperimentReconciler) clearBlockedByTimeWindowCondition(ctx contex
 			break
 		}
 	}
+}
+
+// checkDependencies determines if all required dependent experiments have reached the Completed phase.
+func (r *ChaosExperimentReconciler) checkDependencies(ctx context.Context, exp *chaosv1alpha1.ChaosExperiment) (bool, error) {
+	if len(exp.Spec.DependsOn) == 0 {
+		return true, nil
+	}
+
+	for _, depName := range exp.Spec.DependsOn {
+		depExp := &chaosv1alpha1.ChaosExperiment{}
+		err := r.Get(ctx, types.NamespacedName{Name: depName, Namespace: exp.Namespace}, depExp)
+		if err != nil {
+			if apierrors.IsNotFound(err) {
+				exp.Status.Message = fmt.Sprintf("Waiting for dependency: experiment %q not found", depName)
+				return false, nil
+			}
+			return false, fmt.Errorf("failed to get dependent experiment %q: %w", depName, err)
+		}
+
+		if depExp.Status.Phase != phaseCompleted {
+			exp.Status.Message = fmt.Sprintf("Waiting for dependency: experiment %q is in phase %q", depName, depExp.Status.Phase)
+			return false, nil
+		}
+	}
+
+	return true, nil
 }
 
 // isEphemeralContainerRunning checks if an ephemeral container is currently running in a pod

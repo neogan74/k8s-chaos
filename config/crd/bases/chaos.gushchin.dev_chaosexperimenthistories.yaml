@@ -266,6 +266,13 @@ spec:
                     maximum: 32
                     minimum: 1
                     type: integer
+                  dependsOn:
+                    description: DependsOn specifies a list of experiment names in
+                      the same namespace that must reach "Completed" phase before
+                      this experiment can start executing.
+                    items:
+                      type: string
+                    type: array
                   direction:
                     default: both
                     description: Direction specifies the direction of network traffic

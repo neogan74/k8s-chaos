@@ -86,7 +86,7 @@ func (w *ChaosExperimentWebhook) ValidateCreate(ctx context.Context, obj runtime
 	}
 
 	// Validate cross-field constraints
-	if err := w.validateCrossFieldConstraints(&exp.Spec); err != nil {
+	if err := w.validateCrossFieldConstraints(exp.Name, &exp.Spec); err != nil {
 		return warnings, err
 	}
 
@@ -155,7 +155,14 @@ func (w *ChaosExperimentWebhook) validateSelectorEffectiveness(ctx context.Conte
 }
 
 // validateCrossFieldConstraints validates dependencies between fields
-func (w *ChaosExperimentWebhook) validateCrossFieldConstraints(spec *ChaosExperimentSpec) error {
+func (w *ChaosExperimentWebhook) validateCrossFieldConstraints(name string, spec *ChaosExperimentSpec) error {
+	// Validate DependsOn to ensure no self-dependency
+	for _, dep := range spec.DependsOn {
+		if dep == name {
+			return fmt.Errorf("experiment cannot depend on itself: %s", name)
+		}
+	}
+
 	// pod-delay action requires duration
 	if spec.Action == "pod-delay" && spec.Duration == "" {
 		return fmt.Errorf("duration is required for pod-delay action")

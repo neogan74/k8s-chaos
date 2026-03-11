@@ -84,6 +84,10 @@ func printExperimentDetails(exp *chaosv1alpha1.ChaosExperiment) {
 	fmt.Printf("  Selector:            %s\n", formatSelectorMultiline(exp.Spec.Selector))
 	fmt.Printf("  Count:               %d\n", exp.Spec.Count)
 
+	if len(exp.Spec.DependsOn) > 0 {
+		fmt.Printf("  Depends On:          %v\n", exp.Spec.DependsOn)
+	}
+
 	if exp.Spec.Duration != "" {
 		fmt.Printf("  Duration:            %s\n", exp.Spec.Duration)
 	}
