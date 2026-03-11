@@ -177,6 +177,8 @@ func (r *ChaosExperimentReconciler) Reconcile(ctx context.Context, req ctrl.Requ
 		return r.handleNodeDrain(ctx, &exp)
 	case "node-taint":
 		return r.handleNodeTaint(ctx, &exp)
+	case "node-cpu-stress":
+		return r.handleNodeCPUStress(ctx, &exp)
 	case "pod-cpu-stress":
 		return r.handlePodCPUStress(ctx, &exp)
 	case "pod-memory-stress":
@@ -548,6 +550,229 @@ func (r *ChaosExperimentReconciler) handlePodCPUStress(ctx context.Context, exp 
 	}
 
 	return ctrl.Result{RequeueAfter: time.Minute}, nil
+}
+
+// handleNodeCPUStress deploys a privileged pod running stress-ng to consume CPU resources on the target node
+func (r *ChaosExperimentReconciler) handleNodeCPUStress(ctx context.Context, exp *chaosv1alpha1.ChaosExperiment) (ctrl.Result, error) {
+	log := ctrl.LoggerFrom(ctx)
+	startTime := time.Now()
+
+	// Track active experiments
+	chaosmetrics.ActiveExperiments.WithLabelValues("node-cpu-stress").Inc()
+	defer chaosmetrics.ActiveExperiments.WithLabelValues("node-cpu-stress").Dec()
+
+	// Validate required fields for node-cpu-stress
+	if exp.Spec.CPULoad <= 0 {
+		return r.handleExperimentFailure(ctx, exp, "CPULoad must be specified and greater than 0 for node-cpu-stress")
+	}
+
+	if exp.Spec.Duration == "" {
+		return r.handleExperimentFailure(ctx, exp, "Duration is required for node-cpu-stress action")
+	}
+
+	// Parse duration for stress-ng timeout
+	durationSeconds, err := r.parseDurationToSeconds(exp.Spec.Duration)
+	if err != nil {
+		return r.handleExperimentFailure(ctx, exp, fmt.Sprintf("Invalid duration format: %s", exp.Spec.Duration))
+	}
+
+	// List eligible nodes
+	nodeList := &corev1.NodeList{}
+	selector := labels.SelectorFromSet(exp.Spec.Selector)
+	if err := r.List(ctx, nodeList, client.MatchingLabelsSelector{Selector: selector}); err != nil {
+		log.Error(err, "Failed to list nodes")
+		return r.handleExperimentFailure(ctx, exp, fmt.Sprintf("Failed to list nodes: %v", err))
+	}
+
+	if len(nodeList.Items) == 0 {
+		log.Info("No eligible nodes found for selector", "selector", exp.Spec.Selector)
+		exp.Status.Message = "No eligible nodes found matching selector"
+		_ = r.Status().Update(ctx, exp)
+		return ctrl.Result{RequeueAfter: time.Minute}, nil
+	}
+
+	// Handle dry-run mode
+	if exp.Spec.DryRun {
+		count := exp.Spec.Count
+		if count <= 0 {
+			count = 1
+		}
+		if count > len(nodeList.Items) {
+			count = len(nodeList.Items)
+		}
+
+		nodeNames := []string{}
+		for i := 0; i < count && i < len(nodeList.Items); i++ {
+			nodeNames = append(nodeNames, nodeList.Items[i].Name)
+		}
+
+		now := metav1.Now()
+		exp.Status.LastRunTime = &now
+		exp.Status.Message = fmt.Sprintf("DRY RUN: Would apply %d%% CPU stress to %d node(s): %v", exp.Spec.CPULoad, count, nodeNames)
+		exp.Status.Phase = "Completed"
+
+		if err := r.Status().Update(ctx, exp); err != nil {
+			log.Error(err, "Failed to update ChaosExperiment status")
+			return ctrl.Result{}, err
+		}
+
+		log.Info("Dry run completed", "action", "node-cpu-stress", "wouldAffect", count, "nodes", nodeNames)
+		return ctrl.Result{}, nil
+	}
+
+	// Shuffle the list of nodes
+	rand.Shuffle(len(nodeList.Items), func(i, j int) {
+		nodeList.Items[i], nodeList.Items[j] = nodeList.Items[j], nodeList.Items[i]
+	})
+
+	// Determine how many nodes to affect
+	affectCount := exp.Spec.Count
+	if affectCount <= 0 {
+		affectCount = 1 // Default to 1 if not specified or invalid
+	}
+	if affectCount > len(nodeList.Items) {
+		affectCount = len(nodeList.Items)
+	}
+
+	// Set default CPU workers if not specified
+	cpuWorkers := exp.Spec.CPUWorkers
+	if cpuWorkers <= 0 {
+		cpuWorkers = 1
+	}
+
+	// Apply CPU stress to selected nodes
+	affectedNodes := []string{}
+	for i := 0; i < affectCount; i++ {
+		node := &nodeList.Items[i]
+		log.Info("Injecting CPU stress onto node",
+			"node", node.Name,
+			"cpuLoad", exp.Spec.CPULoad,
+			"cpuWorkers", cpuWorkers,
+			"duration", durationSeconds)
+
+		// Create stress pod assigned directly to the node
+		podName, err := r.deployNodeCPUStressPod(ctx, exp, node.Name, cpuWorkers, exp.Spec.CPULoad, durationSeconds)
+		if err != nil {
+			log.Error(err, "Failed to deploy CPU stress pod", "node", node.Name)
+			chaosmetrics.ExperimentErrors.WithLabelValues("node-cpu-stress", exp.Spec.Namespace).Inc()
+			continue
+		}
+
+		// Emit event on the affected node
+		r.Recorder.Eventf(node, corev1.EventTypeWarning, "ChaosNodeCPUStress",
+			"Deployed CPU stress pod %s (%d%% load, %d workers) by chaos experiment %s",
+			podName, exp.Spec.CPULoad, cpuWorkers, exp.Name)
+
+		affectedNodes = append(affectedNodes, node.Name)
+	}
+
+	// Update status
+	now := metav1.Now()
+	exp.Status.LastRunTime = &now
+	status := statusSuccess
+	if len(affectedNodes) > 0 {
+		exp.Status.Message = fmt.Sprintf("Successfully applied %d%% CPU stress to %d node(s) for %ds",
+			exp.Spec.CPULoad, len(affectedNodes), durationSeconds)
+		// Reset retry count on success
+		exp.Status.RetryCount = 0
+		exp.Status.LastError = ""
+		exp.Status.NextRetryTime = nil
+	} else {
+		exp.Status.Message = "Failed to apply CPU stress to any nodes"
+		status = statusFailure
+	}
+	if err := r.Status().Update(ctx, exp); err != nil {
+		log.Error(err, "Failed to update ChaosExperiment status")
+		return ctrl.Result{}, err
+	}
+
+	// Record metrics
+	duration := time.Since(startTime).Seconds()
+	chaosmetrics.ExperimentsTotal.WithLabelValues("node-cpu-stress", exp.Spec.Namespace, status).Inc()
+	chaosmetrics.ExperimentDuration.WithLabelValues("node-cpu-stress", exp.Spec.Namespace).Observe(duration)
+	chaosmetrics.ResourcesAffected.WithLabelValues("node-cpu-stress", exp.Spec.Namespace, exp.Name).Set(float64(len(affectedNodes)))
+
+	// Create history record
+	affectedResources := buildResourceReferences(fmt.Sprintf("node-cpu-stress-%d%%", exp.Spec.CPULoad), "", affectedNodes, "Node")
+	var errorDetails *chaosv1alpha1.ErrorDetails
+	if status == statusFailure {
+		errorDetails = &chaosv1alpha1.ErrorDetails{
+			Message:       exp.Status.Message,
+			FailureReason: "ExecutionError",
+		}
+	}
+	if err := r.createHistoryRecord(ctx, exp, status, affectedResources, startTime, errorDetails); err != nil {
+		log.Error(err, "Failed to create history record")
+		// Don't fail the experiment if history recording fails
+	}
+
+	return ctrl.Result{RequeueAfter: time.Minute}, nil
+}
+
+// deployNodeCPUStressPod creates a pod directly assigned to the target node running stress-ng
+func (r *ChaosExperimentReconciler) deployNodeCPUStressPod(ctx context.Context, exp *chaosv1alpha1.ChaosExperiment, targetNode string, cpuWorkers, cpuLoad, durationSeconds int) (string, error) {
+	podName := fmt.Sprintf("chaos-node-cpu-stress-%s-%d", exp.Name, time.Now().Unix())
+	namespace := exp.Namespace
+	if namespace == "" {
+		namespace = "default"
+	}
+
+	// Ensure the pod runs as privileged with host namespace access to effectively stress the node
+	privileged := true
+
+	pod := &corev1.Pod{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      podName,
+			Namespace: namespace,
+			Labels: map[string]string{
+				"chaos.gushchin.dev/experiment": exp.Name,
+				"chaos.gushchin.dev/action":     "node-cpu-stress",
+			},
+			OwnerReferences: []metav1.OwnerReference{
+				*metav1.NewControllerRef(exp, chaosv1alpha1.GroupVersion.WithKind("ChaosExperiment")),
+			},
+		},
+		Spec: corev1.PodSpec{
+			NodeName:      targetNode,
+			RestartPolicy: corev1.RestartPolicyNever,
+			HostPID:       true, // Access host PIDs
+			HostNetwork:   true, // Access host network
+			HostIPC:       true, // Access host IPC
+			Tolerations: []corev1.Toleration{
+				{Operator: corev1.TolerationOpExists}, // Tolerate any taints to ensure it schedules
+			},
+			Containers: []corev1.Container{
+				{
+					Name:  "stress-ng",
+					Image: "alexeiled/stress-ng:latest-alpine",
+					Command: []string{
+						"stress-ng",
+						"--cpu", fmt.Sprintf("%d", cpuWorkers),
+						"--cpu-load", fmt.Sprintf("%d", cpuLoad),
+						"--timeout", fmt.Sprintf("%ds", durationSeconds),
+						"--metrics-brief",
+					},
+					SecurityContext: &corev1.SecurityContext{
+						Privileged: &privileged,
+					},
+					Resources: corev1.ResourceRequirements{
+						Limits: corev1.ResourceList{
+							corev1.ResourceCPU: resource.MustParse(fmt.Sprintf("%d", cpuWorkers)),
+						},
+						Requests: corev1.ResourceList{
+							corev1.ResourceCPU: resource.MustParse("100m"),
+						},
+					},
+				},
+			},
+		},
+	}
+
+	if err := r.Create(ctx, pod); err != nil {
+		return "", fmt.Errorf("failed to create stress pod on node %s: %w", targetNode, err)
+	}
+
+	return podName, nil
 }
 
 // updatePodWithEphemeralContainer updates a pod with a new ephemeral container, with retry logic for conflict errors
@@ -1163,7 +1388,7 @@ func (r *ChaosExperimentReconciler) taintNode(ctx context.Context, node *corev1.
 // untaintNode removes a specific taint from a node
 func (r *ChaosExperimentReconciler) untaintNode(ctx context.Context, nodeName, key, effect string) error {
 	log := ctrl.LoggerFrom(ctx)
-	
+
 	if nodeName == "" {
 		return fmt.Errorf("node name cannot be empty")
 	}

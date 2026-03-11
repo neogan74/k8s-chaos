@@ -65,7 +65,7 @@
 - [x] **node-drain** - Drain nodes temporarily
 - [x] **node-uncordon** - Auto-uncordon nodes after drain experiments complete ✅
 - [x] **node-taint** - Add taints to nodes
-- [ ] **node-cpu-stress** - Stress node CPU
+- [x] **node-cpu-stress** - Stress node CPU
 - [ ] **node-disk-fill** - Fill node disk space
 
 ### Network Chaos
