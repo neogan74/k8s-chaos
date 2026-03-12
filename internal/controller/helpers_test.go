@@ -2,11 +2,13 @@ package controller
 
 import (
 	"context"
+	"fmt"
 	"testing"
 	"time"
 
 	"github.com/stretchr/testify/assert"
 	corev1 "k8s.io/api/core/v1"
+	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 
 	chaosv1alpha1 "github.com/neogan74/k8s-chaos/api/v1alpha1"
@@ -827,4 +829,38 @@ func TestDefaultHistoryConfig(t *testing.T) {
 	assert.Equal(t, 100, config.RetentionLimit)
 	assert.Equal(t, 30*24*time.Hour, config.RetentionTTL)
 	assert.Equal(t, 1, config.SamplingRate)
+}
+
+// TestIsPermissionDeniedError verifies that RBAC errors are correctly categorised.
+func TestIsPermissionDeniedError(t *testing.T) {
+	forbiddenErr := &apierrors.StatusError{ErrStatus: metav1.Status{
+		Status: metav1.StatusFailure,
+		Reason: metav1.StatusReasonForbidden,
+		Code:   403,
+	}}
+	unauthorizedErr := &apierrors.StatusError{ErrStatus: metav1.Status{
+		Status: metav1.StatusFailure,
+		Reason: metav1.StatusReasonUnauthorized,
+		Code:   401,
+	}}
+	otherErr := fmt.Errorf("transient error")
+	wrappedForbidden := fmt.Errorf("outer wrapper: %w", forbiddenErr)
+
+	tests := []struct {
+		name string
+		err  error
+		want bool
+	}{
+		{"nil", nil, false},
+		{"forbidden 403", forbiddenErr, true},
+		{"unauthorized 401", unauthorizedErr, true},
+		{"other error", otherErr, false},
+		{"wrapped forbidden", wrappedForbidden, true},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			assert.Equal(t, tt.want, isPermissionDeniedError(tt.err))
+		})
+	}
 }

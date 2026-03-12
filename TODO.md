@@ -26,7 +26,7 @@
 - [x] **Handle Edge Cases**
   - [x] What if namespace doesn't exist? - Webhook validates this
   - [x] What if pods are already terminating?
-  - [] Handle permission denied errors gracefully
+  - [ ] Handle permission denied errors gracefully
 
 ## 📊 Observability
 
@@ -66,12 +66,16 @@
 - [x] **node-uncordon** - Auto-uncordon nodes after drain experiments complete ✅
 - [x] **node-taint** - Add taints to nodes
 - [x] **node-cpu-stress** - Stress node CPU
-- [ ] **node-disk-fill** - Fill node disk space
+- [ ] **node-disk-fill** - Fill node disk space (see ADR 0008 pattern for reference)
 
 ### Network Chaos
-- [ ] **network-partition** - Simulate network splits
-- [ ] **dns-chaos** - DNS resolution failures
-- [ ] **http-chaos** - HTTP response manipulation
+- [ ] **network-partition** - Simulate network splits between pod groups
+- [ ] **dns-chaos** - DNS resolution failures (corrupt or drop DNS responses)
+- [ ] **http-chaos** - HTTP response manipulation (inject errors, delays, wrong codes)
+
+### Application Chaos
+- [ ] **pod-io-stress** - Stress pod filesystem I/O (read/write throughput)
+- [ ] **pod-jvm-stress** - JVM heap/GC pressure for Java workloads
 
 ## ⏰ Scheduling & Duration
 
@@ -83,7 +87,7 @@
 ### Duration Control
 - [x] **Experiment Duration** - Add `experimentDuration` field to auto-stop experiments
 - [x] **Graceful Termination** - Clean up resources when experiment ends
-- [ ] **Pause/Resume** - Allow pausing and resuming experiments
+- [ ] **Pause/Resume** - Allow pausing and resuming experiments via spec field `paused: true`
 
 ## 🧪 Testing
 
@@ -91,6 +95,7 @@
 - [ ] **Increase Coverage** - Target 80% code coverage
 - [ ] **Test Edge Cases** - Add tests for error conditions
 - [ ] **Mock External Dependencies** - Better isolation in tests
+- [ ] **Node Chaos Tests** - Unit tests for node-taint, node-cpu-stress handlers
 
 ### Integration Tests
 - [ ] **E2E Test Scenarios**
@@ -98,6 +103,8 @@
   - [ ] Test with multiple namespaces
   - [ ] Test concurrent experiments
   - [ ] Test experiment cancellation
+  - [ ] E2E coverage for `pod-network-loss`
+  - [ ] E2E coverage for `node-taint` and `node-cpu-stress`
 - [ ] **Chaos Testing the Chaos Operator** - Self-testing scenarios
 
 ## 📖 Documentation
@@ -347,3 +354,36 @@ Pick items from the High Priority section first, then move to features that alig
 
 - **Testing**: Helm lint passed, template rendering successful
 - **Impact**: Major adoption barrier removed - one-command installation now available!
+
+## Recent Completions (2026-03)
+
+### Node Taint Action ✅
+- **Status**: Fully implemented
+- **Features**:
+  - Add arbitrary taints to nodes (`key=value:Effect` format)
+  - Auto-remove taints when `experimentDuration` elapses
+  - Tracks applied taints in `status.appliedTaints` for clean rollback
+  - Respects dry-run mode and exclusion labels
+  - Sample: `config/samples/chaos_v1alpha1_chaosexperiment_node_taint.yaml`
+
+### Node CPU Stress Action ✅
+- **Status**: Fully implemented
+- **Features**:
+  - Runs `stress-ng` as a privileged DaemonSet pod on target nodes
+  - Configurable worker count and CPU load percentage via `stressConfig`
+  - Auto-cleans up stress workloads when experiment completes
+  - Sample: `config/samples/chaos_v1alpha1_chaosexperiment_node_cpu_stress.yaml`
+
+### Dependency Management ✅
+- **Status**: Fully implemented
+- **Features**:
+  - `dependsOn` field allows waiting for other experiments to reach a target phase
+  - Supports `anyOf`/`allOf` semantics
+  - Experiment stays in `Pending` until dependencies are satisfied
+
+### Time Windows (Maintenance Windows) ✅
+- **Status**: Fully implemented
+- **Features**:
+  - `timeWindow` spec field with `start`/`end` (RFC3339 or cron expression)
+  - Experiments automatically pause outside the allowed window
+  - Integrated with scheduler so recurring experiments respect windows

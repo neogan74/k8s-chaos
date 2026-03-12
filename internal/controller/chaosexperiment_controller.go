@@ -19,6 +19,7 @@ package controller
 import (
 	"bytes"
 	"context"
+	"errors"
 	"fmt"
 	"math/rand"
 	"regexp"
@@ -227,6 +228,9 @@ func (r *ChaosExperimentReconciler) handlePodKill(ctx context.Context, exp *chao
 	// Get eligible pods (includes namespace validation and exclusion filtering)
 	eligiblePods, err := r.getEligiblePods(ctx, exp)
 	if err != nil {
+		if isPermissionDeniedError(err) {
+			return r.handlePermissionDenied(ctx, exp, "listing pods for pod-kill", err)
+		}
 		return r.handleExperimentFailure(ctx, exp, fmt.Sprintf("Failed to get eligible pods: %v", err))
 	}
 
@@ -340,6 +344,9 @@ func (r *ChaosExperimentReconciler) handlePodDelay(ctx context.Context, exp *cha
 	// Get eligible pods (includes namespace validation and exclusion filtering)
 	eligiblePods, err := r.getEligiblePods(ctx, exp)
 	if err != nil {
+		if isPermissionDeniedError(err) {
+			return r.handlePermissionDenied(ctx, exp, "listing pods for pod-delay", err)
+		}
 		log.Error(err, "Failed to get eligible pods")
 		exp.Status.Message = fmt.Sprintf("Error: Failed to get eligible pods: %v", err)
 		_ = r.Status().Update(ctx, exp)
@@ -459,6 +466,9 @@ func (r *ChaosExperimentReconciler) handlePodCPUStress(ctx context.Context, exp 
 	// Get eligible pods (includes namespace validation and exclusion filtering)
 	eligiblePods, err := r.getEligiblePods(ctx, exp)
 	if err != nil {
+		if isPermissionDeniedError(err) {
+			return r.handlePermissionDenied(ctx, exp, "listing pods for pod-cpu-stress", err)
+		}
 		return r.handleExperimentFailure(ctx, exp, fmt.Sprintf("Failed to get eligible pods: %v", err))
 	}
 
@@ -594,6 +604,9 @@ func (r *ChaosExperimentReconciler) handleNodeCPUStress(ctx context.Context, exp
 	selector := labels.SelectorFromSet(exp.Spec.Selector)
 	if err := r.List(ctx, nodeList, client.MatchingLabelsSelector{Selector: selector}); err != nil {
 		log.Error(err, "Failed to list nodes")
+		if isPermissionDeniedError(err) {
+			return r.handlePermissionDenied(ctx, exp, "listing nodes for node-cpu-stress", err)
+		}
 		return r.handleExperimentFailure(ctx, exp, fmt.Sprintf("Failed to list nodes: %v", err))
 	}
 
@@ -1035,6 +1048,9 @@ func (r *ChaosExperimentReconciler) handleNodeDrain(ctx context.Context, exp *ch
 	selector := labels.SelectorFromSet(exp.Spec.Selector)
 	if err := r.List(ctx, nodeList, client.MatchingLabelsSelector{Selector: selector}); err != nil {
 		log.Error(err, "Failed to list nodes")
+		if isPermissionDeniedError(err) {
+			return r.handlePermissionDenied(ctx, exp, "listing nodes for node-drain", err)
+		}
 		exp.Status.Message = "Error: Failed to list nodes"
 		_ = r.Status().Update(ctx, exp)
 		return ctrl.Result{}, err
@@ -1240,6 +1256,9 @@ func (r *ChaosExperimentReconciler) handleNodeTaint(ctx context.Context, exp *ch
 	selector := labels.SelectorFromSet(exp.Spec.Selector)
 	if err := r.List(ctx, nodeList, client.MatchingLabelsSelector{Selector: selector}); err != nil {
 		log.Error(err, "Failed to list nodes")
+		if isPermissionDeniedError(err) {
+			return r.handlePermissionDenied(ctx, exp, "listing nodes for node-taint", err)
+		}
 		exp.Status.Message = "Error: Failed to list nodes"
 		_ = r.Status().Update(ctx, exp)
 		return ctrl.Result{}, err
@@ -1582,6 +1601,69 @@ func (r *ChaosExperimentReconciler) shouldRetry(exp *chaosv1alpha1.ChaosExperime
 	}
 
 	return exp.Status.RetryCount < maxRetries
+}
+
+// isPermissionDeniedError returns true when the error represents a Kubernetes
+// RBAC denial (403 Forbidden or 401 Unauthorized). It unwraps wrapped errors
+// so callers passing fmt.Errorf("%w", apiErr) are handled correctly.
+func isPermissionDeniedError(err error) bool {
+	if err == nil {
+		return false
+	}
+	if apierrors.IsForbidden(err) || apierrors.IsUnauthorized(err) {
+		return true
+	}
+	// Check wrapped error (e.g. fmt.Errorf("failed to list pods: %w", apiErr))
+	var unwrapped error
+	for unwrapped = errors.Unwrap(err); unwrapped != nil; unwrapped = errors.Unwrap(unwrapped) {
+		if apierrors.IsForbidden(unwrapped) || apierrors.IsUnauthorized(unwrapped) {
+			return true
+		}
+	}
+	return false
+}
+
+// handlePermissionDenied surfaces a permanent RBAC-denial failure on the experiment.
+// It sets phase=Failed with an actionable remediation hint, emits a Warning event,
+// and does NOT requeue — retrying will not fix a permissions problem.
+func (r *ChaosExperimentReconciler) handlePermissionDenied(
+	ctx context.Context,
+	exp *chaosv1alpha1.ChaosExperiment,
+	operation string,
+	err error,
+) (ctrl.Result, error) {
+	log := ctrl.LoggerFrom(ctx)
+
+	msg := fmt.Sprintf(
+		"Permission denied while %s: %v. "+
+			"Ensure the controller ServiceAccount has the required RBAC verbs. "+
+			"Run: kubectl describe clusterrole chaos-operator-role",
+		operation, err,
+	)
+
+	log.Error(err, "Permission denied",
+		"operation", operation,
+		"experiment", exp.Name,
+		"namespace", exp.Namespace,
+	)
+
+	now := metav1.Now()
+	exp.Status.LastRunTime = &now
+	exp.Status.Phase = phaseFailed
+	exp.Status.Message = msg
+	exp.Status.LastError = msg
+	// Clear retry state — no point retrying an RBAC issue
+	exp.Status.NextRetryTime = nil
+
+	if updateErr := r.Status().Update(ctx, exp); updateErr != nil {
+		log.Error(updateErr, "Failed to update ChaosExperiment status after permission denial")
+		return ctrl.Result{}, updateErr
+	}
+
+	r.Recorder.Event(exp, corev1.EventTypeWarning, "PermissionDenied", msg)
+
+	// Do NOT requeue.
+	return ctrl.Result{}, nil
 }
 
 // handleExperimentFailure updates status and determines retry behavior
@@ -2068,6 +2150,9 @@ func (r *ChaosExperimentReconciler) handlePodFailure(ctx context.Context, exp *c
 	// Get eligible pods (includes namespace validation and exclusion filtering)
 	eligiblePods, err := r.getEligiblePods(ctx, exp)
 	if err != nil {
+		if isPermissionDeniedError(err) {
+			return r.handlePermissionDenied(ctx, exp, "listing pods for pod-failure", err)
+		}
 		return r.handleExperimentFailure(ctx, exp, fmt.Sprintf("Failed to get eligible pods: %v", err))
 	}
 
@@ -2159,6 +2244,9 @@ func (r *ChaosExperimentReconciler) handlePodRestart(ctx context.Context, exp *c
 	// Get eligible pods (includes namespace validation and exclusion filtering)
 	eligiblePods, err := r.getEligiblePods(ctx, exp)
 	if err != nil {
+		if isPermissionDeniedError(err) {
+			return r.handlePermissionDenied(ctx, exp, "listing pods for pod-restart", err)
+		}
 		return r.handleExperimentFailure(ctx, exp, fmt.Sprintf("Failed to get eligible pods: %v", err))
 	}
 
