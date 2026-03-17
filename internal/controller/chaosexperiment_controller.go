@@ -42,6 +42,7 @@ import (
 	"k8s.io/client-go/tools/remotecommand"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
+	"sigs.k8s.io/controller-runtime/pkg/manager"
 
 	chaosv1alpha1 "github.com/neogan74/k8s-chaos/api/v1alpha1"
 	chaosmetrics "github.com/neogan74/k8s-chaos/internal/metrics"
@@ -3340,9 +3341,11 @@ func (r *ChaosExperimentReconciler) trackAffectedPod(exp *chaosv1alpha1.ChaosExp
 
 // SetupWithManager sets up the controller with the Manager.
 func (r *ChaosExperimentReconciler) SetupWithManager(mgr ctrl.Manager) error {
-	// Start periodic TTL cleanup goroutine
+	// Start periodic TTL cleanup as a manager-managed Runnable
 	if r.HistoryConfig.Enabled && r.HistoryConfig.RetentionTTL > 0 {
-		go r.startPeriodicTTLCleanup(mgr.GetClient())
+		if err := mgr.Add(manager.RunnableFunc(r.startPeriodicTTLCleanup)); err != nil {
+			return err
+		}
 	}
 
 	return ctrl.NewControllerManagedBy(mgr).

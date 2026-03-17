@@ -3,7 +3,7 @@
 This file tracks remaining work items not yet completed. For the full historical list, see `TODO.md`.
 
 ## P0 (blocking/critical)
-- Add history TTL cleanup (in addition to retention limit).
+- Add history TTL cleanup (in addition to retention limit). [DONE]
 - Add E2E coverage for `pod-network-loss`.
 - Add unit tests for `node-taint` and `node-cpu-stress` handlers.
 
