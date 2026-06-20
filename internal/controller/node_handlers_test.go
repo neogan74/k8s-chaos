@@ -36,23 +36,23 @@ import (
 
 func TestTaintNode(t *testing.T) {
 	tests := []struct {
-		name              string
-		existingTaints    []corev1.Taint
-		taintKey          string
-		taintValue        string
-		taintEffect       string
+		name               string
+		existingTaints     []corev1.Taint
+		taintKey           string
+		taintValue         string
+		taintEffect        string
 		wantAlreadyTainted bool
-		wantTaintCount    int
-		wantErr           bool
+		wantTaintCount     int
+		wantErr            bool
 	}{
 		{
-			name:              "adds new taint to untainted node",
-			existingTaints:    nil,
-			taintKey:          "chaos/test",
-			taintValue:        "true",
-			taintEffect:       "NoSchedule",
+			name:               "adds new taint to untainted node",
+			existingTaints:     nil,
+			taintKey:           "chaos/test",
+			taintValue:         "true",
+			taintEffect:        "NoSchedule",
 			wantAlreadyTainted: false,
-			wantTaintCount:    1,
+			wantTaintCount:     1,
 		},
 		{
 			name: "detects already tainted node (same key + effect)",
@@ -138,19 +138,19 @@ func TestTaintNode(t *testing.T) {
 
 func TestCordonNode(t *testing.T) {
 	tests := []struct {
-		name                string
+		name                 string
 		alreadyUnschedulable bool
-		wantCordoned        bool // wasAlreadyCordoned returned
+		wantCordoned         bool // wasAlreadyCordoned returned
 	}{
 		{
-			name:                "cordons a schedulable node",
+			name:                 "cordons a schedulable node",
 			alreadyUnschedulable: false,
-			wantCordoned:        false,
+			wantCordoned:         false,
 		},
 		{
-			name:                "detects already cordoned node",
+			name:                 "detects already cordoned node",
 			alreadyUnschedulable: true,
-			wantCordoned:        true,
+			wantCordoned:         true,
 		},
 	}
 
@@ -273,11 +273,11 @@ func TestUntaintNode(t *testing.T) {
 
 func TestUncordonNode(t *testing.T) {
 	tests := []struct {
-		name              string
+		name               string
 		startUnschedulable bool
 		wantUnschedulable  bool
-		nodeMissing       bool
-		wantErr           bool
+		nodeMissing        bool
+		wantErr            bool
 	}{
 		{
 			name:               "uncordons a cordoned node",
