@@ -121,6 +121,12 @@ go test -tags=e2e ./test/e2e/ -v -ginkgo.focus="Disk Fill"
 go test -tags=e2e ./test/e2e/ -v -ginkgo.focus="pod-network-loss"
 ```
 
+### Webhook Validation Tests
+
+Webhook validation tests are skipped unless `WEBHOOK_ENABLED=true` is set in the environment.
+When enabled, ensure the controller is deployed with webhook certificates and a ValidatingWebhookConfiguration
+that targets the webhook service.
+
 ## Prerequisites
 
 ### Required Tools

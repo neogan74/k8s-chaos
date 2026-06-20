@@ -28,10 +28,12 @@ import (
 
 	"github.com/robfig/cron/v3"
 	corev1 "k8s.io/api/core/v1"
+	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/labels"
 	"k8s.io/apimachinery/pkg/runtime"
+	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/client-go/kubernetes"
 	"k8s.io/client-go/kubernetes/scheme"
 	"k8s.io/client-go/rest"
@@ -54,6 +56,7 @@ const (
 	phaseCompleted = "Completed"
 	phasePending   = "Pending"
 	phaseFailed    = "Failed"
+	phasePaused    = "Paused"
 
 	// Default retry configuration
 	defaultMaxRetries   = 3
@@ -75,12 +78,12 @@ type ChaosExperimentReconciler struct {
 // +kubebuilder:rbac:groups=chaos.gushchin.dev,resources=chaosexperiments/status,verbs=get;update;patch
 // +kubebuilder:rbac:groups=chaos.gushchin.dev,resources=chaosexperiments/finalizers,verbs=update
 // +kubebuilder:rbac:groups=chaos.gushchin.dev,resources=chaosexperimenthistories,verbs=create;get;list;watch;delete
-// +kubebuilder:rbac:groups="",resources=pods,verbs=get;list;delete;patch
+// +kubebuilder:rbac:groups="",resources=pods,verbs=get;list;watch;delete;patch
 // +kubebuilder:rbac:groups="",resources=pods/exec,verbs=create
 // +kubebuilder:rbac:groups="",resources=pods/ephemeralcontainers,verbs=get;update;patch
 // +kubebuilder:rbac:groups="",resources=nodes,verbs=get;list;watch;update;patch
 // +kubebuilder:rbac:groups="",resources=pods/eviction,verbs=create
-// +kubebuilder:rbac:groups="",resources=namespaces,verbs=get;list
+// +kubebuilder:rbac:groups="",resources=namespaces,verbs=get;list;watch
 // +kubebuilder:rbac:groups="",resources=events,verbs=create;patch
 
 // Reconcile is part of the main kubernetes reconciliation loop which aims to
@@ -107,6 +110,28 @@ func (r *ChaosExperimentReconciler) Reconcile(ctx context.Context, req ctrl.Requ
 		return ctrl.Result{}, nil
 	}
 
+	// Check if experiment is paused
+	if exp.Spec.Paused {
+		log.Info("Experiment is paused")
+		exp.Status.Phase = phasePaused
+		exp.Status.Message = "Experiment is paused"
+		if err := r.Status().Update(ctx, &exp); err != nil {
+			log.Error(err, "Failed to update status for paused experiment")
+			return ctrl.Result{}, err
+		}
+		return ctrl.Result{}, nil
+	}
+
+	// If resuming from pause, ensure phase is updated (cleared or set to running)
+	// The specific handler or next steps will update the phase appropriately
+	if exp.Status.Phase == phasePaused {
+		exp.Status.Phase = phaseRunning
+		if err := r.Status().Update(ctx, &exp); err != nil {
+			log.Error(err, "Failed to update status for resumed experiment")
+			return ctrl.Result{}, err
+		}
+	}
+
 	// Check experiment lifecycle (duration-based auto-stop)
 	shouldContinue, err := r.checkExperimentLifecycle(ctx, &exp)
 	if err != nil {
@@ -130,6 +155,19 @@ func (r *ChaosExperimentReconciler) Reconcile(ctx context.Context, req ctrl.Requ
 		return ctrl.Result{RequeueAfter: requeueAfter}, nil
 	}
 
+	// Check if we're within allowed time windows
+	inWindow, requeueAt, err := r.checkTimeWindows(ctx, &exp)
+	if err != nil {
+		log.Error(err, "Failed to check time windows")
+		exp.Status.Message = fmt.Sprintf("Time window error: %v", err)
+		_ = r.Status().Update(ctx, &exp)
+		return ctrl.Result{}, err
+	}
+	if !inWindow {
+		// Outside time window, requeue for the next window opening
+		return ctrl.Result{RequeueAfter: time.Until(requeueAt)}, nil
+	}
+
 	switch exp.Spec.Action {
 	case "pod-kill":
 		return r.handlePodKill(ctx, &exp)
@@ -137,6 +175,10 @@ func (r *ChaosExperimentReconciler) Reconcile(ctx context.Context, req ctrl.Requ
 		return r.handlePodDelay(ctx, &exp)
 	case "node-drain":
 		return r.handleNodeDrain(ctx, &exp)
+	case "node-taint":
+		return r.handleNodeTaint(ctx, &exp)
+	case "node-cpu-stress":
+		return r.handleNodeCPUStress(ctx, &exp)
 	case "pod-cpu-stress":
 		return r.handlePodCPUStress(ctx, &exp)
 	case "pod-memory-stress":
@@ -147,6 +189,10 @@ func (r *ChaosExperimentReconciler) Reconcile(ctx context.Context, req ctrl.Requ
 		return r.handlePodRestart(ctx, &exp)
 	case "pod-network-loss":
 		return r.handlePodNetworkLoss(ctx, &exp)
+	case "pod-network-corruption":
+		return r.handlePodNetworkCorruption(ctx, &exp)
+	case "network-partition":
+		return r.handleNetworkPartition(ctx, &exp)
 	case "pod-disk-fill":
 		return r.handlePodDiskFill(ctx, &exp)
 	default:
@@ -201,6 +247,11 @@ func (r *ChaosExperimentReconciler) handlePodKill(ctx context.Context, exp *chao
 	for i := 0; i < killCount; i++ {
 		pod := eligiblePods[i]
 		log.Info("Deleting pod", "pod", pod.Name, "namespace", pod.Namespace)
+
+		// Emit event on the pod before deleting it
+		r.Recorder.Event(&pod, corev1.EventTypeWarning, "ChaosPodKill",
+			fmt.Sprintf("Pod killed by chaos experiment %s", exp.Name))
+
 		if err := r.Delete(ctx, &pod); err != nil {
 			log.Error(err, "Failed to delete pod", "pod", pod.Name)
 			chaosErr := WrapK8sError(err, "delete pod")
@@ -324,6 +375,9 @@ func (r *ChaosExperimentReconciler) handlePodDelay(ctx context.Context, exp *cha
 		if err := r.applyNetworkDelay(ctx, &pod, delayMs); err != nil {
 			log.Error(err, "Failed to apply network delay", "pod", pod.Name)
 		} else {
+			// Emit event on the affected pod
+			r.Recorder.Eventf(&pod, corev1.EventTypeWarning, "ChaosPodNetworkDelay",
+				"Injected %dms network delay by chaos experiment %s", delayMs, exp.Name)
 			affectedPods = append(affectedPods, pod.Name)
 		}
 	}
@@ -467,6 +521,11 @@ func (r *ChaosExperimentReconciler) handlePodCPUStress(ctx context.Context, exp 
 			chaosErr := WrapK8sError(err, "update pod/ephemeralcontainers")
 			chaosmetrics.ExperimentErrors.WithLabelValues("pod-cpu-stress", exp.Spec.Namespace, string(chaosErr.Type)).Inc()
 		} else if containerName != "" {
+			// Emit event on the affected pod
+			r.Recorder.Eventf(&pod, corev1.EventTypeWarning, "ChaosPodCPUStress",
+				"Injected CPU stress (%d%% load, %d workers) by chaos experiment %s",
+				exp.Spec.CPULoad, cpuWorkers, exp.Name)
+
 			// Track the affected pod for cleanup later
 			r.trackAffectedPod(exp, pod.Namespace, pod.Name, containerName)
 			affectedPods = append(affectedPods, pod.Name)
@@ -514,6 +573,286 @@ func (r *ChaosExperimentReconciler) handlePodCPUStress(ctx context.Context, exp 
 	}
 
 	return ctrl.Result{RequeueAfter: time.Minute}, nil
+}
+
+// handleNodeCPUStress deploys a privileged pod running stress-ng to consume CPU resources on the target node
+func (r *ChaosExperimentReconciler) handleNodeCPUStress(ctx context.Context, exp *chaosv1alpha1.ChaosExperiment) (ctrl.Result, error) {
+	log := ctrl.LoggerFrom(ctx)
+	startTime := time.Now()
+
+	// Track active experiments
+	chaosmetrics.ActiveExperiments.WithLabelValues("node-cpu-stress").Inc()
+	defer chaosmetrics.ActiveExperiments.WithLabelValues("node-cpu-stress").Dec()
+
+	// Validate required fields for node-cpu-stress
+	if exp.Spec.CPULoad <= 0 {
+		return r.handleExperimentFailure(ctx, exp, "CPULoad must be specified and greater than 0 for node-cpu-stress")
+	}
+
+	if exp.Spec.Duration == "" {
+		return r.handleExperimentFailure(ctx, exp, "Duration is required for node-cpu-stress action")
+	}
+
+	// Parse duration for stress-ng timeout
+	durationSeconds, err := r.parseDurationToSeconds(exp.Spec.Duration)
+	if err != nil {
+		return r.handleExperimentFailure(ctx, exp, fmt.Sprintf("Invalid duration format: %s", exp.Spec.Duration))
+	}
+
+	// List eligible nodes
+	nodeList := &corev1.NodeList{}
+	selector := labels.SelectorFromSet(exp.Spec.Selector)
+	if err := r.List(ctx, nodeList, client.MatchingLabelsSelector{Selector: selector}); err != nil {
+		log.Error(err, "Failed to list nodes")
+		return r.handleExperimentFailure(ctx, exp, fmt.Sprintf("Failed to list nodes: %v", err))
+	}
+
+	if len(nodeList.Items) == 0 {
+		log.Info("No eligible nodes found for selector", "selector", exp.Spec.Selector)
+		exp.Status.Message = "No eligible nodes found matching selector"
+		_ = r.Status().Update(ctx, exp)
+		return ctrl.Result{RequeueAfter: time.Minute}, nil
+	}
+
+	// Handle dry-run mode
+	if exp.Spec.DryRun {
+		count := exp.Spec.Count
+		if count <= 0 {
+			count = 1
+		}
+		if count > len(nodeList.Items) {
+			count = len(nodeList.Items)
+		}
+
+		nodeNames := []string{}
+		for i := 0; i < count && i < len(nodeList.Items); i++ {
+			nodeNames = append(nodeNames, nodeList.Items[i].Name)
+		}
+
+		now := metav1.Now()
+		exp.Status.LastRunTime = &now
+		exp.Status.Message = fmt.Sprintf("DRY RUN: Would apply %d%% CPU stress to %d node(s): %v", exp.Spec.CPULoad, count, nodeNames)
+		exp.Status.Phase = "Completed"
+
+		if err := r.Status().Update(ctx, exp); err != nil {
+			log.Error(err, "Failed to update ChaosExperiment status")
+			return ctrl.Result{}, err
+		}
+
+		log.Info("Dry run completed", "action", "node-cpu-stress", "wouldAffect", count, "nodes", nodeNames)
+		return ctrl.Result{}, nil
+	}
+
+	// Shuffle the list of nodes
+	rand.Shuffle(len(nodeList.Items), func(i, j int) {
+		nodeList.Items[i], nodeList.Items[j] = nodeList.Items[j], nodeList.Items[i]
+	})
+
+	// Determine how many nodes to affect
+	affectCount := exp.Spec.Count
+	if affectCount <= 0 {
+		affectCount = 1 // Default to 1 if not specified or invalid
+	}
+	if affectCount > len(nodeList.Items) {
+		affectCount = len(nodeList.Items)
+	}
+
+	// Set default CPU workers if not specified
+	cpuWorkers := exp.Spec.CPUWorkers
+	if cpuWorkers <= 0 {
+		cpuWorkers = 1
+	}
+
+	// Apply CPU stress to selected nodes
+	affectedNodes := []string{}
+	for i := 0; i < affectCount; i++ {
+		node := &nodeList.Items[i]
+		log.Info("Injecting CPU stress onto node",
+			"node", node.Name,
+			"cpuLoad", exp.Spec.CPULoad,
+			"cpuWorkers", cpuWorkers,
+			"duration", durationSeconds)
+
+		// Create stress pod assigned directly to the node
+		podName, err := r.deployNodeCPUStressPod(ctx, exp, node.Name, cpuWorkers, exp.Spec.CPULoad, durationSeconds)
+		if err != nil {
+			log.Error(err, "Failed to deploy CPU stress pod", "node", node.Name)
+			chaosmetrics.ExperimentErrors.WithLabelValues("node-cpu-stress", exp.Spec.Namespace).Inc()
+			continue
+		}
+
+		// Emit event on the affected node
+		r.Recorder.Eventf(node, corev1.EventTypeWarning, "ChaosNodeCPUStress",
+			"Deployed CPU stress pod %s (%d%% load, %d workers) by chaos experiment %s",
+			podName, exp.Spec.CPULoad, cpuWorkers, exp.Name)
+
+		affectedNodes = append(affectedNodes, node.Name)
+	}
+
+	// Update status
+	now := metav1.Now()
+	exp.Status.LastRunTime = &now
+	status := statusSuccess
+	if len(affectedNodes) > 0 {
+		exp.Status.Message = fmt.Sprintf("Successfully applied %d%% CPU stress to %d node(s) for %ds",
+			exp.Spec.CPULoad, len(affectedNodes), durationSeconds)
+		// Reset retry count on success
+		exp.Status.RetryCount = 0
+		exp.Status.LastError = ""
+		exp.Status.NextRetryTime = nil
+	} else {
+		exp.Status.Message = "Failed to apply CPU stress to any nodes"
+		status = statusFailure
+	}
+	if err := r.Status().Update(ctx, exp); err != nil {
+		log.Error(err, "Failed to update ChaosExperiment status")
+		return ctrl.Result{}, err
+	}
+
+	// Record metrics
+	duration := time.Since(startTime).Seconds()
+	chaosmetrics.ExperimentsTotal.WithLabelValues("node-cpu-stress", exp.Spec.Namespace, status).Inc()
+	chaosmetrics.ExperimentDuration.WithLabelValues("node-cpu-stress", exp.Spec.Namespace).Observe(duration)
+	chaosmetrics.ResourcesAffected.WithLabelValues("node-cpu-stress", exp.Spec.Namespace, exp.Name).Set(float64(len(affectedNodes)))
+
+	// Create history record
+	affectedResources := buildResourceReferences(fmt.Sprintf("node-cpu-stress-%d%%", exp.Spec.CPULoad), "", affectedNodes, "Node")
+	var errorDetails *chaosv1alpha1.ErrorDetails
+	if status == statusFailure {
+		errorDetails = &chaosv1alpha1.ErrorDetails{
+			Message:       exp.Status.Message,
+			FailureReason: "ExecutionError",
+		}
+	}
+	if err := r.createHistoryRecord(ctx, exp, status, affectedResources, startTime, errorDetails); err != nil {
+		log.Error(err, "Failed to create history record")
+		// Don't fail the experiment if history recording fails
+	}
+
+	return ctrl.Result{RequeueAfter: time.Minute}, nil
+}
+
+// deployNodeCPUStressPod creates a pod directly assigned to the target node running stress-ng
+func (r *ChaosExperimentReconciler) deployNodeCPUStressPod(ctx context.Context, exp *chaosv1alpha1.ChaosExperiment, targetNode string, cpuWorkers, cpuLoad, durationSeconds int) (string, error) {
+	podName := fmt.Sprintf("chaos-node-cpu-stress-%s-%d", exp.Name, time.Now().Unix())
+	namespace := exp.Namespace
+	if namespace == "" {
+		namespace = "default"
+	}
+
+	// Ensure the pod runs as privileged with host namespace access to effectively stress the node
+	privileged := true
+
+	pod := &corev1.Pod{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      podName,
+			Namespace: namespace,
+			Labels: map[string]string{
+				"chaos.gushchin.dev/experiment": exp.Name,
+				"chaos.gushchin.dev/action":     "node-cpu-stress",
+			},
+			OwnerReferences: []metav1.OwnerReference{
+				*metav1.NewControllerRef(exp, chaosv1alpha1.GroupVersion.WithKind("ChaosExperiment")),
+			},
+		},
+		Spec: corev1.PodSpec{
+			NodeName:      targetNode,
+			RestartPolicy: corev1.RestartPolicyNever,
+			HostPID:       true, // Access host PIDs
+			HostNetwork:   true, // Access host network
+			HostIPC:       true, // Access host IPC
+			Tolerations: []corev1.Toleration{
+				{Operator: corev1.TolerationOpExists}, // Tolerate any taints to ensure it schedules
+			},
+			Containers: []corev1.Container{
+				{
+					Name:  "stress-ng",
+					Image: "alexeiled/stress-ng:latest-alpine",
+					Command: []string{
+						"stress-ng",
+						"--cpu", fmt.Sprintf("%d", cpuWorkers),
+						"--cpu-load", fmt.Sprintf("%d", cpuLoad),
+						"--timeout", fmt.Sprintf("%ds", durationSeconds),
+						"--metrics-brief",
+					},
+					SecurityContext: &corev1.SecurityContext{
+						Privileged: &privileged,
+					},
+					Resources: corev1.ResourceRequirements{
+						Limits: corev1.ResourceList{
+							corev1.ResourceCPU: resource.MustParse(fmt.Sprintf("%d", cpuWorkers)),
+						},
+						Requests: corev1.ResourceList{
+							corev1.ResourceCPU: resource.MustParse("100m"),
+						},
+					},
+				},
+			},
+		},
+	}
+
+	if err := r.Create(ctx, pod); err != nil {
+		return "", fmt.Errorf("failed to create stress pod on node %s: %w", targetNode, err)
+	}
+
+	return podName, nil
+}
+
+// updatePodWithEphemeralContainer updates a pod with a new ephemeral container, with retry logic for conflict errors
+func (r *ChaosExperimentReconciler) updatePodWithEphemeralContainer(ctx context.Context, pod *corev1.Pod, ephemeralContainer corev1.EphemeralContainer) error {
+	log := ctrl.LoggerFrom(ctx)
+	maxRetries := 5
+	backoff := time.Millisecond * 100
+
+	for attempt := 0; attempt < maxRetries; attempt++ {
+		// Get the current pod state to ensure we have the latest resource version
+		currentPod := &corev1.Pod{}
+		if err := r.Get(ctx, client.ObjectKeyFromObject(pod), currentPod); err != nil {
+			return fmt.Errorf("failed to get current pod state: %w", err)
+		}
+
+		// Check if ephemeral container already exists
+		exists := false
+		for _, c := range currentPod.Spec.EphemeralContainers {
+			if c.Name == ephemeralContainer.Name {
+				exists = true
+				break
+			}
+		}
+
+		if !exists {
+			// Append the ephemeral container
+			currentPod.Spec.EphemeralContainers = append(currentPod.Spec.EphemeralContainers, ephemeralContainer)
+		} else {
+			// Already exists, nothing to do
+			return nil
+		}
+
+		// Try to update the pod with the ephemeral container
+		err := r.Client.SubResource("ephemeralcontainers").Update(ctx, currentPod)
+		if err == nil {
+			return nil // Success
+		}
+
+		// Check if it's a conflict error (object has been modified)
+		if strings.Contains(err.Error(), "the object has been modified") || strings.Contains(err.Error(), "Operation cannot be fulfilled") {
+			if attempt < maxRetries-1 {
+				log.Info("Conflict detected during ephemeral container injection, retrying",
+					"pod", pod.Name,
+					"attempt", attempt+1,
+					"maxRetries", maxRetries,
+					"backoff", backoff)
+				time.Sleep(backoff)
+				backoff *= 2 // Exponential backoff
+				continue
+			}
+		}
+
+		// For non-conflict errors or max retries exceeded, return the error
+		return fmt.Errorf("failed to inject ephemeral container after %d attempts: %w", attempt+1, err)
+	}
+
+	return fmt.Errorf("failed to inject ephemeral container: max retries exceeded")
 }
 
 // injectCPUStressContainer adds an ephemeral container with stress-ng to the pod
@@ -572,13 +911,9 @@ func (r *ChaosExperimentReconciler) injectCPUStressContainer(ctx context.Context
 		},
 	}
 
-	// Append the ephemeral container
-	currentPod.Spec.EphemeralContainers = append(currentPod.Spec.EphemeralContainers, ephemeralContainer)
-
-	// Update the pod with the ephemeral container
-	// Use SubResource to update ephemeralcontainers
-	if err := r.Client.SubResource("ephemeralcontainers").Update(ctx, currentPod); err != nil {
-		return "", fmt.Errorf("failed to inject ephemeral container: %w", err)
+	// Update the pod with the ephemeral container using retry logic
+	if err := r.updatePodWithEphemeralContainer(ctx, pod, ephemeralContainer); err != nil {
+		return "", err
 	}
 
 	log.Info("Successfully injected CPU stress ephemeral container",
@@ -790,6 +1125,10 @@ func (r *ChaosExperimentReconciler) handleNodeDrain(ctx context.Context, exp *ch
 			continue
 		}
 
+		// Emit event on the affected node
+		r.Recorder.Eventf(node, corev1.EventTypeWarning, "ChaosNodeDrain",
+			"Node drained by chaos experiment %s", exp.Name)
+
 		drainedNodes = append(drainedNodes, node.Name)
 	}
 
@@ -889,6 +1228,227 @@ func (r *ChaosExperimentReconciler) uncordonNode(ctx context.Context, nodeName s
 	}
 
 	log.Info("Successfully uncordoned node", "node", nodeName)
+	return nil
+}
+
+// handleNodeTaint taints nodes matching the selector
+func (r *ChaosExperimentReconciler) handleNodeTaint(ctx context.Context, exp *chaosv1alpha1.ChaosExperiment) (ctrl.Result, error) {
+	log := ctrl.LoggerFrom(ctx)
+	startTime := time.Now()
+
+	// Track active experiments
+	chaosmetrics.ActiveExperiments.WithLabelValues("node-taint").Inc()
+	defer chaosmetrics.ActiveExperiments.WithLabelValues("node-taint").Dec()
+
+	// Validate required fields
+	if exp.Spec.TaintKey == "" || exp.Spec.TaintEffect == "" {
+		return r.handleExperimentFailure(ctx, exp, "TaintKey and TaintEffect must be specified")
+	}
+
+	// List nodes by selector
+	nodeList := &corev1.NodeList{}
+	selector := labels.SelectorFromSet(exp.Spec.Selector)
+	if err := r.List(ctx, nodeList, client.MatchingLabelsSelector{Selector: selector}); err != nil {
+		log.Error(err, "Failed to list nodes")
+		exp.Status.Message = "Error: Failed to list nodes"
+		_ = r.Status().Update(ctx, exp)
+		return ctrl.Result{}, err
+	}
+
+	if len(nodeList.Items) == 0 {
+		log.Info("No nodes found for selector", "selector", exp.Spec.Selector)
+		exp.Status.Message = "No nodes found matching selector"
+		_ = r.Status().Update(ctx, exp)
+		return ctrl.Result{RequeueAfter: time.Minute}, nil
+	}
+
+	// Handle dry-run mode for nodes
+	if exp.Spec.DryRun {
+		count := exp.Spec.Count
+		if count <= 0 {
+			count = 1
+		}
+		if count > len(nodeList.Items) {
+			count = len(nodeList.Items)
+		}
+
+		nodeNames := []string{}
+		for i := 0; i < count && i < len(nodeList.Items); i++ {
+			nodeNames = append(nodeNames, nodeList.Items[i].Name)
+		}
+
+		now := metav1.Now()
+		exp.Status.LastRunTime = &now
+		exp.Status.Message = fmt.Sprintf("DRY RUN: Would taint %d node(s) with %s: %v", count, exp.Spec.TaintKey, nodeNames)
+		exp.Status.Phase = "Completed"
+
+		if err := r.Status().Update(ctx, exp); err != nil {
+			log.Error(err, "Failed to update ChaosExperiment status")
+			return ctrl.Result{}, err
+		}
+
+		log.Info("Dry run completed", "action", "node-taint", "wouldAffect", count, "nodes", nodeNames)
+		return ctrl.Result{}, nil
+	}
+
+	// Shuffle the list of nodes
+	rand.Shuffle(len(nodeList.Items), func(i, j int) {
+		nodeList.Items[i], nodeList.Items[j] = nodeList.Items[j], nodeList.Items[i]
+	})
+
+	// Determine how many nodes to taint
+	taintCount := exp.Spec.Count
+	if taintCount <= 0 {
+		taintCount = 1 // Default to 1 if not specified or invalid
+	}
+	if taintCount > len(nodeList.Items) {
+		taintCount = len(nodeList.Items)
+	}
+
+	// Taint selected nodes
+	taintedNodes := []string{}
+	newlyTaintedNodes := []string{}
+	for i := 0; i < taintCount; i++ {
+		node := &nodeList.Items[i]
+		log.Info("Tainting node", "node", node.Name, "key", exp.Spec.TaintKey, "value", exp.Spec.TaintValue, "effect", exp.Spec.TaintEffect)
+
+		// Taint the node
+		wasAlreadyTainted, err := r.taintNode(ctx, node, exp.Spec.TaintKey, exp.Spec.TaintValue, exp.Spec.TaintEffect)
+		if err != nil {
+			log.Error(err, "Failed to taint node", "node", node.Name)
+			continue
+		}
+
+		// Track nodes that we tainted (not ones that were already tainted)
+		if !wasAlreadyTainted {
+			newlyTaintedNodes = append(newlyTaintedNodes, node.Name)
+		}
+
+		// Emit event on the affected node
+		r.Recorder.Eventf(node, corev1.EventTypeWarning, "ChaosNodeTaint",
+			"Node tainted with %s=%s:%s by chaos experiment %s", exp.Spec.TaintKey, exp.Spec.TaintValue, exp.Spec.TaintEffect, exp.Name)
+
+		taintedNodes = append(taintedNodes, node.Name)
+	}
+
+	// Update status to track newly tainted nodes for later untaint
+	if len(newlyTaintedNodes) > 0 {
+		// Append newly tainted nodes to the existing list (avoid duplicates)
+		existingNodes := make(map[string]bool)
+		for _, nodeName := range exp.Status.TaintedNodes {
+			existingNodes[nodeName] = true
+		}
+		for _, nodeName := range newlyTaintedNodes {
+			if !existingNodes[nodeName] {
+				exp.Status.TaintedNodes = append(exp.Status.TaintedNodes, nodeName)
+			}
+		}
+	}
+
+	// Update status
+	now := metav1.Now()
+	exp.Status.LastRunTime = &now
+	status := statusSuccess
+	if len(taintedNodes) > 0 {
+		exp.Status.Message = fmt.Sprintf("Successfully tainted %d node(s): %v", len(taintedNodes), taintedNodes)
+	} else {
+		exp.Status.Message = "Failed to taint any nodes"
+		status = statusFailure
+	}
+	if err := r.Status().Update(ctx, exp); err != nil {
+		log.Error(err, "Failed to update ChaosExperiment status")
+		return ctrl.Result{}, err
+	}
+
+	// Record metrics
+	duration := time.Since(startTime).Seconds()
+	chaosmetrics.ExperimentsTotal.WithLabelValues("node-taint", exp.Spec.Namespace, status).Inc()
+	chaosmetrics.ExperimentDuration.WithLabelValues("node-taint", exp.Spec.Namespace).Observe(duration)
+	chaosmetrics.ResourcesAffected.WithLabelValues("node-taint", exp.Spec.Namespace, exp.Name).Set(float64(len(taintedNodes)))
+
+	// Create history record
+	affectedResources := buildResourceReferences("tainted", "", taintedNodes, "Node")
+	var errorDetails *chaosv1alpha1.ErrorDetails
+	if status == statusFailure {
+		errorDetails = &chaosv1alpha1.ErrorDetails{
+			Message:       exp.Status.Message,
+			FailureReason: "ExecutionError",
+		}
+	}
+	if err := r.createHistoryRecord(ctx, exp, status, affectedResources, startTime, errorDetails); err != nil {
+		log.Error(err, "Failed to create history record")
+		// Don't fail the experiment if history recording fails
+	}
+
+	return ctrl.Result{RequeueAfter: time.Minute}, nil
+}
+
+// taintNode adds a taint to the node if it doesn't already have it
+// Returns (wasAlreadyTainted bool, error)
+func (r *ChaosExperimentReconciler) taintNode(ctx context.Context, node *corev1.Node, key, value, effect string) (bool, error) {
+	taintEffect := corev1.TaintEffect(effect)
+
+	// Check if already tainted
+	for _, t := range node.Spec.Taints {
+		if t.Key == key && t.Effect == taintEffect {
+			return true, nil // Already tainted with the same key and effect
+		}
+	}
+
+	node.Spec.Taints = append(node.Spec.Taints, corev1.Taint{
+		Key:    key,
+		Value:  value,
+		Effect: taintEffect,
+	})
+
+	if err := r.Update(ctx, node); err != nil {
+		return false, fmt.Errorf("failed to taint node: %w", err)
+	}
+
+	return false, nil
+}
+
+// untaintNode removes a specific taint from a node
+func (r *ChaosExperimentReconciler) untaintNode(ctx context.Context, nodeName, key, effect string) error {
+	log := ctrl.LoggerFrom(ctx)
+
+	if nodeName == "" {
+		return fmt.Errorf("node name cannot be empty")
+	}
+
+	node := &corev1.Node{}
+	if err := r.Get(ctx, types.NamespacedName{Name: nodeName}, node); err != nil {
+		if apierrors.IsNotFound(err) {
+			log.Info("Node not found for untainting, it might have been removed", "node", nodeName)
+			return nil
+		}
+		return fmt.Errorf("failed to get node %s: %w", nodeName, err)
+	}
+
+	taintEffect := corev1.TaintEffect(effect)
+	newTaints := []corev1.Taint{}
+	found := false
+
+	// Filter out the applied taint
+	for _, t := range node.Spec.Taints {
+		if t.Key == key && t.Effect == taintEffect {
+			found = true
+			continue
+		}
+		newTaints = append(newTaints, t)
+	}
+
+	if !found {
+		log.Info("Node does not have the taint, nothing to remove", "node", nodeName, "key", key)
+		return nil
+	}
+
+	node.Spec.Taints = newTaints
+	if err := r.Update(ctx, node); err != nil {
+		return fmt.Errorf("failed to untaint node %s: %w", nodeName, err)
+	}
+
+	log.Info("Successfully untainted node", "node", nodeName, "key", key)
 	return nil
 }
 
@@ -1244,6 +1804,20 @@ func (r *ChaosExperimentReconciler) checkExperimentLifecycle(ctx context.Context
 			exp.Status.CordonedNodes = nil
 		}
 
+		// Untaint nodes that were tainted by this experiment (for node-taint action)
+		if exp.Spec.Action == "node-taint" && len(exp.Status.TaintedNodes) > 0 {
+			log.Info("Removing taints from nodes that were tainted by this experiment",
+				"nodes", exp.Status.TaintedNodes)
+			for _, nodeName := range exp.Status.TaintedNodes {
+				if err := r.untaintNode(ctx, nodeName, exp.Spec.TaintKey, exp.Spec.TaintEffect); err != nil {
+					log.Error(err, "Failed to untaint node", "node", nodeName)
+					// Continue with other nodes even if one fails
+				}
+			}
+			// Clear the list after untainting
+			exp.Status.TaintedNodes = nil
+		}
+
 		// Cleanup ephemeral containers for experiments using them (pod-cpu-stress, pod-memory-stress, pod-network-loss, pod-disk-fill)
 		if (exp.Spec.Action == "pod-cpu-stress" || exp.Spec.Action == "pod-memory-stress" || exp.Spec.Action == "pod-network-loss" || exp.Spec.Action == "pod-disk-fill") && len(exp.Status.AffectedPods) > 0 {
 			log.Info("Cleaning up ephemeral containers injected by this experiment",
@@ -1447,6 +2021,11 @@ func (r *ChaosExperimentReconciler) handlePodMemoryStress(ctx context.Context, e
 			continue
 		}
 
+		// Emit event on the affected pod
+		r.Recorder.Eventf(&pod, corev1.EventTypeWarning, "ChaosPodMemoryStress",
+			"Injected memory stress (%s, %d workers) by chaos experiment %s",
+			exp.Spec.MemorySize, memoryWorkers, exp.Name)
+
 		// Track the affected pod for cleanup later
 		r.trackAffectedPod(exp, pod.Namespace, pod.Name, containerName)
 		stressedPods = append(stressedPods, pod.Name)
@@ -1511,17 +2090,9 @@ func (r *ChaosExperimentReconciler) injectMemoryStressContainer(ctx context.Cont
 	}
 
 	// Get the latest pod version
-	currentPod := &corev1.Pod{}
-	if err := r.Get(ctx, client.ObjectKey{Namespace: pod.Namespace, Name: pod.Name}, currentPod); err != nil {
-		return "", fmt.Errorf("failed to get current pod: %w", err)
-	}
-
-	// Add ephemeral container
-	currentPod.Spec.EphemeralContainers = append(currentPod.Spec.EphemeralContainers, ephemeralContainer)
-
-	// Update pod with ephemeral container
-	if err := r.Client.SubResource("ephemeralcontainers").Update(ctx, currentPod); err != nil {
-		return "", fmt.Errorf("failed to inject ephemeral container: %w", err)
+	// Update the pod with the ephemeral container using retry logic
+	if err := r.updatePodWithEphemeralContainer(ctx, pod, ephemeralContainer); err != nil {
+		return "", err
 	}
 
 	log.Info("Successfully injected memory stress ephemeral container", "pod", pod.Name, "container", containerName)
@@ -1581,6 +2152,9 @@ func (r *ChaosExperimentReconciler) handlePodFailure(ctx context.Context, exp *c
 			chaosErr := WrapK8sError(err, "exec pod")
 			chaosmetrics.ExperimentErrors.WithLabelValues("pod-failure", exp.Spec.Namespace, string(chaosErr.Type)).Inc()
 		} else {
+			// Emit event on the affected pod
+			r.Recorder.Event(&pod, corev1.EventTypeWarning, "ChaosPodFailure",
+				fmt.Sprintf("Caused container failure by chaos experiment %s", exp.Name))
 			failedPods = append(failedPods, pod.Name)
 		}
 	}
@@ -1696,6 +2270,9 @@ func (r *ChaosExperimentReconciler) handlePodRestart(ctx context.Context, exp *c
 			chaosmetrics.ExperimentErrors.WithLabelValues("pod-restart", exp.Spec.Namespace, string(chaosErr.Type)).Inc()
 			// Continue with other pods even if one fails
 		} else {
+			// Emit event on the affected pod
+			r.Recorder.Event(&pod, corev1.EventTypeWarning, "ChaosPodRestart",
+				fmt.Sprintf("Restarted pod by chaos experiment %s", exp.Name))
 			restartedPods = append(restartedPods, pod.Name)
 		}
 	}
@@ -1819,6 +2396,10 @@ func (r *ChaosExperimentReconciler) handlePodNetworkLoss(ctx context.Context, ex
 			log.Error(err, "Failed to inject network loss container", "pod", pod.Name)
 			continue
 		}
+
+		// Emit event on the affected pod
+		r.Recorder.Eventf(&pod, corev1.EventTypeWarning, "ChaosPodNetworkLoss",
+			"Injected %d%% packet loss by chaos experiment %s", exp.Spec.LossPercentage, exp.Name)
 
 		// Track the affected pod for cleanup later
 		r.trackAffectedPod(exp, pod.Namespace, pod.Name, containerName)
@@ -1954,6 +2535,10 @@ func (r *ChaosExperimentReconciler) handlePodDiskFill(ctx context.Context, exp *
 			continue
 		}
 
+		// Emit event on the affected pod
+		r.Recorder.Eventf(&pod, corev1.EventTypeWarning, "ChaosPodDiskFill",
+			"Injected disk fill (%d%%) by chaos experiment %s", fillPercentage, exp.Name)
+
 		// Track the affected pod for cleanup later
 		r.trackAffectedPod(exp, pod.Namespace, pod.Name, containerName)
 		affectedPods = append(affectedPods, pod.Name)
@@ -1991,6 +2576,176 @@ func (r *ChaosExperimentReconciler) handlePodDiskFill(ctx context.Context, exp *
 	return ctrl.Result{RequeueAfter: time.Minute}, nil
 }
 
+// handlePodNetworkCorruption injects ephemeral containers to corrupt packets
+func (r *ChaosExperimentReconciler) handlePodNetworkCorruption(ctx context.Context, exp *chaosv1alpha1.ChaosExperiment) (ctrl.Result, error) {
+	log := ctrl.LoggerFrom(ctx)
+	startTime := time.Now()
+
+	// Track active experiments
+	chaosmetrics.ActiveExperiments.WithLabelValues("pod-network-corruption").Inc()
+	defer chaosmetrics.ActiveExperiments.WithLabelValues("pod-network-corruption").Dec()
+
+	// Validate namespace
+	if exp.Spec.Namespace == "" {
+		return r.handleExperimentFailure(ctx, exp, "Namespace not specified")
+	}
+
+	// Validate required fields
+	if exp.Spec.CorruptionPercentage <= 0 {
+		return r.handleExperimentFailure(ctx, exp, "CorruptionPercentage must be greater than 0")
+	}
+
+	if exp.Spec.Duration == "" {
+		return r.handleExperimentFailure(ctx, exp, "Duration is required for network corruption")
+	}
+
+	// Parse duration to seconds for tc timeout
+	duration, err := r.parseDuration(exp.Spec.Duration)
+	if err != nil {
+		return r.handleExperimentFailure(ctx, exp, fmt.Sprintf("Invalid duration format: %v", err))
+	}
+	timeoutSeconds := int(duration.Seconds())
+
+	// Get eligible pods
+	eligiblePods, err := r.getEligiblePods(ctx, exp)
+	if err != nil {
+		return ctrl.Result{}, err
+	}
+
+	if len(eligiblePods) == 0 {
+		log.Info("No eligible pods found for selector", "selector", exp.Spec.Selector)
+		exp.Status.Message = "No eligible pods found matching selector"
+		_ = r.Status().Update(ctx, exp)
+		return ctrl.Result{RequeueAfter: time.Minute}, nil
+	}
+
+	// Handle dry-run mode
+	if exp.Spec.DryRun {
+		return r.handleDryRun(ctx, exp, eligiblePods, "pod-network-corruption")
+	}
+
+	// Shuffle the list of pods
+	rand.Shuffle(len(eligiblePods), func(i, j int) {
+		eligiblePods[i], eligiblePods[j] = eligiblePods[j], eligiblePods[i]
+	})
+
+	// Determine how many pods to affect
+	affectCount := exp.Spec.Count
+	if affectCount <= 0 {
+		affectCount = 1
+	}
+	if affectCount > len(eligiblePods) {
+		affectCount = len(eligiblePods)
+	}
+
+	// Inject ephemeral containers to apply packet corruption
+	affectedPods := []string{}
+	for i := 0; i < affectCount; i++ {
+		pod := eligiblePods[i]
+		log.Info("Injecting network corruption into pod",
+			"pod", pod.Name,
+			"namespace", pod.Namespace,
+			"corruptionPercentage", exp.Spec.CorruptionPercentage,
+			"correlation", exp.Spec.CorruptionCorrelation)
+
+		containerName, err := r.injectNetworkCorruptionContainer(ctx, &pod, exp.Spec.CorruptionPercentage, exp.Spec.CorruptionCorrelation, timeoutSeconds)
+		if err != nil {
+			log.Error(err, "Failed to inject network corruption container", "pod", pod.Name)
+			continue
+		}
+
+		// Emit event on the affected pod
+		r.Recorder.Eventf(&pod, corev1.EventTypeWarning, "ChaosPodNetworkCorruption",
+			"Injected %d%% packet corruption by chaos experiment %s", exp.Spec.CorruptionPercentage, exp.Name)
+
+		// Track the affected pod for cleanup later
+		r.trackAffectedPod(exp, pod.Namespace, pod.Name, containerName)
+		affectedPods = append(affectedPods, pod.Name)
+	}
+
+	// Update status
+	now := metav1.Now()
+	exp.Status.LastRunTime = &now
+	status := statusSuccess
+	if len(affectedPods) > 0 {
+		exp.Status.Message = fmt.Sprintf("Successfully injected %d%% packet corruption into %d pod(s) for %s",
+			exp.Spec.CorruptionPercentage, len(affectedPods), exp.Spec.Duration)
+	} else {
+		exp.Status.Message = "Failed to inject network corruption into any pods"
+		status = statusFailure
+	}
+	if err := r.Status().Update(ctx, exp); err != nil {
+		log.Error(err, "Failed to update ChaosExperiment status")
+		return ctrl.Result{}, err
+	}
+
+	// Record metrics
+	elapsed := time.Since(startTime)
+	chaosmetrics.ExperimentsTotal.WithLabelValues("pod-network-corruption", exp.Spec.Namespace, status).Inc()
+	chaosmetrics.ExperimentDuration.WithLabelValues("pod-network-corruption", exp.Spec.Namespace).Observe(elapsed.Seconds())
+	chaosmetrics.ResourcesAffected.WithLabelValues("pod-network-corruption", exp.Spec.Namespace, exp.Name).Set(float64(len(affectedPods)))
+
+	// Create history record
+	affectedResources := buildResourceReferences(fmt.Sprintf("network-corruption-%d%%", exp.Spec.CorruptionPercentage), exp.Spec.Namespace, affectedPods, "Pod")
+	var errorDetails *chaosv1alpha1.ErrorDetails
+	if status == statusFailure {
+		errorDetails = &chaosv1alpha1.ErrorDetails{
+			Message:       exp.Status.Message,
+			FailureReason: "ExecutionError",
+		}
+	}
+	if err := r.createHistoryRecord(ctx, exp, status, affectedResources, startTime, errorDetails); err != nil {
+		log.Error(err, "Failed to create history record")
+	}
+
+	return ctrl.Result{RequeueAfter: time.Minute}, nil
+}
+
+// injectNetworkCorruptionContainer adds an ephemeral container with tc netem to corrupt packets
+func (r *ChaosExperimentReconciler) injectNetworkCorruptionContainer(ctx context.Context, pod *corev1.Pod, percentage, correlation, durationSeconds int) (string, error) {
+	log := ctrl.LoggerFrom(ctx)
+
+	// Build tc command with correlation if specified
+	var tcCmd string
+	if correlation > 0 {
+		tcCmd = fmt.Sprintf("tc qdisc add dev eth0 root netem corrupt %d%% %d%% && sleep %d && tc qdisc del dev eth0 root",
+			percentage, correlation, durationSeconds)
+	} else {
+		tcCmd = fmt.Sprintf("tc qdisc add dev eth0 root netem corrupt %d%% && sleep %d && tc qdisc del dev eth0 root",
+			percentage, durationSeconds)
+	}
+
+	// Generate unique container name
+	containerName := fmt.Sprintf("network-corrupt-%d", time.Now().Unix())
+
+	// Create ephemeral container with NET_ADMIN capability
+	ephemeralContainer := corev1.EphemeralContainer{
+		EphemeralContainerCommon: corev1.EphemeralContainerCommon{
+			Name:    containerName,
+			Image:   "ghcr.io/neogan74/iproute2:latest",
+			Command: []string{"/bin/sh", "-c", tcCmd},
+			SecurityContext: &corev1.SecurityContext{
+				Capabilities: &corev1.Capabilities{
+					Add: []corev1.Capability{"NET_ADMIN"},
+				},
+			},
+		},
+	}
+
+	// Use the generic retry wrapper to inject the container
+	if err := r.updatePodWithEphemeralContainer(ctx, pod, ephemeralContainer); err != nil {
+		return "", err
+	}
+
+	log.Info("Successfully injected network corruption ephemeral container",
+		"pod", pod.Name,
+		"container", containerName,
+		"percentage", percentage,
+		"correlation", correlation)
+
+	return containerName, nil
+}
+
 // injectNetworkLossContainer injects an ephemeral container that applies packet loss using tc netem
 func (r *ChaosExperimentReconciler) injectNetworkLossContainer(ctx context.Context, pod *corev1.Pod, lossPercentage, correlation, timeoutSeconds int) (string, error) {
 	log := ctrl.LoggerFrom(ctx)
@@ -2022,18 +2777,9 @@ func (r *ChaosExperimentReconciler) injectNetworkLossContainer(ctx context.Conte
 		},
 	}
 
-	// Get the latest pod version
-	currentPod := &corev1.Pod{}
-	if err := r.Get(ctx, client.ObjectKey{Namespace: pod.Namespace, Name: pod.Name}, currentPod); err != nil {
-		return "", fmt.Errorf("failed to get current pod: %w", err)
-	}
-
-	// Add ephemeral container
-	currentPod.Spec.EphemeralContainers = append(currentPod.Spec.EphemeralContainers, ephemeralContainer)
-
-	// Update pod with ephemeral container
-	if err := r.Client.SubResource("ephemeralcontainers").Update(ctx, currentPod); err != nil {
-		return "", fmt.Errorf("failed to inject ephemeral container: %w", err)
+	// Update the pod with the ephemeral container using retry logic
+	if err := r.updatePodWithEphemeralContainer(ctx, pod, ephemeralContainer); err != nil {
+		return "", err
 	}
 
 	log.Info("Successfully injected network loss ephemeral container",
@@ -2120,10 +2866,9 @@ rm -f "$FILE"
 		},
 	}
 
-	currentPod.Spec.EphemeralContainers = append(currentPod.Spec.EphemeralContainers, ephemeralContainer)
-
-	if err := r.Client.SubResource("ephemeralcontainers").Update(ctx, currentPod); err != nil {
-		return "", fmt.Errorf("failed to inject ephemeral container: %w", err)
+	// Update the pod with the ephemeral container using retry logic
+	if err := r.updatePodWithEphemeralContainer(ctx, pod, ephemeralContainer); err != nil {
+		return "", err
 	}
 
 	log.Info("Successfully injected disk fill ephemeral container",
@@ -2307,6 +3052,127 @@ func (r *ChaosExperimentReconciler) checkSchedule(ctx context.Context, exp *chao
 	return false, untilNext, nil
 }
 
+// checkTimeWindows determines if the current time is within allowed time windows.
+// Returns: inWindow (bool), requeueAt (time.Time), error
+func (r *ChaosExperimentReconciler) checkTimeWindows(ctx context.Context, exp *chaosv1alpha1.ChaosExperiment) (bool, time.Time, error) {
+	log := ctrl.LoggerFrom(ctx)
+	now := time.Now()
+
+	// 1. Check Maintenance Windows (Blacklist) - these take precedence
+	if len(exp.Spec.MaintenanceWindows) > 0 {
+		inMaintenance := chaosv1alpha1.IsWithinTimeWindows(exp.Spec.MaintenanceWindows, now)
+		if inMaintenance {
+			// We are in a maintenance window, so we are BLOCKED
+			nextMaintenanceEnd, _ := chaosv1alpha1.NextTimeWindowBoundary(exp.Spec.MaintenanceWindows, now)
+
+			log.Info("Experiment blocked by maintenance window",
+				"currentTime", now.Format(time.RFC3339),
+				"maintenanceEnds", nextMaintenanceEnd.Format(time.RFC3339))
+
+			r.setBlockedByTimeWindowCondition(ctx, exp,
+				fmt.Sprintf("Blocked by maintenance window until %s", nextMaintenanceEnd.Format(time.RFC3339)),
+				nextMaintenanceEnd)
+
+			// Requeue when maintenance ends
+			if !nextMaintenanceEnd.IsZero() {
+				return false, nextMaintenanceEnd, nil
+			}
+			return false, now.Add(1 * time.Hour), nil // Fallback requeue
+		}
+	}
+
+	// 2. Check Time Windows (Whitelist)
+	// If no time windows configured, always allowed
+	if len(exp.Spec.TimeWindows) == 0 {
+		// Ensure we clear any stale blocked condition
+		r.clearBlockedByTimeWindowCondition(ctx, exp)
+		return true, time.Time{}, nil
+	}
+
+	// Check if we're within any time window
+	inWindow := chaosv1alpha1.IsWithinTimeWindows(exp.Spec.TimeWindows, now)
+
+	if inWindow {
+		// We're in a window, clear the blocked condition if it exists
+		r.clearBlockedByTimeWindowCondition(ctx, exp)
+		log.V(1).Info("Experiment is within time window, proceeding")
+		return true, time.Time{}, nil
+	}
+
+	// We're outside all windows, calculate next opening
+	nextBoundary, willBeOpen := chaosv1alpha1.NextTimeWindowBoundary(exp.Spec.TimeWindows, now)
+
+	if nextBoundary.IsZero() {
+		// No future windows (e.g., absolute window in the past)
+		log.Info("No future time windows available for experiment")
+		r.setBlockedByTimeWindowCondition(ctx, exp, "No future time windows available", time.Time{})
+		return false, now.Add(24 * time.Hour), nil // Requeue in 24 hours
+	}
+
+	log.Info("Experiment blocked by time window",
+		"currentTime", now.Format(time.RFC3339),
+		"nextBoundary", nextBoundary.Format(time.RFC3339),
+		"boundaryOpens", willBeOpen)
+
+	// Set condition indicating we're blocked
+	r.setBlockedByTimeWindowCondition(ctx, exp,
+		fmt.Sprintf("Outside allowed time window. Next window %s at %s",
+			map[bool]string{true: "opens", false: "closes"}[willBeOpen],
+			nextBoundary.Format(time.RFC3339)),
+		nextBoundary)
+
+	return false, nextBoundary, nil
+}
+
+// setBlockedByTimeWindowCondition sets a condition indicating the experiment is blocked by time windows
+func (r *ChaosExperimentReconciler) setBlockedByTimeWindowCondition(ctx context.Context, exp *chaosv1alpha1.ChaosExperiment, message string, nextBoundary time.Time) {
+	condition := metav1.Condition{
+		Type:               "BlockedByTimeWindow",
+		Status:             metav1.ConditionTrue,
+		ObservedGeneration: exp.Generation,
+		LastTransitionTime: metav1.Now(),
+		Reason:             "OutsideTimeWindow",
+		Message:            message,
+	}
+
+	// Update or add the condition
+	updated := false
+	for i, existingCondition := range exp.Status.Conditions {
+		if existingCondition.Type == "BlockedByTimeWindow" {
+			exp.Status.Conditions[i] = condition
+			updated = true
+			break
+		}
+	}
+	if !updated {
+		exp.Status.Conditions = append(exp.Status.Conditions, condition)
+	}
+
+	// Update status
+	if err := r.Status().Update(ctx, exp); err != nil {
+		log := ctrl.LoggerFrom(ctx)
+		log.Error(err, "Failed to update BlockedByTimeWindow condition")
+	}
+}
+
+// clearBlockedByTimeWindowCondition removes the BlockedByTimeWindow condition
+func (r *ChaosExperimentReconciler) clearBlockedByTimeWindowCondition(ctx context.Context, exp *chaosv1alpha1.ChaosExperiment) {
+	// Find and remove the condition
+	for i, condition := range exp.Status.Conditions {
+		if condition.Type == "BlockedByTimeWindow" {
+			// Remove condition by slicing
+			exp.Status.Conditions = append(exp.Status.Conditions[:i], exp.Status.Conditions[i+1:]...)
+
+			// Update status
+			if err := r.Status().Update(ctx, exp); err != nil {
+				log := ctrl.LoggerFrom(ctx)
+				log.Error(err, "Failed to clear BlockedByTimeWindow condition")
+			}
+			break
+		}
+	}
+}
+
 // isEphemeralContainerRunning checks if an ephemeral container is currently running in a pod
 func isEphemeralContainerRunning(pod *corev1.Pod, containerName string) bool {
 	// Check the pod's container statuses for the ephemeral container
@@ -2439,8 +3305,222 @@ func (r *ChaosExperimentReconciler) trackAffectedPod(exp *chaosv1alpha1.ChaosExp
 
 // SetupWithManager sets up the controller with the Manager.
 func (r *ChaosExperimentReconciler) SetupWithManager(mgr ctrl.Manager) error {
+	// Start periodic TTL cleanup goroutine
+	if r.HistoryConfig.Enabled && r.HistoryConfig.RetentionTTL > 0 {
+		go r.startPeriodicTTLCleanup(mgr.GetClient())
+	}
+
 	return ctrl.NewControllerManagedBy(mgr).
 		For(&chaosv1alpha1.ChaosExperiment{}).
 		Named("chaosexperiment").
 		Complete(r)
+}
+
+// handleNetworkPartition injects network partition into pods using iptables to drop traffic
+func (r *ChaosExperimentReconciler) handleNetworkPartition(ctx context.Context, exp *chaosv1alpha1.ChaosExperiment) (ctrl.Result, error) {
+	log := ctrl.LoggerFrom(ctx)
+	startTime := time.Now()
+
+	// Track active experiments
+	chaosmetrics.ActiveExperiments.WithLabelValues("network-partition").Inc()
+	defer chaosmetrics.ActiveExperiments.WithLabelValues("network-partition").Dec()
+
+	// Validate required fields
+	if exp.Spec.Duration == "" {
+		return r.handleExperimentFailure(ctx, exp, "Duration is required for network-partition action")
+	}
+
+	// Validate direction
+	direction := exp.Spec.Direction
+	if direction == "" {
+		direction = "both" // Default
+	}
+	if direction != "both" && direction != "ingress" && direction != "egress" {
+		return r.handleExperimentFailure(ctx, exp, fmt.Sprintf("Invalid direction: %s. Must be one of: both, ingress, egress", direction))
+	}
+
+	// Parse duration to seconds
+	duration, err := r.parseDuration(exp.Spec.Duration)
+	if err != nil {
+		return r.handleExperimentFailure(ctx, exp, fmt.Sprintf("Invalid duration format: %v", err))
+	}
+	timeoutSeconds := int(duration.Seconds())
+
+	// Get eligible pods
+	eligiblePods, err := r.getEligiblePods(ctx, exp)
+	if err != nil {
+		return ctrl.Result{}, err
+	}
+
+	if len(eligiblePods) == 0 {
+		log.Info("No eligible pods found for selector", "selector", exp.Spec.Selector)
+		exp.Status.Message = "No eligible pods found matching selector"
+		_ = r.Status().Update(ctx, exp)
+		return ctrl.Result{RequeueAfter: time.Minute}, nil
+	}
+
+	// Handle dry-run mode
+	if exp.Spec.DryRun {
+		return r.handleDryRun(ctx, exp, eligiblePods, fmt.Sprintf("network-partition (%s)", direction))
+	}
+
+	// Shuffle the list of pods
+	rand.Shuffle(len(eligiblePods), func(i, j int) {
+		eligiblePods[i], eligiblePods[j] = eligiblePods[j], eligiblePods[i]
+	})
+
+	// Determine how many pods to affect
+	affectCount := exp.Spec.Count
+	if affectCount <= 0 {
+		affectCount = 1
+	}
+	if affectCount > len(eligiblePods) {
+		affectCount = len(eligiblePods)
+	}
+
+	// Inject ephemeral containers to apply network partition
+	affectedPods := []string{}
+	for i := 0; i < affectCount; i++ {
+		pod := eligiblePods[i]
+		log.Info("Injecting network partition into pod",
+			"pod", pod.Name,
+			"namespace", pod.Namespace,
+			"direction", direction,
+			"duration", timeoutSeconds)
+
+		containerName, err := r.injectNetworkPartitionContainer(ctx, &pod, direction, timeoutSeconds)
+		if err != nil {
+			log.Error(err, "Failed to inject network partition container", "pod", pod.Name)
+			chaosmetrics.ExperimentErrors.WithLabelValues("network-partition", exp.Spec.Namespace, "injection_error").Inc()
+			continue
+		}
+
+		// Emit event on the affected pod
+		r.Recorder.Eventf(&pod, corev1.EventTypeWarning, "ChaosNetworkPartition",
+			"Injected network partition (%s) by chaos experiment %s", direction, exp.Name)
+
+		// Track the affected pod for cleanup later
+		r.trackAffectedPod(exp, pod.Namespace, pod.Name, containerName)
+		affectedPods = append(affectedPods, pod.Name)
+	}
+
+	// Update status
+	now := metav1.Now()
+	exp.Status.LastRunTime = &now
+	status := statusSuccess
+	if len(affectedPods) > 0 {
+		exp.Status.Message = fmt.Sprintf("Successfully injected network partition (%s) into %d pod(s) for %s",
+			direction, len(affectedPods), exp.Spec.Duration)
+	} else {
+		exp.Status.Message = "Failed to inject network partition into any pods"
+		status = statusFailure
+	}
+	if err := r.Status().Update(ctx, exp); err != nil {
+		log.Error(err, "Failed to update ChaosExperiment status")
+		return ctrl.Result{}, err
+	}
+
+	// Record metrics
+	elapsed := time.Since(startTime)
+	chaosmetrics.ExperimentsTotal.WithLabelValues("network-partition", exp.Spec.Namespace, status).Inc()
+	chaosmetrics.ExperimentDuration.WithLabelValues("network-partition", exp.Spec.Namespace).Observe(elapsed.Seconds())
+	chaosmetrics.ResourcesAffected.WithLabelValues("network-partition", exp.Spec.Namespace, exp.Name).Set(float64(len(affectedPods)))
+
+	// Create history record
+	affectedResources := buildResourceReferences(fmt.Sprintf("network-partition-%s", direction), exp.Spec.Namespace, affectedPods, "Pod")
+	if err := r.createHistoryRecord(ctx, exp, status, affectedResources, startTime, nil); err != nil {
+		log.Error(err, "Failed to create history record")
+		// Don't fail the experiment if history recording fails
+	}
+
+	return ctrl.Result{RequeueAfter: time.Minute}, nil
+}
+
+// injectNetworkPartitionContainer injects an ephemeral container that applies network partition using iptables
+func (r *ChaosExperimentReconciler) injectNetworkPartitionContainer(ctx context.Context, pod *corev1.Pod, direction string, timeoutSeconds int) (string, error) {
+	log := ctrl.LoggerFrom(ctx)
+
+	// Generate unique chain name using timestamp to avoid collisions
+	chainName := fmt.Sprintf("CHAOS_PARTITION_%d", time.Now().Unix())
+
+	// Build iptables command script using custom chains
+	// This approach is safer than direct rule injection:
+	// 1. Creates isolated chain for chaos rules
+	// 2. Prevents conflicts with CNI/mesh networking rules
+	// 3. Cleanup removes only chaos chain, not system rules
+	// 4. Easy debugging (inspect chain separately)
+	//
+	// Script flow:
+	// 1. Create custom chain
+	// 2. Insert jump rules to custom chain (high priority)
+	// 3. Add rules to custom chain: allow loopback, drop traffic
+	// 4. Sleep for duration
+	// 5. Cleanup: remove only custom chain (safe)
+
+	script := fmt.Sprintf(`
+# Create custom iptables chain for isolation
+iptables -N %s
+
+# Insert jump to custom chain at high priority (position 1)
+iptables -I INPUT 1 -j %s
+iptables -I OUTPUT 1 -j %s
+
+# Allow loopback traffic in custom chain to prevent process lockup
+iptables -A %s -i lo -j ACCEPT
+iptables -A %s -o lo -j ACCEPT
+
+# Block traffic based on direction in custom chain
+if [ "%s" = "both" ] || [ "%s" = "ingress" ]; then
+  iptables -A %s -j DROP
+fi
+if [ "%s" = "both" ] || [ "%s" = "egress" ]; then
+  iptables -A %s -j DROP
+fi
+
+# Wait for partition duration
+sleep %d
+
+# Safe cleanup: Remove only chaos chain, not system rules
+# Using '|| true' for idempotency on retries
+iptables -D INPUT -j %s || true
+iptables -D OUTPUT -j %s || true
+iptables -F %s || true
+iptables -X %s || true
+`, chainName, chainName, chainName,
+		chainName, chainName,
+		direction, direction, chainName,
+		direction, direction, chainName,
+		timeoutSeconds,
+		chainName, chainName, chainName, chainName)
+
+	// Generate unique container name
+	containerName := fmt.Sprintf("network-partition-%d", time.Now().Unix())
+
+	// Create ephemeral container with NET_ADMIN capability
+	ephemeralContainer := corev1.EphemeralContainer{
+		EphemeralContainerCommon: corev1.EphemeralContainerCommon{
+			Name:    containerName,
+			Image:   "nicolaka/netshoot", // Public image with iptables
+			Command: []string{"/bin/sh", "-c", script},
+			SecurityContext: &corev1.SecurityContext{
+				Capabilities: &corev1.Capabilities{
+					Add: []corev1.Capability{"NET_ADMIN"},
+				},
+			},
+		},
+	}
+
+	// Update the pod with the ephemeral container using retry logic
+	if err := r.updatePodWithEphemeralContainer(ctx, pod, ephemeralContainer); err != nil {
+		return "", err
+	}
+
+	log.Info("Successfully injected network partition ephemeral container",
+		"pod", pod.Name,
+		"container", containerName,
+		"chain", chainName,
+		"direction", direction,
+		"duration", timeoutSeconds)
+
+	return containerName, nil
 }

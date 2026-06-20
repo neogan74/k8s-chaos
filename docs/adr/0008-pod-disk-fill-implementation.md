@@ -1,6 +1,6 @@
 # ADR 0008: Pod Disk Fill Implementation
 
-**Status**: Proposed
+**Status**: Implemented
 **Date**: 2025-12-18
 **Author**: k8s-chaos team
 

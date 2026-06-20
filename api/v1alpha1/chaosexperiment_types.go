@@ -46,7 +46,7 @@ type ChaosExperimentSpec struct {
 
 	// Action specifies the chaos action to perform
 	// +kubebuilder:validation:Required
-	// +kubebuilder:validation:Enum=pod-kill;pod-delay;node-drain;pod-cpu-stress;pod-memory-stress;pod-failure;pod-network-loss;pod-disk-fill;pod-restart
+	// +kubebuilder:validation:Enum=pod-kill;pod-delay;node-drain;node-taint;node-cpu-stress;pod-cpu-stress;pod-memory-stress;pod-failure;pod-network-loss;pod-network-corruption;pod-disk-fill;pod-restart;network-partition
 	Action string `json:"action"`
 
 	// Namespace specifies the target namespace for chaos experiments
@@ -140,6 +140,22 @@ type ChaosExperimentSpec struct {
 	// +optional
 	LossCorrelation int `json:"lossCorrelation,omitempty"`
 
+	// CorruptionPercentage specifies the packet corruption percentage (for pod-network-corruption)
+	// Range: 1-100. Percentage of packets to corrupt.
+	// +kubebuilder:validation:Minimum=1
+	// +kubebuilder:validation:Maximum=100
+	// +kubebuilder:default=5
+	// +optional
+	CorruptionPercentage int `json:"corruptionPercentage,omitempty"`
+
+	// CorruptionCorrelation specifies correlation for packet corruption (for pod-network-corruption)
+	// Higher values make corruptions cluster together. Range: 0-100.
+	// +kubebuilder:validation:Minimum=0
+	// +kubebuilder:validation:Maximum=100
+	// +kubebuilder:default=0
+	// +optional
+	CorruptionCorrelation int `json:"corruptionCorrelation,omitempty"`
+
 	// FillPercentage specifies the percentage of disk space to fill (for pod-disk-fill)
 	// Range: 50-95. Conservative limits to avoid total exhaustion.
 	// +kubebuilder:validation:Minimum=50
@@ -159,11 +175,58 @@ type ChaosExperimentSpec struct {
 	// +optional
 	VolumeName string `json:"volumeName,omitempty"`
 
+	// Direction specifies the direction of network traffic to block (for network-partition)
+	// +kubebuilder:validation:Enum=both;ingress;egress
+	// +kubebuilder:default=both
+	// +optional
+	Direction string `json:"direction,omitempty"`
+
+	// TargetIPs specifies exact IP addresses to block (for network-partition)
+	// If empty, blocks all traffic (full partition - current behavior)
+	// Examples: ["10.96.0.50", "192.168.1.100"]
+	// Can be combined with targetCIDRs, targetPorts, and targetProtocols
+	// Applied based on direction field (ingress, egress, or both)
+	// +optional
+	TargetIPs []string `json:"targetIPs,omitempty"`
+
+	// TargetCIDRs specifies IP ranges to block using CIDR notation (for network-partition)
+	// If empty along with targetIPs, blocks all traffic (full partition)
+	// Examples: ["10.96.0.0/12", "192.168.0.0/16"]
+	// Format: x.x.x.x/y where each x is 0-255 and y is 0-32
+	// Can be combined with targetIPs, targetPorts, and targetProtocols
+	// Applied based on direction field (ingress, egress, or both)
+	// +optional
+	TargetCIDRs []string `json:"targetCIDRs,omitempty"`
+
+	// TargetPorts specifies ports to block (for network-partition)
+	// If specified without targetIPs/targetCIDRs, blocks these ports for all IPs
+	// Can be combined with targetIPs/targetCIDRs for more specific targeting
+	// Examples: [80, 443, 8080]
+	// If targetProtocols is not specified, defaults to TCP
+	// Applied based on direction field (ingress, egress, or both)
+	// Port range: 1-65535
+	// +optional
+	TargetPorts []int32 `json:"targetPorts,omitempty"`
+
+	// TargetProtocols specifies protocols to block (for network-partition)
+	// If specified with targetPorts, applies to those specific ports
+	// If specified without targetPorts, applies to all ports of the protocol
+	// Examples: ["tcp"], ["tcp", "udp"], ["icmp"]
+	// If targetPorts is specified but targetProtocols is not, defaults to ["tcp"]
+	// +kubebuilder:validation:Enum=tcp;udp;icmp
+	// +optional
+	TargetProtocols []string `json:"targetProtocols,omitempty"`
+
 	// DryRun mode previews affected resources without executing chaos
 	// When enabled, the controller lists resources that would be affected and updates status without performing actions
 	// +kubebuilder:default=false
 	// +optional
 	DryRun bool `json:"dryRun,omitempty"`
+
+	// Paused indicates whether the experiment is currently paused
+	// +kubebuilder:default=false
+	// +optional
+	Paused bool `json:"paused,omitempty"`
 
 	// MaxPercentage limits the percentage of matching resources that can be affected
 	// If count would affect more than this percentage, the experiment fails validation
@@ -188,12 +251,70 @@ type ChaosExperimentSpec struct {
 	// +optional
 	Schedule string `json:"schedule,omitempty"`
 
+	// TimeWindows restrict when the experiment may execute
+	// If empty or omitted, the experiment can run at any time
+	// +optional
+	TimeWindows []TimeWindow `json:"timeWindows,omitempty"`
+
+	// MaintenanceWindows define times when the experiment is strictly FORBIDDEN
+	// If the current time falls within ANY of these windows, the experiment will be blocked
+	// +optional
+	MaintenanceWindows []TimeWindow `json:"maintenanceWindows,omitempty"`
+
 	// RestartInterval specifies delay between restarting each pod (pod-restart only)
 	// Format: "30s", "1m", "2m30s"
 	// Default: "" (restart all immediately)
 	// +kubebuilder:validation:Pattern="^([0-9]+(s|m|h))+$"
 	// +optional
 	RestartInterval string `json:"restartInterval,omitempty"`
+
+	// TaintKey specifies the key of the taint to apply to nodes (for node-taint)
+	// +optional
+	TaintKey string `json:"taintKey,omitempty"`
+
+	// TaintValue specifies the value of the taint to apply to nodes (for node-taint)
+	// +optional
+	TaintValue string `json:"taintValue,omitempty"`
+
+	// TaintEffect specifies the effect of the taint (for node-taint)
+	// +kubebuilder:validation:Enum=NoSchedule;PreferNoSchedule;NoExecute
+	// +kubebuilder:default=NoSchedule
+	// +optional
+	TaintEffect string `json:"taintEffect,omitempty"`
+}
+
+// TimeWindowType defines the time window mode for experiments.
+// +kubebuilder:validation:Enum=Recurring;Absolute
+type TimeWindowType string
+
+const (
+	TimeWindowRecurring TimeWindowType = "Recurring"
+	TimeWindowAbsolute  TimeWindowType = "Absolute"
+)
+
+// TimeWindow restricts when an experiment may execute.
+type TimeWindow struct {
+	// Type selects recurring or absolute window semantics.
+	// +kubebuilder:validation:Enum=Recurring;Absolute
+	Type TimeWindowType `json:"type"`
+
+	// Start time. For recurring windows: HH:MM. For absolute windows: RFC3339.
+	// +optional
+	Start string `json:"start,omitempty"`
+
+	// End time. For recurring windows: HH:MM. For absolute windows: RFC3339.
+	// +optional
+	End string `json:"end,omitempty"`
+
+	// Timezone applies to recurring windows (IANA TZ, e.g., "Europe/Berlin").
+	// Defaults to UTC when omitted.
+	// +optional
+	Timezone string `json:"timezone,omitempty"`
+
+	// DaysOfWeek applies to recurring windows. Empty means every day.
+	// Values: Mon, Tue, Wed, Thu, Fri, Sat, Sun
+	// +optional
+	DaysOfWeek []string `json:"daysOfWeek,omitempty"`
 }
 
 // ChaosExperimentStatus defines the observed state of ChaosExperiment.
@@ -213,7 +334,7 @@ type ChaosExperimentStatus struct {
 	Message string `json:"message,omitempty"`
 
 	// Phase represents the current state of the experiment
-	// +kubebuilder:validation:Enum=Pending;Running;Completed;Failed
+	// +kubebuilder:validation:Enum=Pending;Running;Completed;Failed;Paused
 	// +optional
 	Phase string `json:"phase,omitempty"`
 
@@ -251,6 +372,15 @@ type ChaosExperimentStatus struct {
 	// Used for auto-uncordon when the experiment completes
 	// +optional
 	CordonedNodes []string `json:"cordonedNodes,omitempty"`
+
+	// TaintedNodes tracks nodes that were tainted by this experiment
+	// Used for removing taints when the experiment completes
+	// +optional
+	TaintedNodes []string `json:"taintedNodes,omitempty"`
+
+	// Conditions represents the latest available observations of the experiment
+	// +optional
+	Conditions []metav1.Condition `json:"conditions,omitempty"`
 
 	// AffectedPods tracks pods that have ephemeral containers injected by this experiment
 	// Used for cleanup when the experiment completes (pod-cpu-stress, pod-memory-stress, pod-network-loss, pod-disk-fill)

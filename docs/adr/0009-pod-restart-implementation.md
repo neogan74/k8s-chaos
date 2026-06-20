@@ -1,6 +1,6 @@
 # ADR 0009: Pod Restart Implementation
 
-**Status**: Accepted
+**Status**: Implemented
 
 **Date**: 2025-12-27
 

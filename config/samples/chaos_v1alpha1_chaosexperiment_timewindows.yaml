@@ -1,0 +1,108 @@
+apiVersion: chaos.gushchin.dev/v1alpha1
+kind: ChaosExperiment
+metadata:
+  name: scheduled-maintenance-chaos
+  namespace: default
+spec:
+  # Run pod-kill chaos only during maintenance windows
+  action: pod-kill
+  namespace: demo-app
+  selector:
+    app: web-server
+  count: 1
+
+  # Schedule the experiment to run hourly
+  schedule: "@hourly"
+
+  # But only allow execution during maintenance windows
+  timeWindows:
+    # Weeknight maintenance window (Berlin time): Mon-Fri, 22:00-02:00
+    - type: Recurring
+      daysOfWeek: ["Mon", "Tue", "Wed", "Thu", "Fri"]
+      start: "22:00"
+      end: "02:00"
+      timezone: "Europe/Berlin"
+
+    # Weekend maintenance window (UTC): Sat-Sun, anytime
+    - type: Recurring
+      daysOfWeek: ["Sat", "Sun"]
+      start: "00:00"
+      end: "23:59"
+      timezone: "UTC"
+
+---
+apiVersion: chaos.gushchin.dev/v1alpha1
+kind: ChaosExperiment
+metadata:
+  name: absolute-window-chaos
+  namespace: default
+spec:
+  # Run CPU stress during a specific one-time maintenance window
+  action: pod-cpu-stress
+  namespace: demo-app
+  selector:
+    app: api-server
+  count: 2
+  cpuLoad: 50
+  cpuWorkers: 2
+  duration: "5m"
+
+  # Only run during this specific maintenance window
+  timeWindows:
+    - type: Absolute
+      start: "2026-01-10T01:00:00Z"
+      end: "2026-01-10T03:00:00Z"
+
+---
+apiVersion: chaos.gushchin.dev/v1alpha1
+kind: ChaosExperiment
+metadata:
+  name: business-hours-chaos
+  namespace: default
+spec:
+  # Network latency testing during business hours only
+  action: pod-delay
+  namespace: demo-app
+  selector:
+    app: frontend
+  count: 1
+  duration: "10m"
+  delayMs: 200
+
+  # Only run during business hours (9 AM - 5 PM EST, Mon-Fri)
+  timeWindows:
+    - type: Recurring
+      daysOfWeek: ["Mon", "Tue", "Wed", "Thu", "Fri"]
+      start: "09:00"
+      end: "17:00"
+      timezone: "America/New_York"
+
+---
+apiVersion: chaos.gushchin.dev/v1alpha1
+kind: ChaosExperiment
+metadata:
+  name: combined-windows-chaos
+  namespace: default
+spec:
+  # Pod restart with multiple time windows
+  action: pod-restart
+  namespace: demo-app
+  selector:
+    tier: backend
+  count: 1
+  restartInterval: "30s"
+
+  # Combine scheduled runs with multiple maintenance windows
+  schedule: "*/15 * * * *"  # Every 15 minutes
+
+  timeWindows:
+    # Weekday late night window (UTC)
+    - type: Recurring
+      daysOfWeek: ["Mon", "Tue", "Wed", "Thu", "Fri"]
+      start: "23:00"
+      end: "06:00"
+
+    # Plus a specific planned maintenance window
+    - type: Absolute
+      start: "2026-01-15T14:00:00Z"
+      end: "2026-01-15T16:00:00Z"

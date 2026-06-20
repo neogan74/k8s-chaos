@@ -138,6 +138,9 @@ func (r *ChaosExperimentReconciler) createHistoryRecord(
 	// Trigger retention cleanup asynchronously
 	go r.cleanupOldHistoryRecords(context.Background(), exp)
 
+	// Trigger TTL cleanup asynchronously
+	go r.cleanupExpiredHistory(context.Background())
+
 	return nil
 }
 
@@ -200,6 +203,62 @@ func (r *ChaosExperimentReconciler) cleanupOldHistoryRecords(
 	}
 }
 
+// cleanupExpiredHistory removes history records older than the configured TTL
+func (r *ChaosExperimentReconciler) cleanupExpiredHistory(ctx context.Context) {
+	log := ctrl.LoggerFrom(ctx)
+
+	// Check if TTL cleanup is enabled
+	if r.HistoryConfig.RetentionTTL == 0 {
+		log.V(1).Info("TTL-based cleanup is disabled (RetentionTTL=0), skipping")
+		return
+	}
+
+	// Calculate expiration time
+	expirationTime := time.Now().Add(-r.HistoryConfig.RetentionTTL)
+
+	// Determine history namespace
+	historyNamespace := r.HistoryConfig.Namespace
+	if historyNamespace == "" {
+		historyNamespace = "chaos-system" // Fallback to default
+	}
+
+	// List all history records in the history namespace
+	historyList := &chaosv1alpha1.ChaosExperimentHistoryList{}
+	err := r.List(ctx, historyList, client.InNamespace(historyNamespace))
+	if err != nil {
+		log.Error(err, "Failed to list history records for TTL cleanup")
+		return
+	}
+
+	// Delete records older than TTL
+	deletedCount := 0
+	for i := range historyList.Items {
+		record := &historyList.Items[i]
+		if record.CreationTimestamp.Time.Before(expirationTime) {
+			age := time.Since(record.CreationTimestamp.Time)
+			log.Info("Deleting expired history record",
+				"record", record.Name,
+				"age", age,
+				"ttl", r.HistoryConfig.RetentionTTL)
+
+			if err := r.Delete(ctx, record); err != nil {
+				log.Error(err, "Failed to delete expired history record", "record", record.Name)
+			} else {
+				deletedCount++
+				// Record cleanup metric
+				chaosmetrics.HistoryCleanupTotal.WithLabelValues("ttl_expired").Inc()
+			}
+		}
+	}
+
+	if deletedCount > 0 {
+		log.Info("Cleaned up expired history records",
+			"deletedCount", deletedCount,
+			"ttl", r.HistoryConfig.RetentionTTL,
+			"expirationTime", expirationTime)
+	}
+}
+
 // sortHistoryByAge sorts history records by creation timestamp (oldest first)
 func sortHistoryByAge(items []chaosv1alpha1.ChaosExperimentHistory) {
 	// Simple bubble sort (sufficient for typical history sizes)
@@ -258,3 +317,27 @@ func generateShortUID() string {
 //
 //     return ctrl.Result{RequeueAfter: time.Minute}, nil
 // }
+
+// startPeriodicTTLCleanup runs a background goroutine to clean up expired history
+func (r *ChaosExperimentReconciler) startPeriodicTTLCleanup(c client.Client) {
+	// Run cleanup every hour
+	// Note: We use a ticker to run periodically. The first run happens after the interval.
+	// This gives time for the manager to start and inject the client.
+	ticker := time.NewTicker(time.Hour)
+	defer ticker.Stop()
+
+	log := ctrl.Log.WithName("history-cleanup")
+	log.Info("Starting periodic TTL history cleanup")
+
+	// Create a context with the logger attached?
+	// cleanupExpiredHistory uses ctrl.LoggerFrom(ctx), so we should provide one if possible,
+	// or rely on default logger. Passing context.Background() is usually fine as LoggerFrom handles it.
+	ctx := context.Background()
+
+	for {
+		select {
+		case <-ticker.C:
+			r.cleanupExpiredHistory(ctx)
+		}
+	}
+}

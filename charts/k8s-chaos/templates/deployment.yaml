@@ -57,6 +57,7 @@ spec:
         - --history-enabled=false
         {{- end }}
         {{- if .Values.webhook.enabled }}
+        - --webhook-enabled=true
         - --webhook-port={{ .Values.webhook.port }}
         {{- end }}
         - --zap-log-level={{ .Values.controller.logLevel }}

@@ -26,6 +26,7 @@ A **production-ready**, lightweight Kubernetes Chaos Engineering operator built 
 - ✅ **pod-cpu-stress**: Consume CPU resources (1-100%)
 - ✅ **pod-memory-stress**: Consume memory resources
 - ✅ **pod-failure**: Kill main process to test restart behavior
+- ✅ **pod-restart**: Gracefully restart containers (SIGTERM)
 
 **Node Chaos**
 - ✅ **node-drain**: Drain nodes with automatic uncordon
@@ -259,7 +260,7 @@ make docker-push IMG=myrepo/k8s-chaos:tag
 
 | Field | Type | Description | Required | Default |
 |-------|------|-------------|----------|---------|
-| `action` | string | Chaos action to perform (`pod-kill`, `pod-delay`, `node-drain`) | Yes | - |
+| `action` | string | Chaos action to perform (`pod-kill`, `pod-delay`, `node-drain`, `pod-restart`) | Yes | - |
 | `namespace` | string | Target namespace for experiments | Yes | - |
 | `selector` | map[string]string | Label selector for target resources | Yes | - |
 | `count` | int | Number of resources to affect (1-100) | No | 1 |
