@@ -366,7 +366,7 @@ func TestHandleNodeCPUStress_Validation(t *testing.T) {
 				s.Duration = ""
 			},
 			wantPhase:   "Failed",
-			wantMessage: "Duration is required",
+			wantMessage: "duration is required",
 		},
 		{
 			name: "fails when Duration is invalid",
@@ -375,7 +375,7 @@ func TestHandleNodeCPUStress_Validation(t *testing.T) {
 				s.Duration = "not-a-duration"
 			},
 			wantPhase:   "Failed",
-			wantMessage: "Invalid duration format",
+			wantMessage: "invalid duration format",
 		},
 	}
 

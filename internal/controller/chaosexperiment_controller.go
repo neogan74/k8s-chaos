@@ -162,13 +162,7 @@ func (r *ChaosExperimentReconciler) Reconcile(ctx context.Context, req ctrl.Requ
 	}
 
 	// Check if we're within allowed time windows
-	inWindow, requeueAt, err := r.checkTimeWindows(ctx, &exp)
-	if err != nil {
-		log.Error(err, "Failed to check time windows")
-		exp.Status.Message = fmt.Sprintf("Time window error: %v", err)
-		_ = r.Status().Update(ctx, &exp)
-		return ctrl.Result{}, err
-	}
+	inWindow, requeueAt := r.checkTimeWindows(ctx, &exp)
 	if !inWindow {
 		// Outside time window, requeue for the next window opening
 		return ctrl.Result{RequeueAfter: time.Until(requeueAt)}, nil
@@ -234,7 +228,7 @@ func (r *ChaosExperimentReconciler) handlePodKill(ctx context.Context, exp *chao
 	eligiblePods, err := r.getEligiblePods(ctx, exp)
 	if err != nil {
 		if isPermissionDeniedError(err) {
-			return r.handlePermissionDenied(ctx, exp, "listing pods for pod-kill", err)
+			return ctrl.Result{}, r.handlePermissionDenied(ctx, exp, "listing pods for pod-kill", err)
 		}
 		return r.handleExperimentFailure(ctx, exp, &ChaosError{
 			Original:  fmt.Errorf("failed to get eligible pods: %w", err),
@@ -252,7 +246,7 @@ func (r *ChaosExperimentReconciler) handlePodKill(ctx context.Context, exp *chao
 
 	// Handle dry-run mode
 	if exp.Spec.DryRun {
-		return r.handleDryRun(ctx, exp, eligiblePods, "delete")
+		return ctrl.Result{}, r.handleDryRun(ctx, exp, eligiblePods, "delete")
 	}
 
 	// Shuffle the list of eligible pods
@@ -360,7 +354,7 @@ func (r *ChaosExperimentReconciler) handlePodDelay(ctx context.Context, exp *cha
 	eligiblePods, err := r.getEligiblePods(ctx, exp)
 	if err != nil {
 		if isPermissionDeniedError(err) {
-			return r.handlePermissionDenied(ctx, exp, "listing pods for pod-delay", err)
+			return ctrl.Result{}, r.handlePermissionDenied(ctx, exp, "listing pods for pod-delay", err)
 		}
 		log.Error(err, "Failed to get eligible pods")
 		exp.Status.Message = fmt.Sprintf("Error: Failed to get eligible pods: %v", err)
@@ -377,7 +371,7 @@ func (r *ChaosExperimentReconciler) handlePodDelay(ctx context.Context, exp *cha
 
 	// Handle dry-run mode
 	if exp.Spec.DryRun {
-		return r.handleDryRun(ctx, exp, eligiblePods, fmt.Sprintf("add %dms network delay to", delayMs))
+		return ctrl.Result{}, r.handleDryRun(ctx, exp, eligiblePods, fmt.Sprintf("add %dms network delay to", delayMs))
 	}
 
 	// Shuffle the list of eligible pods
@@ -498,7 +492,7 @@ func (r *ChaosExperimentReconciler) handlePodCPUStress(ctx context.Context, exp 
 	eligiblePods, err := r.getEligiblePods(ctx, exp)
 	if err != nil {
 		if isPermissionDeniedError(err) {
-			return r.handlePermissionDenied(ctx, exp, "listing pods for pod-cpu-stress", err)
+			return ctrl.Result{}, r.handlePermissionDenied(ctx, exp, "listing pods for pod-cpu-stress", err)
 		}
 		return r.handleExperimentFailure(ctx, exp, &ChaosError{
 			Original:  fmt.Errorf("failed to get eligible pods: %w", err),
@@ -516,7 +510,7 @@ func (r *ChaosExperimentReconciler) handlePodCPUStress(ctx context.Context, exp 
 
 	// Handle dry-run mode
 	if exp.Spec.DryRun {
-		return r.handleDryRun(ctx, exp, eligiblePods, fmt.Sprintf("apply %d%% CPU stress to", exp.Spec.CPULoad))
+		return ctrl.Result{}, r.handleDryRun(ctx, exp, eligiblePods, fmt.Sprintf("apply %d%% CPU stress to", exp.Spec.CPULoad))
 	}
 
 	// Shuffle the list of eligible pods
@@ -631,7 +625,7 @@ func (r *ChaosExperimentReconciler) handleNodeCPUStress(ctx context.Context, exp
 
 	if exp.Spec.Duration == "" {
 		return r.handleExperimentFailure(ctx, exp, &ChaosError{
-			Original:  fmt.Errorf("Duration is required for node-cpu-stress action"),
+			Original:  fmt.Errorf("duration is required for node-cpu-stress action"),
 			Type:      ErrorTypeValidation,
 			Operation: "validate node-cpu-stress config",
 		})
@@ -641,7 +635,7 @@ func (r *ChaosExperimentReconciler) handleNodeCPUStress(ctx context.Context, exp
 	durationSeconds, err := r.parseDurationToSeconds(exp.Spec.Duration)
 	if err != nil {
 		return r.handleExperimentFailure(ctx, exp, &ChaosError{
-			Original:  fmt.Errorf("Invalid duration format: %s", exp.Spec.Duration),
+			Original:  fmt.Errorf("invalid duration format: %s", exp.Spec.Duration),
 			Type:      ErrorTypeValidation,
 			Operation: "parse node-cpu-stress duration",
 		})
@@ -653,7 +647,7 @@ func (r *ChaosExperimentReconciler) handleNodeCPUStress(ctx context.Context, exp
 	if err := r.List(ctx, nodeList, client.MatchingLabelsSelector{Selector: selector}); err != nil {
 		log.Error(err, "Failed to list nodes")
 		if isPermissionDeniedError(err) {
-			return r.handlePermissionDenied(ctx, exp, "listing nodes for node-cpu-stress", err)
+			return ctrl.Result{}, r.handlePermissionDenied(ctx, exp, "listing nodes for node-cpu-stress", err)
 		}
 		return r.handleExperimentFailure(ctx, exp, &ChaosError{
 			Original:  fmt.Errorf("failed to list nodes: %w", err),
@@ -687,7 +681,7 @@ func (r *ChaosExperimentReconciler) handleNodeCPUStress(ctx context.Context, exp
 		now := metav1.Now()
 		exp.Status.LastRunTime = &now
 		exp.Status.Message = fmt.Sprintf("DRY RUN: Would apply %d%% CPU stress to %d node(s): %v", exp.Spec.CPULoad, count, nodeNames)
-		exp.Status.Phase = "Completed"
+		exp.Status.Phase = phaseCompleted
 
 		if err := r.Status().Update(ctx, exp); err != nil {
 			log.Error(err, "Failed to update ChaosExperiment status")
@@ -1101,7 +1095,7 @@ func (r *ChaosExperimentReconciler) handleNodeDrain(ctx context.Context, exp *ch
 	if err := r.List(ctx, nodeList, client.MatchingLabelsSelector{Selector: selector}); err != nil {
 		log.Error(err, "Failed to list nodes")
 		if isPermissionDeniedError(err) {
-			return r.handlePermissionDenied(ctx, exp, "listing nodes for node-drain", err)
+			return ctrl.Result{}, r.handlePermissionDenied(ctx, exp, "listing nodes for node-drain", err)
 		}
 		exp.Status.Message = "Error: Failed to list nodes"
 		_ = r.Status().Update(ctx, exp)
@@ -1133,7 +1127,7 @@ func (r *ChaosExperimentReconciler) handleNodeDrain(ctx context.Context, exp *ch
 		now := metav1.Now()
 		exp.Status.LastRunTime = &now
 		exp.Status.Message = fmt.Sprintf("DRY RUN: Would cordon and drain %d node(s): %v", count, nodeNames)
-		exp.Status.Phase = "Completed"
+		exp.Status.Phase = phaseCompleted
 
 		if err := r.Status().Update(ctx, exp); err != nil {
 			log.Error(err, "Failed to update ChaosExperiment status")
@@ -1313,7 +1307,7 @@ func (r *ChaosExperimentReconciler) handleNodeTaint(ctx context.Context, exp *ch
 	if err := r.List(ctx, nodeList, client.MatchingLabelsSelector{Selector: selector}); err != nil {
 		log.Error(err, "Failed to list nodes")
 		if isPermissionDeniedError(err) {
-			return r.handlePermissionDenied(ctx, exp, "listing nodes for node-taint", err)
+			return ctrl.Result{}, r.handlePermissionDenied(ctx, exp, "listing nodes for node-taint", err)
 		}
 		exp.Status.Message = "Error: Failed to list nodes"
 		_ = r.Status().Update(ctx, exp)
@@ -1345,7 +1339,7 @@ func (r *ChaosExperimentReconciler) handleNodeTaint(ctx context.Context, exp *ch
 		now := metav1.Now()
 		exp.Status.LastRunTime = &now
 		exp.Status.Message = fmt.Sprintf("DRY RUN: Would taint %d node(s) with %s: %v", count, exp.Spec.TaintKey, nodeNames)
-		exp.Status.Phase = "Completed"
+		exp.Status.Phase = phaseCompleted
 
 		if err := r.Status().Update(ctx, exp); err != nil {
 			log.Error(err, "Failed to update ChaosExperiment status")
@@ -1687,7 +1681,7 @@ func (r *ChaosExperimentReconciler) handlePermissionDenied(
 	exp *chaosv1alpha1.ChaosExperiment,
 	operation string,
 	err error,
-) (ctrl.Result, error) {
+) error {
 	log := ctrl.LoggerFrom(ctx)
 
 	msg := fmt.Sprintf(
@@ -1713,13 +1707,13 @@ func (r *ChaosExperimentReconciler) handlePermissionDenied(
 
 	if updateErr := r.Status().Update(ctx, exp); updateErr != nil {
 		log.Error(updateErr, "Failed to update ChaosExperiment status after permission denial")
-		return ctrl.Result{}, updateErr
+		return updateErr
 	}
 
 	r.Recorder.Event(exp, corev1.EventTypeWarning, "PermissionDenied", msg)
 
 	// Do NOT requeue.
-	return ctrl.Result{}, nil
+	return nil
 }
 
 // handleExperimentFailure updates status and determines retry behavior
@@ -1829,7 +1823,7 @@ func (r *ChaosExperimentReconciler) handleExperimentSuccess(ctx context.Context,
 }
 
 // handleDryRun handles dry-run mode by previewing affected resources without executing chaos
-func (r *ChaosExperimentReconciler) handleDryRun(ctx context.Context, exp *chaosv1alpha1.ChaosExperiment, pods []corev1.Pod, actionType string) (ctrl.Result, error) {
+func (r *ChaosExperimentReconciler) handleDryRun(ctx context.Context, exp *chaosv1alpha1.ChaosExperiment, pods []corev1.Pod, actionType string) error {
 	log := ctrl.LoggerFrom(ctx)
 
 	count := exp.Spec.Count
@@ -1850,11 +1844,11 @@ func (r *ChaosExperimentReconciler) handleDryRun(ctx context.Context, exp *chaos
 	exp.Status.LastRunTime = &now
 	exp.Status.Message = fmt.Sprintf("DRY RUN: Would %s %d pod(s): %v",
 		actionType, count, podNames)
-	exp.Status.Phase = "Completed"
+	exp.Status.Phase = phaseCompleted
 
 	if err := r.Status().Update(ctx, exp); err != nil {
 		log.Error(err, "Failed to update ChaosExperiment status")
-		return ctrl.Result{}, err
+		return err
 	}
 
 	log.Info("Dry run completed", "action", actionType, "wouldAffect", count, "pods", podNames)
@@ -1862,8 +1856,7 @@ func (r *ChaosExperimentReconciler) handleDryRun(ctx context.Context, exp *chaos
 	// Track dry-run execution in metrics
 	chaosmetrics.SafetyDryRunExecutions.WithLabelValues(exp.Spec.Action, exp.Spec.Namespace).Inc()
 
-	// Don't requeue for dry-run experiments
-	return ctrl.Result{}, nil
+	return nil
 }
 
 // checkExperimentLifecycle manages the experiment lifecycle based on experimentDuration
@@ -1950,10 +1943,7 @@ func (r *ChaosExperimentReconciler) checkExperimentLifecycle(ctx context.Context
 		if (exp.Spec.Action == "pod-cpu-stress" || exp.Spec.Action == "pod-memory-stress" || exp.Spec.Action == "pod-network-loss" || exp.Spec.Action == "pod-disk-fill") && len(exp.Status.AffectedPods) > 0 {
 			log.Info("Cleaning up ephemeral containers injected by this experiment",
 				"affectedPods", len(exp.Status.AffectedPods))
-			if err := r.cleanupEphemeralContainers(ctx, exp); err != nil {
-				log.Error(err, "Failed to cleanup ephemeral containers")
-				// Continue with completion even if cleanup fails
-			}
+			r.cleanupEphemeralContainers(ctx, exp)
 		}
 
 		// Mark as completed
@@ -2114,7 +2104,7 @@ func (r *ChaosExperimentReconciler) handlePodMemoryStress(ctx context.Context, e
 
 	// Handle dry-run mode
 	if exp.Spec.DryRun {
-		return r.handleDryRun(ctx, exp, eligiblePods, "pod-memory-stress")
+		return ctrl.Result{}, r.handleDryRun(ctx, exp, eligiblePods, "pod-memory-stress")
 	}
 
 	// Shuffle the list of pods
@@ -2240,7 +2230,7 @@ func (r *ChaosExperimentReconciler) handlePodFailure(ctx context.Context, exp *c
 	eligiblePods, err := r.getEligiblePods(ctx, exp)
 	if err != nil {
 		if isPermissionDeniedError(err) {
-			return r.handlePermissionDenied(ctx, exp, "listing pods for pod-failure", err)
+			return ctrl.Result{}, r.handlePermissionDenied(ctx, exp, "listing pods for pod-failure", err)
 		}
 		return r.handleExperimentFailure(ctx, exp, &ChaosError{
 			Original:  fmt.Errorf("failed to get eligible pods: %w", err),
@@ -2258,7 +2248,7 @@ func (r *ChaosExperimentReconciler) handlePodFailure(ctx context.Context, exp *c
 
 	// Handle dry-run mode
 	if exp.Spec.DryRun {
-		return r.handleDryRun(ctx, exp, eligiblePods, "cause container failure in")
+		return ctrl.Result{}, r.handleDryRun(ctx, exp, eligiblePods, "cause container failure in")
 	}
 
 	// Shuffle the list of eligible pods
@@ -2343,7 +2333,7 @@ func (r *ChaosExperimentReconciler) handlePodRestart(ctx context.Context, exp *c
 	eligiblePods, err := r.getEligiblePods(ctx, exp)
 	if err != nil {
 		if isPermissionDeniedError(err) {
-			return r.handlePermissionDenied(ctx, exp, "listing pods for pod-restart", err)
+			return ctrl.Result{}, r.handlePermissionDenied(ctx, exp, "listing pods for pod-restart", err)
 		}
 		return r.handleExperimentFailure(ctx, exp, &ChaosError{
 			Original:  fmt.Errorf("failed to get eligible pods: %w", err),
@@ -2361,7 +2351,7 @@ func (r *ChaosExperimentReconciler) handlePodRestart(ctx context.Context, exp *c
 
 	// Handle dry-run mode
 	if exp.Spec.DryRun {
-		return r.handleDryRun(ctx, exp, eligiblePods, "gracefully restart")
+		return ctrl.Result{}, r.handleDryRun(ctx, exp, eligiblePods, "gracefully restart")
 	}
 
 	// Parse restart interval if provided
@@ -2506,7 +2496,7 @@ func (r *ChaosExperimentReconciler) handlePodNetworkLoss(ctx context.Context, ex
 
 	// Handle dry-run mode
 	if exp.Spec.DryRun {
-		return r.handleDryRun(ctx, exp, eligiblePods, "pod-network-loss")
+		return ctrl.Result{}, r.handleDryRun(ctx, exp, eligiblePods, "pod-network-loss")
 	}
 
 	// Shuffle the list of pods
@@ -2629,7 +2619,7 @@ func (r *ChaosExperimentReconciler) handlePodDiskFill(ctx context.Context, exp *
 
 	// Handle dry-run mode
 	if exp.Spec.DryRun {
-		return r.handleDryRun(ctx, exp, eligiblePods, "pod-disk-fill")
+		return ctrl.Result{}, r.handleDryRun(ctx, exp, eligiblePods, "pod-disk-fill")
 	}
 
 	// Shuffle the list of pods
@@ -2730,7 +2720,7 @@ func (r *ChaosExperimentReconciler) handlePodNetworkCorruption(ctx context.Conte
 	// Validate namespace
 	if exp.Spec.Namespace == "" {
 		return r.handleExperimentFailure(ctx, exp, &ChaosError{
-			Original:  fmt.Errorf("Namespace not specified"),
+			Original:  fmt.Errorf("namespace not specified"),
 			Type:      ErrorTypeValidation,
 			Operation: "validate pod-network-corruption config",
 		})
@@ -2779,7 +2769,7 @@ func (r *ChaosExperimentReconciler) handlePodNetworkCorruption(ctx context.Conte
 
 	// Handle dry-run mode
 	if exp.Spec.DryRun {
-		return r.handleDryRun(ctx, exp, eligiblePods, "pod-network-corruption")
+		return ctrl.Result{}, r.handleDryRun(ctx, exp, eligiblePods, "pod-network-corruption")
 	}
 
 	// Shuffle the list of pods
@@ -3211,8 +3201,8 @@ func (r *ChaosExperimentReconciler) checkSchedule(ctx context.Context, exp *chao
 }
 
 // checkTimeWindows determines if the current time is within allowed time windows.
-// Returns: inWindow (bool), requeueAt (time.Time), error
-func (r *ChaosExperimentReconciler) checkTimeWindows(ctx context.Context, exp *chaosv1alpha1.ChaosExperiment) (bool, time.Time, error) {
+// Returns: inWindow (bool), requeueAt (time.Time)
+func (r *ChaosExperimentReconciler) checkTimeWindows(ctx context.Context, exp *chaosv1alpha1.ChaosExperiment) (bool, time.Time) {
 	log := ctrl.LoggerFrom(ctx)
 	now := time.Now()
 
@@ -3233,9 +3223,9 @@ func (r *ChaosExperimentReconciler) checkTimeWindows(ctx context.Context, exp *c
 
 			// Requeue when maintenance ends
 			if !nextMaintenanceEnd.IsZero() {
-				return false, nextMaintenanceEnd, nil
+				return false, nextMaintenanceEnd
 			}
-			return false, now.Add(1 * time.Hour), nil // Fallback requeue
+			return false, now.Add(1 * time.Hour) // Fallback requeue
 		}
 	}
 
@@ -3244,7 +3234,7 @@ func (r *ChaosExperimentReconciler) checkTimeWindows(ctx context.Context, exp *c
 	if len(exp.Spec.TimeWindows) == 0 {
 		// Ensure we clear any stale blocked condition
 		r.clearBlockedByTimeWindowCondition(ctx, exp)
-		return true, time.Time{}, nil
+		return true, time.Time{}
 	}
 
 	// Check if we're within any time window
@@ -3254,7 +3244,7 @@ func (r *ChaosExperimentReconciler) checkTimeWindows(ctx context.Context, exp *c
 		// We're in a window, clear the blocked condition if it exists
 		r.clearBlockedByTimeWindowCondition(ctx, exp)
 		log.V(1).Info("Experiment is within time window, proceeding")
-		return true, time.Time{}, nil
+		return true, time.Time{}
 	}
 
 	// We're outside all windows, calculate next opening
@@ -3264,7 +3254,7 @@ func (r *ChaosExperimentReconciler) checkTimeWindows(ctx context.Context, exp *c
 		// No future windows (e.g., absolute window in the past)
 		log.Info("No future time windows available for experiment")
 		r.setBlockedByTimeWindowCondition(ctx, exp, "No future time windows available", time.Time{})
-		return false, now.Add(24 * time.Hour), nil // Requeue in 24 hours
+		return false, now.Add(24 * time.Hour) // Requeue in 24 hours
 	}
 
 	log.Info("Experiment blocked by time window",
@@ -3279,11 +3269,11 @@ func (r *ChaosExperimentReconciler) checkTimeWindows(ctx context.Context, exp *c
 			nextBoundary.Format(time.RFC3339)),
 		nextBoundary)
 
-	return false, nextBoundary, nil
+	return false, nextBoundary
 }
 
 // setBlockedByTimeWindowCondition sets a condition indicating the experiment is blocked by time windows
-func (r *ChaosExperimentReconciler) setBlockedByTimeWindowCondition(ctx context.Context, exp *chaosv1alpha1.ChaosExperiment, message string, nextBoundary time.Time) {
+func (r *ChaosExperimentReconciler) setBlockedByTimeWindowCondition(ctx context.Context, exp *chaosv1alpha1.ChaosExperiment, message string, _ time.Time) {
 	condition := metav1.Condition{
 		Type:               "BlockedByTimeWindow",
 		Status:             metav1.ConditionTrue,
@@ -3377,26 +3367,26 @@ func isEphemeralContainerRunning(pod *corev1.Pod, containerName string) bool {
 // cleanupEphemeralContainers cleans up ephemeral containers that were injected by this experiment
 // Note: Kubernetes doesn't support removing ephemeral containers directly, but we can track them
 // and log their completion status. The containers will remain in the pod spec but stop consuming resources.
-func (r *ChaosExperimentReconciler) cleanupEphemeralContainers(ctx context.Context, exp *chaosv1alpha1.ChaosExperiment) error {
+func (r *ChaosExperimentReconciler) cleanupEphemeralContainers(ctx context.Context, exp *chaosv1alpha1.ChaosExperiment) {
 	log := ctrl.LoggerFrom(ctx)
 
 	if len(exp.Status.AffectedPods) == 0 {
 		log.Info("No affected pods to clean up")
-		return nil
+		return
 	}
 
 	log.Info("Cleaning up ephemeral containers", "affectedPods", len(exp.Status.AffectedPods))
 
 	cleanedUp := 0
 	stillRunning := 0
-	errors := 0
+	errCount := 0
 
 	for _, podRef := range exp.Status.AffectedPods {
 		// Parse the pod reference format: "namespace/podName:containerName"
 		parts := strings.SplitN(podRef, ":", 2)
 		if len(parts) != 2 {
 			log.Error(nil, "Invalid pod reference format", "ref", podRef)
-			errors++
+			errCount++
 			continue
 		}
 
@@ -3406,7 +3396,7 @@ func (r *ChaosExperimentReconciler) cleanupEphemeralContainers(ctx context.Conte
 		nsPod := strings.SplitN(podKey, "/", 2)
 		if len(nsPod) != 2 {
 			log.Error(nil, "Invalid pod key format", "key", podKey)
-			errors++
+			errCount++
 			continue
 		}
 
@@ -3418,7 +3408,7 @@ func (r *ChaosExperimentReconciler) cleanupEphemeralContainers(ctx context.Conte
 		if err := r.Get(ctx, client.ObjectKey{Namespace: namespace, Name: podName}, pod); err != nil {
 			if client.IgnoreNotFound(err) != nil {
 				log.Error(err, "Failed to get pod for cleanup", "pod", podName, "namespace", namespace)
-				errors++
+				errCount++
 			} else {
 				// Pod was deleted, consider it cleaned up
 				log.Info("Pod no longer exists, cleanup not needed", "pod", podName, "namespace", namespace)
@@ -3464,13 +3454,11 @@ func (r *ChaosExperimentReconciler) cleanupEphemeralContainers(ctx context.Conte
 	log.Info("Ephemeral container cleanup summary",
 		"cleanedUp", cleanedUp,
 		"stillRunning", stillRunning,
-		"errors", errors,
+		"errors", errCount,
 		"total", len(exp.Status.AffectedPods))
 
 	// Clear the affected pods list after cleanup attempt
 	exp.Status.AffectedPods = nil
-
-	return nil
 }
 
 // trackAffectedPod adds a pod to the affected pods list in the experiment status
@@ -3559,7 +3547,7 @@ func (r *ChaosExperimentReconciler) handleNetworkPartition(ctx context.Context, 
 
 	// Handle dry-run mode
 	if exp.Spec.DryRun {
-		return r.handleDryRun(ctx, exp, eligiblePods, fmt.Sprintf("network-partition (%s)", direction))
+		return ctrl.Result{}, r.handleDryRun(ctx, exp, eligiblePods, fmt.Sprintf("network-partition (%s)", direction))
 	}
 
 	// Shuffle the list of pods

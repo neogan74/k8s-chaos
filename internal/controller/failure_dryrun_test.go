@@ -98,9 +98,8 @@ func TestHandleDryRunUpdatesStatus(t *testing.T) {
 
 	r := newReconcilerWithObjects(t, exp)
 
-	result, err := r.handleDryRun(ctx, exp, pods, "delete")
+	err := r.handleDryRun(ctx, exp, pods, "delete")
 	require.NoError(t, err)
-	assert.Equal(t, time.Duration(0), result.RequeueAfter)
 
 	refreshed := &chaosv1alpha1.ChaosExperiment{}
 	require.NoError(t, r.Get(ctx, clientKey(exp), refreshed))
