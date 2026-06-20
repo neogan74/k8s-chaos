@@ -28,6 +28,8 @@ import (
 	chaosv1alpha1 "github.com/neogan74/k8s-chaos/api/v1alpha1"
 )
 
+const phaseFailed = "Failed"
+
 var statsCmd = &cobra.Command{
 	Use:   "stats",
 	Short: "Show chaos experiment statistics",
@@ -96,7 +98,7 @@ func calculateStats(experiments []chaosv1alpha1.ChaosExperiment) stats {
 			s.Running++
 		case "Completed":
 			s.Completed++
-		case "Failed":
+		case phaseFailed:
 			s.Failed++
 		case "Pending":
 			s.Pending++
@@ -151,12 +153,12 @@ func printStats(s stats, ns string) {
 	if len(s.ByAction) > 0 {
 		fmt.Println("By Action:")
 		w := tabwriter.NewWriter(os.Stdout, 0, 0, 3, ' ', 0)
-		fmt.Fprintln(w, "  ACTION\tCOUNT\tPERCENTAGE")
+		_, _ = fmt.Fprintln(w, "  ACTION\tCOUNT\tPERCENTAGE")
 		for action, count := range s.ByAction {
 			percentage := float64(count) / float64(s.Total) * 100
-			fmt.Fprintf(w, "  %s\t%d\t%.1f%%\n", action, count, percentage)
+			_, _ = fmt.Fprintf(w, "  %s\t%d\t%.1f%%\n", action, count, percentage)
 		}
-		w.Flush()
+		_ = w.Flush()
 		fmt.Println()
 	}
 
@@ -164,5 +166,6 @@ func printStats(s stats, ns string) {
 	fmt.Println("Configuration:")
 	fmt.Printf("  With Retry Logic:    %d (%.1f%%)\n", s.WithRetry, float64(s.WithRetry)/float64(s.Total)*100)
 	fmt.Printf("  Time-Limited:        %d (%.1f%%)\n", s.TimeLimited, float64(s.TimeLimited)/float64(s.Total)*100)
-	fmt.Printf("  Indefinite:          %d (%.1f%%)\n", s.Total-s.TimeLimited, float64(s.Total-s.TimeLimited)/float64(s.Total)*100)
+	indefinite := s.Total - s.TimeLimited
+	fmt.Printf("  Indefinite:          %d (%.1f%%)\n", indefinite, float64(indefinite)/float64(s.Total)*100)
 }

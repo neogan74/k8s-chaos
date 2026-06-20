@@ -6,6 +6,11 @@ import (
 	"time"
 )
 
+const (
+	testExp2 = "exp2"
+	testExp4 = "exp4"
+)
+
 func TestExperimentMetrics_SortByRetries(t *testing.T) {
 	metrics := []experimentMetrics{
 		{Name: "exp1", RetryCount: 1},
@@ -21,7 +26,7 @@ func TestExperimentMetrics_SortByRetries(t *testing.T) {
 		return sorted[i].RetryCount > sorted[j].RetryCount
 	})
 
-	if sorted[0].Name != "exp2" {
+	if sorted[0].Name != testExp2 {
 		t.Fatalf("expected exp2 first (5 retries), got %s", sorted[0].Name)
 	}
 	if sorted[1].Name != "exp3" {
@@ -30,7 +35,7 @@ func TestExperimentMetrics_SortByRetries(t *testing.T) {
 	if sorted[2].Name != "exp1" {
 		t.Fatalf("expected exp1 third (1 retry), got %s", sorted[2].Name)
 	}
-	if sorted[3].Name != "exp4" {
+	if sorted[3].Name != testExp4 {
 		t.Fatalf("expected exp4 last (0 retries), got %s", sorted[3].Name)
 	}
 }
