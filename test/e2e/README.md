@@ -39,7 +39,7 @@ Basic tests for the `pod-disk-fill` action:
 #### Validation
 - **Required fields**: Tests webhook rejection when duration is missing
 
-### Network Loss Tests (`e2e_test.go`)
+### Network Loss Tests (`pod_network_loss_test.go`)
 Comprehensive tests for the `pod-network-loss` action:
 
 #### Basic Functionality
@@ -49,16 +49,17 @@ Comprehensive tests for the `pod-network-loss` action:
 
 #### Safety Features
 - **Dry-run mode**: Verifies no actual network chaos is applied in dry-run mode
-- **Max percentage limits**: Tests the maxPercentage safety constraint
 - **No eligible pods handling**: Validates graceful handling when no pods match selector
+- **Selector and namespace isolation**: Ensures only intended pods are targeted
+- **Concurrent experiments**: Verifies separate selectors can run at the same time
 
 #### Parameters
 - **Loss percentage**: Tests lossPercentage parameter (1-100%)
 - **Loss correlation**: Tests lossCorrelation parameter for burst losses (0-100%)
 
-#### Observability
-- **Metrics exposure**: Verifies Prometheus metrics are exported correctly
-- **Status updates**: Validates experiment status reflects injection state
+#### Validation
+- **Required fields**: Tests webhook rejection when duration or lossPercentage is missing
+- **Safety constraints**: Tests webhook rejection when `maxPercentage` is exceeded
 
 ## Running E2E Tests
 

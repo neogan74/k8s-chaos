@@ -126,7 +126,7 @@ func printTopByRetries(metrics []experimentMetrics, limit int) {
 	})
 
 	w := tabwriter.NewWriter(os.Stdout, 0, 0, 3, ' ', 0)
-	fmt.Fprintln(w, "NAMESPACE\tNAME\tACTION\tRETRIES\tPHASE\tAGE")
+	_, _ = fmt.Fprintln(w, "NAMESPACE\tNAME\tACTION\tRETRIES\tPHASE\tAGE")
 
 	count := 0
 	for _, m := range sorted {
@@ -134,7 +134,7 @@ func printTopByRetries(metrics []experimentMetrics, limit int) {
 			break
 		}
 		if m.RetryCount > 0 { // Only show experiments with retries
-			fmt.Fprintf(w, "%s\t%s\t%s\t%d\t%s\t%s\n",
+			_, _ = fmt.Fprintf(w, "%s\t%s\t%s\t%d\t%s\t%s\n",
 				m.Namespace,
 				m.Name,
 				m.Action,
@@ -147,10 +147,10 @@ func printTopByRetries(metrics []experimentMetrics, limit int) {
 	}
 
 	if count == 0 {
-		fmt.Fprintln(w, "No experiments with retries found")
+		_, _ = fmt.Fprintln(w, "No experiments with retries found")
 	}
 
-	w.Flush()
+	_ = w.Flush()
 }
 
 func printTopByAge(metrics []experimentMetrics, limit int) {
@@ -162,11 +162,11 @@ func printTopByAge(metrics []experimentMetrics, limit int) {
 	})
 
 	w := tabwriter.NewWriter(os.Stdout, 0, 0, 3, ' ', 0)
-	fmt.Fprintln(w, "NAMESPACE\tNAME\tACTION\tPHASE\tAGE")
+	_, _ = fmt.Fprintln(w, "NAMESPACE\tNAME\tACTION\tPHASE\tAGE")
 
 	for i := 0; i < limit && i < len(sorted); i++ {
 		m := sorted[i]
-		fmt.Fprintf(w, "%s\t%s\t%s\t%s\t%s\n",
+		_, _ = fmt.Fprintf(w, "%s\t%s\t%s\t%s\t%s\n",
 			m.Namespace,
 			m.Name,
 			m.Action,
@@ -175,7 +175,7 @@ func printTopByAge(metrics []experimentMetrics, limit int) {
 		)
 	}
 
-	w.Flush()
+	_ = w.Flush()
 }
 
 func printFailed(metrics []experimentMetrics) {
@@ -198,10 +198,10 @@ func printFailed(metrics []experimentMetrics) {
 	})
 
 	w := tabwriter.NewWriter(os.Stdout, 0, 0, 3, ' ', 0)
-	fmt.Fprintln(w, "NAMESPACE\tNAME\tACTION\tRETRIES\tAGE")
+	_, _ = fmt.Fprintln(w, "NAMESPACE\tNAME\tACTION\tRETRIES\tAGE")
 
 	for _, m := range failed {
-		fmt.Fprintf(w, "%s\t%s\t%s\t%d\t%s\n",
+		_, _ = fmt.Fprintf(w, "%s\t%s\t%s\t%d\t%s\n",
 			m.Namespace,
 			m.Name,
 			m.Action,
@@ -210,5 +210,5 @@ func printFailed(metrics []experimentMetrics) {
 		)
 	}
 
-	w.Flush()
+	_ = w.Flush()
 }

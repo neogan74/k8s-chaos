@@ -233,6 +233,11 @@ func (in *ChaosExperimentSpec) DeepCopyInto(out *ChaosExperimentSpec) {
 		*out = make([]string, len(*in))
 		copy(*out, *in)
 	}
+	if in.DependsOn != nil {
+		in, out := &in.DependsOn, &out.DependsOn
+		*out = make([]string, len(*in))
+		copy(*out, *in)
+	}
 	if in.TimeWindows != nil {
 		in, out := &in.TimeWindows, &out.TimeWindows
 		*out = make([]TimeWindow, len(*in))

@@ -1,0 +1,26 @@
+apiVersion: chaos.gushchin.dev/v1alpha1
+kind: ChaosExperiment
+metadata:
+  name: primary-experiment
+  namespace: default
+spec:
+  action: pod-kill
+  namespace: default
+  selector:
+    app: demo
+  count: 1
+---
+apiVersion: chaos.gushchin.dev/v1alpha1
+kind: ChaosExperiment
+metadata:
+  name: dependent-experiment
+  namespace: default
+spec:
+  action: pod-delay
+  namespace: default
+  selector:
+    app: demo
+  count: 1
+  duration: 15s
+  dependsOn:
+    - primary-experiment

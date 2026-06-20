@@ -2,11 +2,13 @@ package cmd
 
 import "testing"
 
+const selectorNone = "<none>"
+
 func TestFormatSelectorMultiline_Empty(t *testing.T) {
-	if got := formatSelectorMultiline(nil); got != "<none>" {
+	if got := formatSelectorMultiline(nil); got != selectorNone {
 		t.Fatalf("expected <none> for nil selector, got %s", got)
 	}
-	if got := formatSelectorMultiline(map[string]string{}); got != "<none>" {
+	if got := formatSelectorMultiline(map[string]string{}); got != selectorNone {
 		t.Fatalf("expected <none> for empty selector, got %s", got)
 	}
 }

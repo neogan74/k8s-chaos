@@ -3,7 +3,18 @@
     "allow": [
       "Bash(git commit:*)",
       "Bash(make test:*)",
-      "Bash(rm:*)"
+      "Bash(rm:*)",
+      "Bash(go build *)",
+      "Bash(go vet *)",
+      "Bash(go clean *)",
+      "Bash(echo \"cache cleared, exit $?\")",
+      "Bash(echo \"build exit: $?\")",
+      "Bash(echo \"api exit: $?\")",
+      "Bash(echo \"controller exit: $?\")",
+      "Bash(go test *)",
+      "Bash(go tool *)",
+      "Bash(go version *)",
+      "Bash(echo \"Exit: $?\")"
     ]
   }
 }

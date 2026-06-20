@@ -74,7 +74,8 @@ func runDescribe(cmd *cobra.Command, args []string) error {
 func printExperimentDetails(exp *chaosv1alpha1.ChaosExperiment) {
 	fmt.Printf("Name:         %s\n", exp.Name)
 	fmt.Printf("Namespace:    %s\n", exp.Namespace)
-	fmt.Printf("Created:      %s (Age: %s)\n", exp.CreationTimestamp.Format("2006-01-02 15:04:05"), formatAge(exp.CreationTimestamp.Time))
+	created := exp.CreationTimestamp.Format("2006-01-02 15:04:05")
+	fmt.Printf("Created:      %s (Age: %s)\n", created, formatAge(exp.CreationTimestamp.Time))
 	fmt.Println()
 
 	fmt.Println("Spec:")
@@ -82,6 +83,10 @@ func printExperimentDetails(exp *chaosv1alpha1.ChaosExperiment) {
 	fmt.Printf("  Target Namespace:    %s\n", exp.Spec.Namespace)
 	fmt.Printf("  Selector:            %s\n", formatSelectorMultiline(exp.Spec.Selector))
 	fmt.Printf("  Count:               %d\n", exp.Spec.Count)
+
+	if len(exp.Spec.DependsOn) > 0 {
+		fmt.Printf("  Depends On:          %v\n", exp.Spec.DependsOn)
+	}
 
 	if exp.Spec.Duration != "" {
 		fmt.Printf("  Duration:            %s\n", exp.Spec.Duration)
@@ -91,6 +96,32 @@ func printExperimentDetails(exp *chaosv1alpha1.ChaosExperiment) {
 		fmt.Printf("  Experiment Duration: %s\n", exp.Spec.ExperimentDuration)
 	} else {
 		fmt.Printf("  Experiment Duration: ∞ (runs indefinitely)\n")
+	}
+
+	if exp.Spec.Schedule != "" {
+		fmt.Printf("  Schedule:            %s\n", exp.Spec.Schedule)
+	}
+
+	if len(exp.Spec.TimeWindows) > 0 {
+		fmt.Printf("  Time Windows:        %d configured\n", len(exp.Spec.TimeWindows))
+		for i, w := range exp.Spec.TimeWindows {
+			if w.Type == chaosv1alpha1.TimeWindowRecurring {
+				fmt.Printf("    [%d] Recurring: %s-%s (%v) TZ:%s\n", i+1, w.Start, w.End, w.DaysOfWeek, w.Timezone)
+			} else {
+				fmt.Printf("    [%d] Absolute:  %s to %s\n", i+1, w.Start, w.End)
+			}
+		}
+	}
+
+	if len(exp.Spec.MaintenanceWindows) > 0 {
+		fmt.Printf("  Maintenance Windows: %d configured\n", len(exp.Spec.MaintenanceWindows))
+		for i, w := range exp.Spec.MaintenanceWindows {
+			if w.Type == chaosv1alpha1.TimeWindowRecurring {
+				fmt.Printf("    [%d] Recurring: %s-%s (%v) TZ:%s\n", i+1, w.Start, w.End, w.DaysOfWeek, w.Timezone)
+			} else {
+				fmt.Printf("    [%d] Absolute:  %s to %s\n", i+1, w.Start, w.End)
+			}
+		}
 	}
 
 	fmt.Println()

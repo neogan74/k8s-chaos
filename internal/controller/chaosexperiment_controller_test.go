@@ -526,5 +526,266 @@ var _ = Describe("ChaosExperiment Controller", func() {
 				return exp.Status.Message
 			}, timeout, interval).Should(ContainSubstring("Successfully injected network partition"))
 		})
+		It("Should handle node-taint: requeue when no nodes match selector", func() {
+			By("Creating a node-taint experiment with a selector that matches no nodes")
+			experiment := &chaosv1alpha1.ChaosExperiment{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      experimentName,
+					Namespace: experimentNamespace,
+				},
+				Spec: chaosv1alpha1.ChaosExperimentSpec{
+					Action:      "node-taint",
+					Namespace:   targetNamespace,
+					TaintKey:    "chaos/test",
+					TaintEffect: "NoSchedule",
+					Selector:    map[string]string{"nonexistent-label": "true"},
+				},
+			}
+			Expect(k8sClient.Create(ctx, experiment)).Should(Succeed())
+
+			reconciler := &ChaosExperimentReconciler{
+				Client:        k8sClient,
+				Scheme:        k8sClient.Scheme(),
+				Recorder:      record.NewFakeRecorder(100),
+				HistoryConfig: DefaultHistoryConfig(),
+			}
+
+			result, err := reconciler.Reconcile(ctx, reconcile.Request{
+				NamespacedName: typeNamespacedName,
+			})
+			Expect(err).NotTo(HaveOccurred())
+			Expect(result.RequeueAfter).To(Equal(time.Minute))
+
+			exp := &chaosv1alpha1.ChaosExperiment{}
+			Eventually(func() string {
+				_ = k8sClient.Get(ctx, typeNamespacedName, exp)
+				return exp.Status.Message
+			}, timeout, interval).Should(ContainSubstring("No nodes found"))
+		})
+
+		It("Should handle node-taint: taint a matching node successfully", func() {
+			By("Creating a node with matching label")
+			testNode := &corev1.Node{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:   "chaos-test-node",
+					Labels: map[string]string{"role": "chaos-worker"},
+				},
+			}
+			Expect(k8sClient.Create(ctx, testNode)).Should(Succeed())
+			defer func() {
+				_ = k8sClient.Delete(ctx, testNode)
+			}()
+
+			By("Creating a node-taint experiment")
+			experiment := &chaosv1alpha1.ChaosExperiment{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      experimentName,
+					Namespace: experimentNamespace,
+				},
+				Spec: chaosv1alpha1.ChaosExperimentSpec{
+					Action:      "node-taint",
+					Namespace:   targetNamespace,
+					TaintKey:    "chaos/test",
+					TaintValue:  "true",
+					TaintEffect: "NoSchedule",
+					Selector:    map[string]string{"role": "chaos-worker"},
+					Count:       1,
+				},
+			}
+			Expect(k8sClient.Create(ctx, experiment)).Should(Succeed())
+
+			reconciler := &ChaosExperimentReconciler{
+				Client:        k8sClient,
+				Scheme:        k8sClient.Scheme(),
+				Recorder:      record.NewFakeRecorder(100),
+				HistoryConfig: DefaultHistoryConfig(),
+			}
+
+			_, err := reconciler.Reconcile(ctx, reconcile.Request{
+				NamespacedName: typeNamespacedName,
+			})
+			Expect(err).NotTo(HaveOccurred())
+
+			By("Verifying the experiment status reports success")
+			exp := &chaosv1alpha1.ChaosExperiment{}
+			Eventually(func() string {
+				_ = k8sClient.Get(ctx, typeNamespacedName, exp)
+				return exp.Status.Message
+			}, timeout, interval).Should(ContainSubstring("Successfully tainted"))
+
+			By("Verifying the node has the taint")
+			updatedNode := &corev1.Node{}
+			Expect(k8sClient.Get(ctx, types.NamespacedName{Name: "chaos-test-node"}, updatedNode)).Should(Succeed())
+			found := false
+			for _, t := range updatedNode.Spec.Taints {
+				if t.Key == "chaos/test" && string(t.Effect) == "NoSchedule" {
+					found = true
+					Expect(t.Value).To(Equal("true"))
+				}
+			}
+			Expect(found).To(BeTrue(), "expected taint chaos/test:NoSchedule to be present on node")
+
+			By("Verifying TaintedNodes is tracked in status")
+			Expect(exp.Status.TaintedNodes).To(ContainElement("chaos-test-node"))
+		})
+
+		It("Should handle node-taint: dry-run does not taint the node", func() {
+			By("Creating a node with matching label")
+			testNode := &corev1.Node{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:   "chaos-dryrun-node",
+					Labels: map[string]string{"role": "chaos-dryrun"},
+				},
+			}
+			Expect(k8sClient.Create(ctx, testNode)).Should(Succeed())
+			defer func() {
+				_ = k8sClient.Delete(ctx, testNode)
+			}()
+
+			By("Creating a dry-run node-taint experiment")
+			experiment := &chaosv1alpha1.ChaosExperiment{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      experimentName,
+					Namespace: experimentNamespace,
+				},
+				Spec: chaosv1alpha1.ChaosExperimentSpec{
+					Action:      "node-taint",
+					Namespace:   targetNamespace,
+					TaintKey:    "chaos/test",
+					TaintValue:  "true",
+					TaintEffect: "NoSchedule",
+					Selector:    map[string]string{"role": "chaos-dryrun"},
+					Count:       1,
+					DryRun:      true,
+				},
+			}
+			Expect(k8sClient.Create(ctx, experiment)).Should(Succeed())
+
+			reconciler := &ChaosExperimentReconciler{
+				Client:        k8sClient,
+				Scheme:        k8sClient.Scheme(),
+				Recorder:      record.NewFakeRecorder(100),
+				HistoryConfig: DefaultHistoryConfig(),
+			}
+
+			_, err := reconciler.Reconcile(ctx, reconcile.Request{
+				NamespacedName: typeNamespacedName,
+			})
+			Expect(err).NotTo(HaveOccurred())
+
+			By("Verifying dry-run status message and Completed phase")
+			exp := &chaosv1alpha1.ChaosExperiment{}
+			Eventually(func() string {
+				_ = k8sClient.Get(ctx, typeNamespacedName, exp)
+				return exp.Status.Message
+			}, timeout, interval).Should(ContainSubstring("DRY RUN"))
+			Expect(exp.Status.Phase).To(Equal("Completed"))
+
+			By("Verifying the node has no chaos taint")
+			untaintedNode := &corev1.Node{}
+			Expect(k8sClient.Get(ctx, types.NamespacedName{Name: "chaos-dryrun-node"}, untaintedNode)).Should(Succeed())
+			// envtest may add system taints (e.g. node.kubernetes.io/not-ready); only verify chaos taint is absent
+			for _, t := range untaintedNode.Spec.Taints {
+				Expect(t.Key).NotTo(Equal("chaos/test"), "chaos taint should not be applied in dry-run mode")
+			}
+		})
+
+		It("Should handle node-cpu-stress: requeue when no nodes match selector", func() {
+			By("Creating a node-cpu-stress experiment with a selector that matches no nodes")
+			experiment := &chaosv1alpha1.ChaosExperiment{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      experimentName,
+					Namespace: experimentNamespace,
+				},
+				Spec: chaosv1alpha1.ChaosExperimentSpec{
+					Action:    "node-cpu-stress",
+					Namespace: targetNamespace,
+					CPULoad:   50,
+					Duration:  "30s",
+					Selector:  map[string]string{"nonexistent-label": "true"},
+				},
+			}
+			Expect(k8sClient.Create(ctx, experiment)).Should(Succeed())
+
+			reconciler := &ChaosExperimentReconciler{
+				Client:        k8sClient,
+				Scheme:        k8sClient.Scheme(),
+				Recorder:      record.NewFakeRecorder(100),
+				HistoryConfig: DefaultHistoryConfig(),
+			}
+
+			result, err := reconciler.Reconcile(ctx, reconcile.Request{
+				NamespacedName: typeNamespacedName,
+			})
+			Expect(err).NotTo(HaveOccurred())
+			Expect(result.RequeueAfter).To(Equal(time.Minute))
+
+			exp := &chaosv1alpha1.ChaosExperiment{}
+			Eventually(func() string {
+				_ = k8sClient.Get(ctx, typeNamespacedName, exp)
+				return exp.Status.Message
+			}, timeout, interval).Should(ContainSubstring("No eligible nodes found"))
+		})
+
+		It("Should handle node-cpu-stress: dry-run mode completes without creating a pod", func() {
+			By("Creating a node with matching label")
+			testNode := &corev1.Node{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:   "chaos-cpu-dryrun-node",
+					Labels: map[string]string{"role": "chaos-cpu-dryrun"},
+				},
+			}
+			Expect(k8sClient.Create(ctx, testNode)).Should(Succeed())
+			defer func() {
+				_ = k8sClient.Delete(ctx, testNode)
+			}()
+
+			By("Creating a dry-run node-cpu-stress experiment")
+			experiment := &chaosv1alpha1.ChaosExperiment{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      experimentName,
+					Namespace: experimentNamespace,
+				},
+				Spec: chaosv1alpha1.ChaosExperimentSpec{
+					Action:    "node-cpu-stress",
+					Namespace: targetNamespace,
+					CPULoad:   75,
+					Duration:  "60s",
+					Selector:  map[string]string{"role": "chaos-cpu-dryrun"},
+					Count:     1,
+					DryRun:    true,
+				},
+			}
+			Expect(k8sClient.Create(ctx, experiment)).Should(Succeed())
+
+			reconciler := &ChaosExperimentReconciler{
+				Client:        k8sClient,
+				Scheme:        k8sClient.Scheme(),
+				Recorder:      record.NewFakeRecorder(100),
+				HistoryConfig: DefaultHistoryConfig(),
+			}
+
+			_, err := reconciler.Reconcile(ctx, reconcile.Request{
+				NamespacedName: typeNamespacedName,
+			})
+			Expect(err).NotTo(HaveOccurred())
+
+			By("Verifying dry-run status and Completed phase")
+			exp := &chaosv1alpha1.ChaosExperiment{}
+			Eventually(func() string {
+				_ = k8sClient.Get(ctx, typeNamespacedName, exp)
+				return exp.Status.Message
+			}, timeout, interval).Should(And(
+				ContainSubstring("DRY RUN"),
+				ContainSubstring("75%"),
+			))
+			Expect(exp.Status.Phase).To(Equal("Completed"))
+
+			By("Verifying no stress pod was created")
+			podList := &corev1.PodList{}
+			_ = k8sClient.List(ctx, podList, client.InNamespace(experimentNamespace),
+				client.MatchingLabels{"chaos.gushchin.dev/action": "node-cpu-stress"})
+			Expect(podList.Items).To(BeEmpty())
+		})
 	})
 })

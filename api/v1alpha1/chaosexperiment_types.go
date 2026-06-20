@@ -251,6 +251,10 @@ type ChaosExperimentSpec struct {
 	// +optional
 	Schedule string `json:"schedule,omitempty"`
 
+	// DependsOn specifies a list of experiment names in the same namespace that must reach "Completed" phase before this experiment can start executing.
+	// +optional
+	DependsOn []string `json:"dependsOn,omitempty"`
+
 	// TimeWindows restrict when the experiment may execute
 	// If empty or omitted, the experiment can run at any time
 	// +optional

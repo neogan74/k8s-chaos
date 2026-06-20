@@ -21,7 +21,6 @@ import (
 	"regexp"
 	"strings"
 
-	chaosv1alpha1 "github.com/neogan74/k8s-chaos/api/v1alpha1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 )
 
@@ -116,7 +115,7 @@ func ClassifyError(err error) *ChaosError {
 // - 'pods/ephemeralcontainers "pod-name" is forbidden: ...'
 func extractPermissionDetails(err error) (resource, verb, namespace, apiGroup, subresource string) {
 	if err == nil {
-		return
+		return resource, verb, namespace, apiGroup, subresource
 	}
 
 	errMsg := err.Error()
@@ -155,7 +154,7 @@ func extractPermissionDetails(err error) (resource, verb, namespace, apiGroup, s
 		}
 	}
 
-	return
+	return resource, verb, namespace, apiGroup, subresource
 }
 
 // FormatErrorMessage creates a user-friendly error message with remediation steps
@@ -182,14 +181,14 @@ func FormatErrorMessage(ce *ChaosError) string {
 		msg.WriteString(" ")
 	}
 	if ce.Subresource != "" {
-		msg.WriteString(fmt.Sprintf("%s/%s", ce.Resource, ce.Subresource))
+		fmt.Fprintf(&msg, "%s/%s", ce.Resource, ce.Subresource)
 	} else if ce.Resource != "" {
 		msg.WriteString(ce.Resource)
 	} else {
 		msg.WriteString("perform operation")
 	}
 	if ce.Namespace != "" {
-		msg.WriteString(fmt.Sprintf(" in namespace %s", ce.Namespace))
+		fmt.Fprintf(&msg, " in namespace %s", ce.Namespace)
 	}
 	msg.WriteString(". ")
 
@@ -226,7 +225,7 @@ func FormatErrorMessage(ce *ChaosError) string {
 	}
 	msg.WriteString(" --as=system:serviceaccount:k8s-chaos-system:k8s-chaos-controller-manager")
 	if ce.Namespace != "" {
-		msg.WriteString(fmt.Sprintf(" -n %s", ce.Namespace))
+		fmt.Fprintf(&msg, " -n %s", ce.Namespace)
 	}
 	msg.WriteString(". ")
 
@@ -245,31 +244,4 @@ func WrapK8sError(err error, operation string) *ChaosError {
 	ce := ClassifyError(err)
 	ce.Operation = operation
 	return ce
-}
-
-// chaosErrorToHistoryError converts a ChaosError to ErrorDetails for history records
-func chaosErrorToHistoryError(ce *ChaosError) *chaosv1alpha1.ErrorDetails {
-	if ce == nil {
-		return nil
-	}
-
-	failureReason := "Unknown"
-	switch ce.Type {
-	case ErrorTypePermission:
-		failureReason = "PermissionDenied"
-	case ErrorTypeExecution:
-		failureReason = "ExecutionError"
-	case ErrorTypeValidation:
-		failureReason = "ValidationError"
-	case ErrorTypeTimeout:
-		failureReason = "Timeout"
-	default:
-		failureReason = "Unknown"
-	}
-
-	return &chaosv1alpha1.ErrorDetails{
-		Message:       ce.Error(),
-		LastError:     ce.Original.Error(),
-		FailureReason: failureReason,
-	}
 }

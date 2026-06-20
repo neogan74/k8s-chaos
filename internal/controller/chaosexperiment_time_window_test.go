@@ -139,8 +139,7 @@ func TestCheckTimeWindows_MaintenanceWindows(t *testing.T) {
 				Scheme: scheme,
 			}
 
-			allowed, requeueTime, err := r.checkTimeWindows(context.TODO(), tt.experiment)
-			assert.NoError(t, err)
+			allowed, requeueTime := r.checkTimeWindows(context.TODO(), tt.experiment)
 			assert.Equal(t, tt.expectedResult, allowed)
 
 			if tt.expectRequeue {
