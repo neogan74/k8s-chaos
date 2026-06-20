@@ -14,13 +14,15 @@ import (
 	chaosv1alpha1 "github.com/neogan74/k8s-chaos/api/v1alpha1"
 )
 
+const testHistoryNamespace = "chaos-system"
+
 func TestCleanupExpiredHistory(t *testing.T) {
 	scheme := runtime.NewScheme()
 	_ = chaosv1alpha1.AddToScheme(scheme)
 	_ = corev1.AddToScheme(scheme)
 
 	now := time.Now()
-	historyNamespace := "chaos-system"
+	historyNamespace := testHistoryNamespace
 
 	// 1. Define history records
 	expiredRecord := &chaosv1alpha1.ChaosExperimentHistory{

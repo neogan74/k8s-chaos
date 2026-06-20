@@ -14,9 +14,9 @@ const (
 func TestExperimentMetrics_SortByRetries(t *testing.T) {
 	metrics := []experimentMetrics{
 		{Name: "exp1", RetryCount: 1},
-		{Name: "exp2", RetryCount: 5},
+		{Name: testExp2, RetryCount: 5},
 		{Name: "exp3", RetryCount: 3},
-		{Name: "exp4", RetryCount: 0},
+		{Name: testExp4, RetryCount: 0},
 	}
 
 	// Sort by retry count descending (same logic as printTopByRetries)
@@ -44,9 +44,9 @@ func TestExperimentMetrics_SortByAge(t *testing.T) {
 	now := time.Now()
 	metrics := []experimentMetrics{
 		{Name: "exp1", Age: 1 * time.Hour},
-		{Name: "exp2", Age: 24 * time.Hour},
+		{Name: testExp2, Age: 24 * time.Hour},
 		{Name: "exp3", Age: 30 * time.Minute},
-		{Name: "exp4", Age: 48 * time.Hour},
+		{Name: testExp4, Age: 48 * time.Hour},
 	}
 
 	// Sort by age descending (oldest first, same logic as printTopByAge)
@@ -58,10 +58,10 @@ func TestExperimentMetrics_SortByAge(t *testing.T) {
 
 	_ = now // avoid unused variable warning
 
-	if sorted[0].Name != "exp4" {
+	if sorted[0].Name != testExp4 {
 		t.Fatalf("expected exp4 first (48h), got %s", sorted[0].Name)
 	}
-	if sorted[1].Name != "exp2" {
+	if sorted[1].Name != testExp2 {
 		t.Fatalf("expected exp2 second (24h), got %s", sorted[1].Name)
 	}
 	if sorted[2].Name != "exp1" {
@@ -75,9 +75,9 @@ func TestExperimentMetrics_SortByAge(t *testing.T) {
 func TestExperimentMetrics_FilterFailed(t *testing.T) {
 	metrics := []experimentMetrics{
 		{Name: "exp1", Phase: "Running"},
-		{Name: "exp2", Phase: "Failed"},
+		{Name: testExp2, Phase: "Failed"},
 		{Name: "exp3", Phase: "Completed"},
-		{Name: "exp4", Phase: "Failed"},
+		{Name: testExp4, Phase: "Failed"},
 		{Name: "exp5", Phase: "Pending"},
 	}
 
@@ -96,10 +96,10 @@ func TestExperimentMetrics_FilterFailed(t *testing.T) {
 	foundExp2 := false
 	foundExp4 := false
 	for _, f := range failed {
-		if f.Name == "exp2" {
+		if f.Name == testExp2 {
 			foundExp2 = true
 		}
-		if f.Name == "exp4" {
+		if f.Name == testExp4 {
 			foundExp4 = true
 		}
 	}
@@ -112,9 +112,9 @@ func TestExperimentMetrics_FilterFailed(t *testing.T) {
 func TestExperimentMetrics_FilterRetriesOnly(t *testing.T) {
 	metrics := []experimentMetrics{
 		{Name: "exp1", RetryCount: 0},
-		{Name: "exp2", RetryCount: 3},
+		{Name: testExp2, RetryCount: 3},
 		{Name: "exp3", RetryCount: 0},
-		{Name: "exp4", RetryCount: 1},
+		{Name: testExp4, RetryCount: 1},
 	}
 
 	// Filter experiments with retries (same logic as printTopByRetries filter)
@@ -132,10 +132,10 @@ func TestExperimentMetrics_FilterRetriesOnly(t *testing.T) {
 	foundExp2 := false
 	foundExp4 := false
 	for _, r := range withRetries {
-		if r.Name == "exp2" {
+		if r.Name == testExp2 {
 			foundExp2 = true
 		}
-		if r.Name == "exp4" {
+		if r.Name == testExp4 {
 			foundExp4 = true
 		}
 	}
@@ -148,9 +148,9 @@ func TestExperimentMetrics_FilterRetriesOnly(t *testing.T) {
 func TestExperimentMetrics_LimitResults(t *testing.T) {
 	metrics := []experimentMetrics{
 		{Name: "exp1"},
-		{Name: "exp2"},
+		{Name: testExp2},
 		{Name: "exp3"},
-		{Name: "exp4"},
+		{Name: testExp4},
 		{Name: "exp5"},
 	}
 

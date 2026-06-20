@@ -37,6 +37,8 @@ import (
 // log is for logging in this package.
 var chaosexperimentlog = logf.Log.WithName("chaosexperiment-resource")
 
+const prodEnvValue = "prod"
+
 // ChaosExperimentWebhook implements webhook.CustomValidator
 // +kubebuilder:object:generate=false
 type ChaosExperimentWebhook struct {
@@ -163,34 +165,6 @@ func (w *ChaosExperimentWebhook) validateCrossFieldConstraints(name string, spec
 		}
 	}
 
-	// pod-delay action requires duration
-	if spec.Action == "pod-delay" && spec.Duration == "" {
-		return fmt.Errorf("duration is required for pod-delay action")
-	}
-
-	// pod-cpu-stress and node-cpu-stress actions require duration and cpuLoad
-	if spec.Action == "pod-cpu-stress" || spec.Action == "node-cpu-stress" {
-		if spec.Duration == "" {
-			return fmt.Errorf("duration is required for %s action", spec.Action)
-		}
-		if spec.CPULoad <= 0 {
-			return fmt.Errorf("cpuLoad must be specified and greater than 0 for %s action", spec.Action)
-		}
-	}
-
-	// node-taint action requires duration, taintKey, and taintEffect
-	if spec.Action == "node-taint" {
-		if spec.Duration == "" {
-			return fmt.Errorf("duration is required for node-taint action")
-		}
-		if spec.TaintKey == "" {
-			return fmt.Errorf("taintKey must be specified for node-taint action")
-		}
-		if spec.TaintEffect == "" {
-			return fmt.Errorf("taintEffect must be specified for node-taint action")
-		}
-	}
-
 	// Validate duration format if provided
 	if spec.Duration != "" {
 		if err := ValidateDurationFormat(spec.Duration); err != nil {
@@ -226,52 +200,65 @@ func (w *ChaosExperimentWebhook) validateCrossFieldConstraints(name string, spec
 		}
 	}
 
-	// pod-cpu-stress and node-cpu-stress actions require duration and cpuLoad
-	if spec.Action == "pod-cpu-stress" || spec.Action == "node-cpu-stress" {
+	// Validate restartInterval format if provided
+	if spec.RestartInterval != "" {
+		if err := ValidateDurationFormat(spec.RestartInterval); err != nil {
+			return fmt.Errorf("invalid restartInterval format: %w", err)
+		}
+	}
+
+	return w.validateActionRequirements(spec)
+}
+
+// validateActionRequirements validates action-specific field requirements
+func (w *ChaosExperimentWebhook) validateActionRequirements(spec *ChaosExperimentSpec) error {
+	switch spec.Action {
+	case "pod-delay":
+		if spec.Duration == "" {
+			return fmt.Errorf("duration is required for pod-delay action")
+		}
+	case "pod-cpu-stress", "node-cpu-stress":
 		if spec.Duration == "" {
 			return fmt.Errorf("duration is required for %s action", spec.Action)
 		}
 		if spec.CPULoad <= 0 {
 			return fmt.Errorf("cpuLoad must be specified and greater than 0 for %s action", spec.Action)
 		}
-	}
-
-	// pod-memory-stress action requires duration and memorySize
-	if spec.Action == "pod-memory-stress" {
+	case "node-taint":
+		if spec.Duration == "" {
+			return fmt.Errorf("duration is required for node-taint action")
+		}
+		if spec.TaintKey == "" {
+			return fmt.Errorf("taintKey must be specified for node-taint action")
+		}
+		if spec.TaintEffect == "" {
+			return fmt.Errorf("taintEffect must be specified for node-taint action")
+		}
+	case "pod-memory-stress":
 		if spec.Duration == "" {
 			return fmt.Errorf("duration is required for pod-memory-stress action")
 		}
 		if spec.MemorySize == "" {
 			return fmt.Errorf("memorySize must be specified for pod-memory-stress action")
 		}
-		// Validate memorySize format (already validated by pattern, but double-check)
 		if err := ValidateMemorySize(spec.MemorySize); err != nil {
 			return err
 		}
-	}
-
-	// pod-network-loss action requires duration and lossPercentage
-	if spec.Action == "pod-network-loss" {
+	case "pod-network-loss":
 		if spec.Duration == "" {
 			return fmt.Errorf("duration is required for pod-network-loss action")
 		}
 		if spec.LossPercentage <= 0 {
 			return fmt.Errorf("lossPercentage must be specified and greater than 0 for pod-network-loss action")
 		}
-	}
-
-	// pod-network-corruption action requires duration and corruptionPercentage
-	if spec.Action == "pod-network-corruption" {
+	case "pod-network-corruption":
 		if spec.Duration == "" {
 			return fmt.Errorf("duration is required for pod-network-corruption action")
 		}
 		if spec.CorruptionPercentage <= 0 {
 			return fmt.Errorf("corruptionPercentage must be specified and greater than 0 for pod-network-corruption action")
 		}
-	}
-
-	// pod-disk-fill action requires duration and fillPercentage
-	if spec.Action == "pod-disk-fill" {
+	case "pod-disk-fill":
 		if spec.Duration == "" {
 			return fmt.Errorf("duration is required for pod-disk-fill action")
 		}
@@ -281,27 +268,14 @@ func (w *ChaosExperimentWebhook) validateCrossFieldConstraints(name string, spec
 		if spec.VolumeName == "" && spec.TargetPath == "" {
 			return fmt.Errorf("targetPath must be specified when volumeName is not set for pod-disk-fill action")
 		}
-	}
-
-	// network-partition action requires duration
-	if spec.Action == "network-partition" {
+	case "network-partition":
 		if spec.Duration == "" {
 			return fmt.Errorf("duration is required for network-partition action")
 		}
-
-		// Validate selective targeting fields for network-partition
 		if err := w.validateNetworkPartitionTargets(spec); err != nil {
 			return err
 		}
 	}
-
-	// Validate restartInterval format if provided
-	if spec.RestartInterval != "" {
-		if err := ValidateDurationFormat(spec.RestartInterval); err != nil {
-			return fmt.Errorf("invalid restartInterval format: %w", err)
-		}
-	}
-
 	return nil
 }
 
@@ -430,18 +404,18 @@ func (w *ChaosExperimentWebhook) validateProductionNamespace(ctx context.Context
 	}
 
 	// Check environment label
-	if val, exists := ns.Labels[ProductionLabel]; exists && (val == ProductionLabelValue || val == "prod") {
+	if val, exists := ns.Labels[ProductionLabel]; exists && (val == ProductionLabelValue || val == prodEnvValue) {
 		isProduction = true
 	}
 
 	// Check env label
-	if val, exists := ns.Labels["env"]; exists && val == "prod" {
+	if val, exists := ns.Labels["env"]; exists && val == prodEnvValue {
 		isProduction = true
 	}
 
 	// Check namespace name patterns
 	nsName := exp.Spec.Namespace
-	if nsName == "production" || nsName == "prod" ||
+	if nsName == "production" || nsName == prodEnvValue ||
 		strings.HasPrefix(nsName, "prod-") || strings.HasPrefix(nsName, "production-") ||
 		strings.HasSuffix(nsName, "-prod") || strings.HasSuffix(nsName, "-production") {
 		isProduction = true

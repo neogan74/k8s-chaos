@@ -21,7 +21,6 @@ import (
 	"regexp"
 	"strings"
 
-	chaosv1alpha1 "github.com/neogan74/k8s-chaos/api/v1alpha1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 )
 
@@ -116,7 +115,7 @@ func ClassifyError(err error) *ChaosError {
 // - 'pods/ephemeralcontainers "pod-name" is forbidden: ...'
 func extractPermissionDetails(err error) (resource, verb, namespace, apiGroup, subresource string) {
 	if err == nil {
-		return
+		return resource, verb, namespace, apiGroup, subresource
 	}
 
 	errMsg := err.Error()
@@ -155,7 +154,7 @@ func extractPermissionDetails(err error) (resource, verb, namespace, apiGroup, s
 		}
 	}
 
-	return
+	return resource, verb, namespace, apiGroup, subresource
 }
 
 // FormatErrorMessage creates a user-friendly error message with remediation steps
@@ -247,29 +246,3 @@ func WrapK8sError(err error, operation string) *ChaosError {
 	return ce
 }
 
-// chaosErrorToHistoryError converts a ChaosError to ErrorDetails for history records
-func chaosErrorToHistoryError(ce *ChaosError) *chaosv1alpha1.ErrorDetails {
-	if ce == nil {
-		return nil
-	}
-
-	failureReason := "Unknown"
-	switch ce.Type {
-	case ErrorTypePermission:
-		failureReason = "PermissionDenied"
-	case ErrorTypeExecution:
-		failureReason = "ExecutionError"
-	case ErrorTypeValidation:
-		failureReason = "ValidationError"
-	case ErrorTypeTimeout:
-		failureReason = "Timeout"
-	default:
-		failureReason = "Unknown"
-	}
-
-	return &chaosv1alpha1.ErrorDetails{
-		Message:       ce.Error(),
-		LastError:     ce.Original.Error(),
-		FailureReason: failureReason,
-	}
-}

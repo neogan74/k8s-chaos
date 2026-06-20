@@ -64,6 +64,10 @@ const (
 	defaultMaxRetries   = 3
 	defaultRetryDelay   = 30 * time.Second
 	defaultRetryBackoff = "exponential"
+
+	// Message constants for repeated status messages
+	msgNoEligiblePodsWithExclusions = "No eligible pods found matching selector (or all are excluded)"
+	msgNoEligiblePods               = "No eligible pods found matching selector"
 )
 
 // ChaosExperimentReconciler reconciles a ChaosExperiment object
@@ -241,7 +245,7 @@ func (r *ChaosExperimentReconciler) handlePodKill(ctx context.Context, exp *chao
 
 	if len(eligiblePods) == 0 {
 		log.Info("No eligible pods found")
-		exp.Status.Message = "No eligible pods found matching selector (or all are excluded)"
+		exp.Status.Message = msgNoEligiblePodsWithExclusions
 		_ = r.Status().Update(ctx, exp)
 		return ctrl.Result{RequeueAfter: time.Minute}, nil
 	}
@@ -366,7 +370,7 @@ func (r *ChaosExperimentReconciler) handlePodDelay(ctx context.Context, exp *cha
 
 	if len(eligiblePods) == 0 {
 		log.Info("No eligible pods found")
-		exp.Status.Message = "No eligible pods found matching selector (or all are excluded)"
+		exp.Status.Message = msgNoEligiblePodsWithExclusions
 		_ = r.Status().Update(ctx, exp)
 		return ctrl.Result{RequeueAfter: time.Minute}, nil
 	}
@@ -505,7 +509,7 @@ func (r *ChaosExperimentReconciler) handlePodCPUStress(ctx context.Context, exp 
 
 	if len(eligiblePods) == 0 {
 		log.Info("No eligible pods found")
-		exp.Status.Message = "No eligible pods found matching selector (or all are excluded)"
+		exp.Status.Message = msgNoEligiblePodsWithExclusions
 		_ = r.Status().Update(ctx, exp)
 		return ctrl.Result{RequeueAfter: time.Minute}, nil
 	}
@@ -2103,7 +2107,7 @@ func (r *ChaosExperimentReconciler) handlePodMemoryStress(ctx context.Context, e
 
 	if len(eligiblePods) == 0 {
 		log.Info("No eligible pods found for selector", "selector", exp.Spec.Selector)
-		exp.Status.Message = "No eligible pods found matching selector"
+		exp.Status.Message = msgNoEligiblePods
 		_ = r.Status().Update(ctx, exp)
 		return ctrl.Result{RequeueAfter: time.Minute}, nil
 	}
@@ -2247,7 +2251,7 @@ func (r *ChaosExperimentReconciler) handlePodFailure(ctx context.Context, exp *c
 
 	if len(eligiblePods) == 0 {
 		log.Info("No eligible pods found")
-		exp.Status.Message = "No eligible pods found matching selector (or all are excluded)"
+		exp.Status.Message = msgNoEligiblePodsWithExclusions
 		_ = r.Status().Update(ctx, exp)
 		return ctrl.Result{RequeueAfter: time.Minute}, nil
 	}
@@ -2350,7 +2354,7 @@ func (r *ChaosExperimentReconciler) handlePodRestart(ctx context.Context, exp *c
 
 	if len(eligiblePods) == 0 {
 		log.Info("No eligible pods found")
-		exp.Status.Message = "No eligible pods found matching selector (or all are excluded)"
+		exp.Status.Message = msgNoEligiblePodsWithExclusions
 		_ = r.Status().Update(ctx, exp)
 		return ctrl.Result{RequeueAfter: time.Minute}, nil
 	}
@@ -2495,7 +2499,7 @@ func (r *ChaosExperimentReconciler) handlePodNetworkLoss(ctx context.Context, ex
 
 	if len(eligiblePods) == 0 {
 		log.Info("No eligible pods found for selector", "selector", exp.Spec.Selector)
-		exp.Status.Message = "No eligible pods found matching selector"
+		exp.Status.Message = msgNoEligiblePods
 		_ = r.Status().Update(ctx, exp)
 		return ctrl.Result{RequeueAfter: time.Minute}, nil
 	}
@@ -2618,7 +2622,7 @@ func (r *ChaosExperimentReconciler) handlePodDiskFill(ctx context.Context, exp *
 
 	if len(eligiblePods) == 0 {
 		log.Info("No eligible pods found for selector", "selector", exp.Spec.Selector)
-		exp.Status.Message = "No eligible pods found matching selector"
+		exp.Status.Message = msgNoEligiblePods
 		_ = r.Status().Update(ctx, exp)
 		return ctrl.Result{RequeueAfter: time.Minute}, nil
 	}
@@ -2768,7 +2772,7 @@ func (r *ChaosExperimentReconciler) handlePodNetworkCorruption(ctx context.Conte
 
 	if len(eligiblePods) == 0 {
 		log.Info("No eligible pods found for selector", "selector", exp.Spec.Selector)
-		exp.Status.Message = "No eligible pods found matching selector"
+		exp.Status.Message = msgNoEligiblePods
 		_ = r.Status().Update(ctx, exp)
 		return ctrl.Result{RequeueAfter: time.Minute}, nil
 	}
@@ -3548,7 +3552,7 @@ func (r *ChaosExperimentReconciler) handleNetworkPartition(ctx context.Context, 
 
 	if len(eligiblePods) == 0 {
 		log.Info("No eligible pods found for selector", "selector", exp.Spec.Selector)
-		exp.Status.Message = "No eligible pods found matching selector"
+		exp.Status.Message = msgNoEligiblePods
 		_ = r.Status().Update(ctx, exp)
 		return ctrl.Result{RequeueAfter: time.Minute}, nil
 	}

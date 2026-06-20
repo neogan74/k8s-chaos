@@ -264,8 +264,8 @@ func isWithinRecurringWindow(window TimeWindow, now time.Time) bool {
 	}
 
 	// Create time.Time values for start and end in the same day as now
-	startHour, _ := parseTimeComponents(startParts[0], startParts[1])
-	endHour, _ := parseTimeComponents(endParts[0], endParts[1])
+	startHour := parseTimeComponents(startParts[0])
+	endHour := parseTimeComponents(endParts[0])
 
 	start := time.Date(nowInZone.Year(), nowInZone.Month(), nowInZone.Day(), startHour, parseMinute(startParts[1]), 0, 0, loc)
 	end := time.Date(nowInZone.Year(), nowInZone.Month(), nowInZone.Day(), endHour, parseMinute(endParts[1]), 0, 0, loc)
@@ -346,8 +346,8 @@ func nextRecurringBoundary(window TimeWindow, now time.Time) (boundary time.Time
 		return time.Time{}, false
 	}
 
-	startHour, _ := parseTimeComponents(startParts[0], startParts[1])
-	endHour, _ := parseTimeComponents(endParts[0], endParts[1])
+	startHour := parseTimeComponents(startParts[0])
+	endHour := parseTimeComponents(endParts[0])
 
 	// Check boundaries for the next 7 days
 	for daysAhead := 0; daysAhead < 8; daysAhead++ {
@@ -415,15 +415,14 @@ func nextAbsoluteBoundary(window TimeWindow, now time.Time) (boundary time.Time,
 }
 
 // Helper functions
-func parseTimeComponents(hourStr, minStr string) (hour int, min int) {
-	fmt.Sscanf(hourStr, "%d", &hour)
-	fmt.Sscanf(minStr, "%d", &min)
-	return hour, min
+func parseTimeComponents(hourStr string) (hour int) {
+	_, _ = fmt.Sscanf(hourStr, "%d", &hour)
+	return hour
 }
 
 func parseMinute(minStr string) int {
 	var min int
-	fmt.Sscanf(minStr, "%d", &min)
+	_, _ = fmt.Sscanf(minStr, "%d", &min)
 	return min
 }
 
