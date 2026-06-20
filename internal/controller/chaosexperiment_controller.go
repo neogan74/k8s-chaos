@@ -232,7 +232,11 @@ func (r *ChaosExperimentReconciler) handlePodKill(ctx context.Context, exp *chao
 		if isPermissionDeniedError(err) {
 			return r.handlePermissionDenied(ctx, exp, "listing pods for pod-kill", err)
 		}
-		return r.handleExperimentFailure(ctx, exp, fmt.Sprintf("Failed to get eligible pods: %v", err))
+		return r.handleExperimentFailure(ctx, exp, &ChaosError{
+			Original:  fmt.Errorf("failed to get eligible pods: %w", err),
+			Type:      ErrorTypeExecution,
+			Operation: "list eligible pods",
+		})
 	}
 
 	if len(eligiblePods) == 0 {
@@ -492,7 +496,11 @@ func (r *ChaosExperimentReconciler) handlePodCPUStress(ctx context.Context, exp 
 		if isPermissionDeniedError(err) {
 			return r.handlePermissionDenied(ctx, exp, "listing pods for pod-cpu-stress", err)
 		}
-		return r.handleExperimentFailure(ctx, exp, fmt.Sprintf("Failed to get eligible pods: %v", err))
+		return r.handleExperimentFailure(ctx, exp, &ChaosError{
+			Original:  fmt.Errorf("failed to get eligible pods: %w", err),
+			Type:      ErrorTypeExecution,
+			Operation: "list eligible pods",
+		})
 	}
 
 	if len(eligiblePods) == 0 {
@@ -610,17 +618,29 @@ func (r *ChaosExperimentReconciler) handleNodeCPUStress(ctx context.Context, exp
 
 	// Validate required fields for node-cpu-stress
 	if exp.Spec.CPULoad <= 0 {
-		return r.handleExperimentFailure(ctx, exp, "CPULoad must be specified and greater than 0 for node-cpu-stress")
+		return r.handleExperimentFailure(ctx, exp, &ChaosError{
+			Original:  fmt.Errorf("CPULoad must be specified and greater than 0 for node-cpu-stress"),
+			Type:      ErrorTypeValidation,
+			Operation: "validate node-cpu-stress config",
+		})
 	}
 
 	if exp.Spec.Duration == "" {
-		return r.handleExperimentFailure(ctx, exp, "Duration is required for node-cpu-stress action")
+		return r.handleExperimentFailure(ctx, exp, &ChaosError{
+			Original:  fmt.Errorf("Duration is required for node-cpu-stress action"),
+			Type:      ErrorTypeValidation,
+			Operation: "validate node-cpu-stress config",
+		})
 	}
 
 	// Parse duration for stress-ng timeout
 	durationSeconds, err := r.parseDurationToSeconds(exp.Spec.Duration)
 	if err != nil {
-		return r.handleExperimentFailure(ctx, exp, fmt.Sprintf("Invalid duration format: %s", exp.Spec.Duration))
+		return r.handleExperimentFailure(ctx, exp, &ChaosError{
+			Original:  fmt.Errorf("invalid duration format: %s", exp.Spec.Duration),
+			Type:      ErrorTypeValidation,
+			Operation: "parse node-cpu-stress duration",
+		})
 	}
 
 	// List eligible nodes
@@ -631,7 +651,11 @@ func (r *ChaosExperimentReconciler) handleNodeCPUStress(ctx context.Context, exp
 		if isPermissionDeniedError(err) {
 			return r.handlePermissionDenied(ctx, exp, "listing nodes for node-cpu-stress", err)
 		}
-		return r.handleExperimentFailure(ctx, exp, fmt.Sprintf("Failed to list nodes: %v", err))
+		return r.handleExperimentFailure(ctx, exp, &ChaosError{
+			Original:  fmt.Errorf("failed to list nodes: %w", err),
+			Type:      ErrorTypeExecution,
+			Operation: "list nodes for node-cpu-stress",
+		})
 	}
 
 	if len(nodeList.Items) == 0 {
@@ -1272,7 +1296,11 @@ func (r *ChaosExperimentReconciler) handleNodeTaint(ctx context.Context, exp *ch
 
 	// Validate required fields
 	if exp.Spec.TaintKey == "" || exp.Spec.TaintEffect == "" {
-		return r.handleExperimentFailure(ctx, exp, "TaintKey and TaintEffect must be specified")
+		return r.handleExperimentFailure(ctx, exp, &ChaosError{
+			Original:  fmt.Errorf("TaintKey and TaintEffect must be specified"),
+			Type:      ErrorTypeValidation,
+			Operation: "validate node-taint config",
+		})
 	}
 
 	// List nodes by selector
@@ -2210,7 +2238,11 @@ func (r *ChaosExperimentReconciler) handlePodFailure(ctx context.Context, exp *c
 		if isPermissionDeniedError(err) {
 			return r.handlePermissionDenied(ctx, exp, "listing pods for pod-failure", err)
 		}
-		return r.handleExperimentFailure(ctx, exp, fmt.Sprintf("Failed to get eligible pods: %v", err))
+		return r.handleExperimentFailure(ctx, exp, &ChaosError{
+			Original:  fmt.Errorf("failed to get eligible pods: %w", err),
+			Type:      ErrorTypeExecution,
+			Operation: "list eligible pods",
+		})
 	}
 
 	if len(eligiblePods) == 0 {
@@ -2309,7 +2341,11 @@ func (r *ChaosExperimentReconciler) handlePodRestart(ctx context.Context, exp *c
 		if isPermissionDeniedError(err) {
 			return r.handlePermissionDenied(ctx, exp, "listing pods for pod-restart", err)
 		}
-		return r.handleExperimentFailure(ctx, exp, fmt.Sprintf("Failed to get eligible pods: %v", err))
+		return r.handleExperimentFailure(ctx, exp, &ChaosError{
+			Original:  fmt.Errorf("failed to get eligible pods: %w", err),
+			Type:      ErrorTypeExecution,
+			Operation: "list eligible pods",
+		})
 	}
 
 	if len(eligiblePods) == 0 {
@@ -2689,22 +2725,38 @@ func (r *ChaosExperimentReconciler) handlePodNetworkCorruption(ctx context.Conte
 
 	// Validate namespace
 	if exp.Spec.Namespace == "" {
-		return r.handleExperimentFailure(ctx, exp, "Namespace not specified")
+		return r.handleExperimentFailure(ctx, exp, &ChaosError{
+			Original:  fmt.Errorf("Namespace not specified"),
+			Type:      ErrorTypeValidation,
+			Operation: "validate pod-network-corruption config",
+		})
 	}
 
 	// Validate required fields
 	if exp.Spec.CorruptionPercentage <= 0 {
-		return r.handleExperimentFailure(ctx, exp, "CorruptionPercentage must be greater than 0")
+		return r.handleExperimentFailure(ctx, exp, &ChaosError{
+			Original:  fmt.Errorf("CorruptionPercentage must be greater than 0"),
+			Type:      ErrorTypeValidation,
+			Operation: "validate pod-network-corruption config",
+		})
 	}
 
 	if exp.Spec.Duration == "" {
-		return r.handleExperimentFailure(ctx, exp, "Duration is required for network corruption")
+		return r.handleExperimentFailure(ctx, exp, &ChaosError{
+			Original:  fmt.Errorf("Duration is required for network corruption"),
+			Type:      ErrorTypeValidation,
+			Operation: "validate pod-network-corruption config",
+		})
 	}
 
 	// Parse duration to seconds for tc timeout
 	duration, err := r.parseDuration(exp.Spec.Duration)
 	if err != nil {
-		return r.handleExperimentFailure(ctx, exp, fmt.Sprintf("Invalid duration format: %v", err))
+		return r.handleExperimentFailure(ctx, exp, &ChaosError{
+			Original:  fmt.Errorf("invalid duration format: %w", err),
+			Type:      ErrorTypeValidation,
+			Operation: "parse pod-network-corruption duration",
+		})
 	}
 	timeoutSeconds := int(duration.Seconds())
 
@@ -3457,7 +3509,11 @@ func (r *ChaosExperimentReconciler) handleNetworkPartition(ctx context.Context, 
 
 	// Validate required fields
 	if exp.Spec.Duration == "" {
-		return r.handleExperimentFailure(ctx, exp, "Duration is required for network-partition action")
+		return r.handleExperimentFailure(ctx, exp, &ChaosError{
+			Original:  fmt.Errorf("Duration is required for network-partition action"),
+			Type:      ErrorTypeValidation,
+			Operation: "validate network-partition config",
+		})
 	}
 
 	// Validate direction
@@ -3466,13 +3522,21 @@ func (r *ChaosExperimentReconciler) handleNetworkPartition(ctx context.Context, 
 		direction = "both" // Default
 	}
 	if direction != "both" && direction != "ingress" && direction != "egress" {
-		return r.handleExperimentFailure(ctx, exp, fmt.Sprintf("Invalid direction: %s. Must be one of: both, ingress, egress", direction))
+		return r.handleExperimentFailure(ctx, exp, &ChaosError{
+			Original:  fmt.Errorf("invalid direction: %s. Must be one of: both, ingress, egress", direction),
+			Type:      ErrorTypeValidation,
+			Operation: "validate network-partition direction",
+		})
 	}
 
 	// Parse duration to seconds
 	duration, err := r.parseDuration(exp.Spec.Duration)
 	if err != nil {
-		return r.handleExperimentFailure(ctx, exp, fmt.Sprintf("Invalid duration format: %v", err))
+		return r.handleExperimentFailure(ctx, exp, &ChaosError{
+			Original:  fmt.Errorf("invalid duration format: %w", err),
+			Type:      ErrorTypeValidation,
+			Operation: "parse network-partition duration",
+		})
 	}
 	timeoutSeconds := int(duration.Seconds())
 
