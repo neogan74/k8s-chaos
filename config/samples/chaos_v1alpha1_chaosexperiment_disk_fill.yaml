@@ -1,0 +1,28 @@
+apiVersion: chaos.gushchin.dev/v1alpha1
+kind: ChaosExperiment
+metadata:
+  name: pod-disk-fill-demo
+spec:
+  # Fill disk space in selected pods
+  action: "pod-disk-fill"
+
+  # Target namespace and selector
+  namespace: default
+  selector:
+    app: demo-app
+
+  # Apply to 1 pod
+  count: 1
+
+  # Duration of disk fill
+  duration: "3m"
+
+  # Fill to 80% of filesystem capacity
+  fillPercentage: 80
+
+  # Target path within the pod filesystem
+  targetPath: "/tmp"
+
+  # Safety features
+  dryRun: false
+  maxPercentage: 50

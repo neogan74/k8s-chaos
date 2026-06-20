@@ -393,11 +393,14 @@ spec:
   allowProduction: false         # Required for production namespaces
 
   # ACTION-SPECIFIC OPTIONS
-  duration: "5s"                 # For pod-delay, pod-cpu-stress, pod-memory-stress
+  duration: "5s"                 # For pod-delay, pod-cpu-stress, pod-memory-stress, pod-disk-fill
   cpuLoad: 80                    # For pod-cpu-stress (1-100%)
   cpuWorkers: 2                  # For pod-cpu-stress (default: 1)
   memorySize: "256M"             # For pod-memory-stress
   memoryWorkers: 1               # For pod-memory-stress (default: 1)
+  fillPercentage: 80             # For pod-disk-fill (50-95)
+  targetPath: "/tmp"             # For pod-disk-fill (default: /tmp)
+  volumeName: "data"             # For pod-disk-fill (optional)
 ```
 
 ### Available Actions
@@ -408,6 +411,7 @@ spec:
 | `pod-delay` | Inject network latency | `duration` |
 | `pod-cpu-stress` | Stress CPU | `duration`, `cpuLoad` |
 | `pod-memory-stress` | Stress memory | `duration`, `memorySize` |
+| `pod-disk-fill` | Fill pod disk space | `duration`, `fillPercentage` |
 | `pod-failure` | Kill main process | - |
 | `node-drain` | Drain nodes | - |
 

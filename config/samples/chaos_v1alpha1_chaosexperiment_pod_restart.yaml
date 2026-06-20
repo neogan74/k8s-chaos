@@ -1,0 +1,92 @@
+# Sample ChaosExperiment for pod-restart action
+# This demonstrates graceful container restart by sending SIGTERM to the main process
+
+---
+# Basic pod-restart example - restart 2 pods immediately
+apiVersion: chaos.gushchin.dev/v1alpha1
+kind: ChaosExperiment
+metadata:
+  name: basic-pod-restart
+spec:
+  action: pod-restart
+  namespace: default
+  selector:
+    app: demo
+  count: 2
+
+---
+# Pod-restart with interval - restart pods one by one with 30s delay
+apiVersion: chaos.gushchin.dev/v1alpha1
+kind: ChaosExperiment
+metadata:
+  name: staggered-pod-restart
+spec:
+  action: pod-restart
+  namespace: default
+  selector:
+    app: demo
+  count: 3
+  restartInterval: "30s"  # Wait 30 seconds between each restart
+
+---
+# Pod-restart with dry-run mode
+apiVersion: chaos.gushchin.dev/v1alpha1
+kind: ChaosExperiment
+metadata:
+  name: pod-restart-dryrun
+spec:
+  action: pod-restart
+  namespace: default
+  selector:
+    app: demo
+  count: 2
+  dryRun: true  # Preview which pods would be restarted
+
+---
+# Pod-restart with safety features
+apiVersion: chaos.gushchin.dev/v1alpha1
+kind: ChaosExperiment
+metadata:
+  name: safe-pod-restart
+spec:
+  action: pod-restart
+  namespace: default
+  selector:
+    app: demo
+  count: 5
+  maxPercentage: 50  # Restart at most 50% of matching pods
+  restartInterval: "1m"  # Wait 1 minute between each restart
+
+---
+# Pod-restart with scheduling
+apiVersion: chaos.gushchin.dev/v1alpha1
+kind: ChaosExperiment
+metadata:
+  name: scheduled-pod-restart
+spec:
+  action: pod-restart
+  namespace: default
+  selector:
+    app: demo
+  count: 1
+  schedule: "0 2 * * *"  # Run daily at 2 AM
+  restartInterval: "5m"  # Wait 5 minutes between restarts
+
+---
+# Pod-restart with all features
+apiVersion: chaos.gushchin.dev/v1alpha1
+kind: ChaosExperiment
+metadata:
+  name: comprehensive-pod-restart
+spec:
+  action: pod-restart
+  namespace: default
+  selector:
+    app: demo
+  count: 3
+  restartInterval: "2m"  # Stagger restarts by 2 minutes
+  experimentDuration: "1h"  # Auto-stop after 1 hour
+  maxPercentage: 30  # Affect at most 30% of pods
+  maxRetries: 3  # Retry up to 3 times on failure
+  retryBackoff: exponential  # Use exponential backoff
+  retryDelay: "1m"  # Initial retry delay

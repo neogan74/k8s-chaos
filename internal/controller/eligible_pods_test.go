@@ -9,6 +9,7 @@ import (
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
+	"k8s.io/client-go/tools/record"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
 
@@ -32,6 +33,7 @@ func newReconcilerWithObjects(t *testing.T, objs ...client.Object) *ChaosExperim
 	return &ChaosExperimentReconciler{
 		Client:        cl,
 		Scheme:        scheme,
+		Recorder:      record.NewFakeRecorder(100),
 		HistoryConfig: DefaultHistoryConfig(),
 	}
 }
@@ -114,4 +116,49 @@ func TestGetEligiblePods_PodLabelExcluded(t *testing.T) {
 	require.NoError(t, err)
 	assert.Len(t, eligible, 1)
 	assert.Equal(t, "keep-me", eligible[0].Name)
+}
+
+func TestGetEligiblePods_TerminatingPodExcluded(t *testing.T) {
+	ctx := context.Background()
+	ns := &corev1.Namespace{
+		ObjectMeta: metav1.ObjectMeta{
+			Name: "test-ns",
+		},
+	}
+	now := metav1.Now()
+	terminatingPod := &corev1.Pod{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:              "terminating-pod",
+			Namespace:         "test-ns",
+			DeletionTimestamp: &now, Finalizers: []string{"kubernetes.io/pvc-protection"}, // Fake client requires finalizers for DeletionTimestamp
+			Labels: map[string]string{
+				"app": "demo",
+			},
+		},
+	}
+	runningPod := &corev1.Pod{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      "running-pod",
+			Namespace: "test-ns",
+			Labels: map[string]string{
+				"app": "demo",
+			},
+		},
+	}
+	exp := &chaosv1alpha1.ChaosExperiment{
+		Spec: chaosv1alpha1.ChaosExperimentSpec{
+			Action:    "pod-kill",
+			Namespace: "test-ns",
+			Selector: map[string]string{
+				"app": "demo",
+			},
+		},
+	}
+
+	r := newReconcilerWithObjects(t, ns, terminatingPod, runningPod)
+
+	eligible, err := r.getEligiblePods(ctx, exp)
+	require.NoError(t, err)
+	assert.Len(t, eligible, 1, "should only include the running pod")
+	assert.Equal(t, "running-pod", eligible[0].Name, "should include only the running pod, not the terminating pod")
 }

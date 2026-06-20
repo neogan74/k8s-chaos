@@ -1,0 +1,298 @@
+apiVersion: chaos.gushchin.dev/v1alpha1
+kind: ChaosExperiment
+metadata:
+  labels:
+    app.kubernetes.io/name: k8s-chaos
+    app.kubernetes.io/managed-by: kustomize
+  name: chaosexperiment-network-partition
+  namespace: staging
+spec:
+  # Simulate complete network partition using iptables
+  # See ADR 0011: docs/adr/0011-network-partition-implementation.md
+  action: "network-partition"
+
+  # Target namespace
+  namespace: "staging"
+
+  # Target database pods for split-brain testing
+  selector:
+    app: postgresql
+    role: primary
+
+  # Apply network partition to 1 pod
+  count: 1
+
+  # Duration of network partition
+  # Format: combinations of numbers with units (s=seconds, m=minutes, h=hours)
+  # Examples: "30s", "5m", "1h30m"
+  # REQUIRED for pod-network-partition action
+  duration: "2m"
+
+  # Direction of network partition (default: both)
+  # Options:
+  #   - "both": Block both incoming and outgoing traffic (complete isolation)
+  #   - "ingress": Block only incoming traffic (pod can send but not receive)
+  #   - "egress": Block only outgoing traffic (pod can receive but not send)
+  direction: "both"
+
+  # Optional: ExperimentDuration defines how long the experiment runs before auto-stopping
+  # Uncomment to enable duration-based lifecycle (auto-stop after 10 minutes)
+  # experimentDuration: "10m"
+
+  # Optional: Retry configuration
+  # maxRetries: 3                # Retry up to 3 times on transient failures
+  # retryBackoff: "exponential"  # Exponential backoff between retries
+  # retryDelay: "30s"            # Initial retry delay
+
+  # Optional: Safety features
+  # dryRun: false                # Preview affected resources without executing
+  # maxPercentage: 30            # Limit to 30% of matching pods
+  # allowProduction: false       # Require explicit approval for production namespaces
+
+---
+# Example 2: Ingress-only partition (pod cannot receive traffic)
+apiVersion: chaos.gushchin.dev/v1alpha1
+kind: ChaosExperiment
+metadata:
+  name: chaosexperiment-network-partition-ingress
+  namespace: staging
+spec:
+  action: "network-partition"
+  namespace: "staging"
+  selector:
+    app: api-server
+  count: 2
+  duration: "1m"
+  direction: "ingress"  # Block incoming traffic only
+  # Use case: Test how dependent services handle unresponsive APIs
+
+---
+# Example 3: Egress-only partition (pod cannot send traffic)
+apiVersion: chaos.gushchin.dev/v1alpha1
+kind: ChaosExperiment
+metadata:
+  name: chaosexperiment-network-partition-egress
+  namespace: staging
+spec:
+  action: "network-partition"
+  namespace: "staging"
+  selector:
+    app: worker
+    queue: processing
+  count: 1
+  duration: "90s"
+  direction: "egress"  # Block outgoing traffic only
+  # Use case: Test worker behavior when unable to reach dependencies
+
+---
+# Example 4: Dry-run mode (preview without execution)
+apiVersion: chaos.gushchin.dev/v1alpha1
+kind: ChaosExperiment
+metadata:
+  name: chaosexperiment-network-partition-dryrun
+  namespace: staging
+spec:
+  action: "network-partition"
+  namespace: "staging"
+  selector:
+    app: cache
+    component: redis
+  count: 3
+  duration: "30s"
+  direction: "both"
+  dryRun: true  # Preview which pods would be affected
+  # Status will show affected pods without actually partitioning them
+
+---
+# Example 5: Limited impact with maxPercentage
+apiVersion: chaos.gushchin.dev/v1alpha1
+kind: ChaosExperiment
+metadata:
+  name: chaosexperiment-network-partition-limited
+  namespace: staging
+spec:
+  action: "network-partition"
+  namespace: "staging"
+  selector:
+    app: web-app
+  count: 10
+  duration: "2m"
+  direction: "both"
+  maxPercentage: 25  # Limit to 25% of matching pods
+  # Safety: Prevents affecting too many replicas simultaneously
+
+---
+# Example 6: Production namespace with approval
+apiVersion: chaos.gushchin.dev/v1alpha1
+kind: ChaosExperiment
+metadata:
+  name: chaosexperiment-network-partition-production
+  namespace: production
+spec:
+  action: "network-partition"
+  namespace: "production"
+  selector:
+    app: payment-service
+  count: 1
+  duration: "1m"
+  direction: "both"
+  allowProduction: true  # Required for namespaces marked as production
+  # Production detection via:
+  #   - Annotation: chaos.gushchin.dev/production: "true"
+  #   - Label: environment=production or env=prod
+  #   - Name: production, prod-*, *-production, *-prod
+
+---
+# Example 7: Scheduled partition for regular testing
+apiVersion: chaos.gushchin.dev/v1alpha1
+kind: ChaosExperiment
+metadata:
+  name: chaosexperiment-network-partition-scheduled
+  namespace: staging
+spec:
+  action: "network-partition"
+  namespace: "staging"
+  selector:
+    app: distributed-db
+    component: node
+  count: 1
+  duration: "30s"
+  direction: "both"
+  schedule: "0 2 * * *"  # Daily at 2 AM
+  # Automatically tests split-brain resilience every day
+
+---
+# Example 8: Complete isolation with automatic duration lifecycle
+apiVersion: chaos.gushchin.dev/v1alpha1
+kind: ChaosExperiment
+metadata:
+  name: chaosexperiment-network-partition-lifecycle
+  namespace: staging
+spec:
+  action: "network-partition"
+  namespace: "staging"
+  selector:
+    app: consensus-service
+    role: follower
+  count: 2
+  duration: "1m"               # Each partition lasts 1 minute
+  direction: "both"
+  experimentDuration: "5m"     # Experiment auto-stops after 5 minutes
+  # Useful for automated testing—experiment cleans up automatically
+
+---
+# Example 9: Selective targeting - Block specific IP
+apiVersion: chaos.gushchin.dev/v1alpha1
+kind: ChaosExperiment
+metadata:
+  name: chaosexperiment-network-partition-selective-ip
+  namespace: staging
+spec:
+  action: "network-partition"
+  namespace: "staging"
+  selector:
+    app: frontend
+  count: 1
+  duration: "1m"
+  direction: "egress"
+  # NEW: Selective targeting - only block traffic to specific IP
+  targetIPs: ["10.96.100.50"]
+  # Use case: Simulate backend service unavailable while allowing other dependencies
+
+---
+# Example 10: Selective targeting - Block IP range (CIDR)
+apiVersion: chaos.gushchin.dev/v1alpha1
+kind: ChaosExperiment
+metadata:
+  name: chaosexperiment-network-partition-selective-cidr
+  namespace: staging
+spec:
+  action: "network-partition"
+  namespace: "staging"
+  selector:
+    app: api-gateway
+  count: 2
+  duration: "30s"
+  direction: "both"
+  # NEW: Block entire cluster service IP range
+  targetCIDRs: ["10.96.0.0/12"]
+  # Use case: Test behavior when all k8s services unreachable
+
+---
+# Example 11: Selective targeting - Block specific ports
+apiVersion: chaos.gushchin.dev/v1alpha1
+kind: ChaosExperiment
+metadata:
+  name: chaosexperiment-network-partition-selective-ports
+  namespace: staging
+spec:
+  action: "network-partition"
+  namespace: "staging"
+  selector:
+    app: web-app
+    tier: backend
+  count: 1
+  duration: "2m"
+  direction: "egress"
+  # NEW: Block only HTTP/HTTPS traffic
+  targetPorts: [80, 443]
+  targetProtocols: ["tcp"]
+  # Use case: Test graceful degradation when web traffic blocked but DB accessible
+
+---
+# Example 12: Combined selective targeting - IP + Port
+apiVersion: chaos.gushchin.dev/v1alpha1
+kind: ChaosExperiment
+metadata:
+  name: chaosexperiment-network-partition-combined
+  namespace: staging
+spec:
+  action: "network-partition"
+  namespace: "staging"
+  selector:
+    app: microservice
+  count: 3
+  duration: "90s"
+  direction: "egress"
+  # NEW: Combined targeting - block HTTPS to specific service only
+  targetIPs: ["10.96.100.50", "10.96.100.51"]
+  targetPorts: [443, 8443]
+  targetProtocols: ["tcp"]
+  maxPercentage: 50
+  # Use case: Realistic scenario - specific service partition while maintaining other connections
+
+---
+# IMPORTANT NOTES:
+#
+# 1. NET_ADMIN Capability Required:
+#    - pod-network-partition requires NET_ADMIN capability
+#    - Will NOT work in PSA Restricted namespaces
+#    - Ensure target namespace allows NET_ADMIN
+#
+# 2. vs pod-network-loss:
+#    - pod-network-loss: Partial degradation (5-40% packet loss) using tc netem
+#    - pod-network-partition: Complete isolation (100% blocked) using iptables
+#    - Use partition for testing hard failures (split-brain, leader election)
+#    - Use network-loss for testing degraded network conditions
+#
+# 3. Custom Chain Cleanup:
+#    - Uses custom iptables chains (CHAOS_PARTITION_<timestamp>)
+#    - Safe cleanup prevents CNI/mesh rule conflicts
+#    - Allows loopback traffic to prevent process lockup
+#    - Automatic cleanup after duration expires
+#
+# 4. Safety Features:
+#    - Exclusion labels: chaos.gushchin.dev/exclude: "true" on pods/namespaces
+#    - Production protection requires allowProduction: true
+#    - Dry-run mode previews impact without execution
+#    - maxPercentage limits percentage of pods affected
+#    - Gracefully handles terminating pods (auto-excluded)
+#
+# 5. Ephemeral Containers:
+#    - Injects ephemeral container with nicolaka/netshoot image
+#    - Ephemeral containers remain in pod spec after experiment (K8s behavior)
+#    - Does not restart or affect main containers
+#
+# For more details, see:
+# - ADR 0011: docs/adr/0011-network-partition-implementation.md
+# - CLAUDE.md: Supported actions and troubleshooting

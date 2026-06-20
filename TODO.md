@@ -25,8 +25,8 @@
 - [x] **Add Retry Logic** - Implement exponential backoff for transient failures (completed with configurable strategies)
 - [x] **Handle Edge Cases**
   - [x] What if namespace doesn't exist? - Webhook validates this
-  - [ ] What if pods are already terminating?
-  - [ ] Handle permission denied errors gracefully
+  - [x] What if pods are already terminating?
+  - [] Handle permission denied errors gracefully
 
 ## 📊 Observability
 
@@ -45,10 +45,10 @@
 ### Status Reporting
 - [x] **Enhance Status Fields**
   - [x] Add `phase` field (Pending, Running, Completed, Failed)
-  - [ ] Add `affectedPods` list with pod names
+  - [x] Add `affectedPods` list with pod names
   - [x] Add `startTime` and `completedAt` timestamps
   - [x] Add retry tracking fields (retryCount, nextRetryTime, lastError)
-- [ ] **Kubernetes Events** - Emit events on ChaosExperiment and affected pods
+- [x] **Kubernetes Events** - Emit events on ChaosExperiment and affected pods
 
 ## 🚀 New Chaos Actions
 
@@ -56,16 +56,16 @@
 - [x] **pod-delay** - Add network latency to pods
 - [x] **pod-cpu-stress** - Consume CPU resources
 - [x] **pod-memory-stress** - Consume memory resources
-- [x] **pod-network-loss** - Simulate packet loss (see ADR 0007)
-- [ ] **pod-disk-fill** - Fill pod disk space (see ADR 0008; docs/ADR done, implementation pending)
-- [ ] **pod-network-corruption** - Corrupt network packets
-- [ ] **pod-restart** - Restart pods instead of delete
+- [x] **pod-network-loss** - Simulate packet loss
+- [x] **pod-disk-fill** - Fill pod disk space
+- [x] **pod-network-corruption** - Corrupt network packets
+- [x] **pod-restart** - Restart pods instead of delete
 
 ### Node Chaos
 - [x] **node-drain** - Drain nodes temporarily
 - [x] **node-uncordon** - Auto-uncordon nodes after drain experiments complete ✅
-- [ ] **node-taint** - Add taints to nodes
-- [ ] **node-cpu-stress** - Stress node CPU
+- [x] **node-taint** - Add taints to nodes
+- [x] **node-cpu-stress** - Stress node CPU
 - [ ] **node-disk-fill** - Fill node disk space
 
 ### Network Chaos
@@ -111,7 +111,7 @@
 ### Developer Documentation
 - [x] **Architecture Decision Records (ADRs)** - Created ADR for pod-cpu-stress implementation
 - [x] **API Documentation** - Detailed CRD field descriptions
-- [ ] **Contributing Guide** - How to add new chaos actions
+- [x] **Contributing Guide** - How to add new chaos actions
 - [x] **Code Comments** - Translate Russian comments to English
 
 ## 🔒 Security
@@ -119,7 +119,7 @@
 ### RBAC
 - [ ] **Fine-grained Permissions** - Separate roles for different chaos levels
 - [ ] **Namespace Isolation** - Restrict experiments to specific namespaces
-- [ ] **Audit Logging** - Track who runs experiments
+- [x] **Audit Logging** - Track who runs experiments
 
 ### Policy
 - [ ] **OPA Integration** - Policy-based experiment approval

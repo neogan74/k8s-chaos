@@ -18,6 +18,7 @@ package v1alpha1
 
 import (
 	"testing"
+	"time"
 
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
@@ -128,6 +129,19 @@ func TestChaosExperimentValidation(t *testing.T) {
 			},
 			wantErr: false,
 		},
+		{
+			name: "valid pod-disk-fill experiment",
+			spec: ChaosExperimentSpec{
+				Action:         "pod-disk-fill",
+				Namespace:      "default",
+				Selector:       map[string]string{"app": "test"},
+				Count:          1,
+				Duration:       "3m",
+				FillPercentage: 80,
+				TargetPath:     "/tmp",
+			},
+			wantErr: false,
+		},
 	}
 
 	for _, tt := range tests {
@@ -162,7 +176,7 @@ func TestChaosExperimentInvalidCases(t *testing.T) {
 				Namespace: "default",
 				Selector:  map[string]string{"app": "test"},
 			},
-			errMsg: "action must be one of: pod-kill, pod-delay, node-drain, pod-cpu-stress, pod-memory-stress, pod-failure, pod-network-loss",
+			errMsg: "action must be one of: pod-kill, pod-delay, node-drain, pod-cpu-stress, pod-memory-stress, pod-failure, pod-network-loss, pod-disk-fill, pod-restart",
 		},
 		{
 			name: "empty action",
@@ -281,9 +295,11 @@ func validateChaosExperimentSpec(spec *ChaosExperimentSpec) error {
 		"pod-memory-stress": true,
 		"pod-failure":       true,
 		"pod-network-loss":  true,
+		"pod-disk-fill":     true,
+		"pod-restart":       true,
 	}
 	if !validActions[spec.Action] {
-		return &ValidationError{Field: "action", Message: "action must be one of: pod-kill, pod-delay, node-drain, pod-cpu-stress, pod-memory-stress, pod-failure, pod-network-loss"}
+		return &ValidationError{Field: "action", Message: "action must be one of: pod-kill, pod-delay, node-drain, pod-cpu-stress, pod-memory-stress, pod-failure, pod-network-loss, pod-disk-fill, pod-restart"}
 	}
 
 	// Validate namespace (MinLength validation)
@@ -521,6 +537,620 @@ func TestValidateSchedule(t *testing.T) {
 			err := ValidateSchedule(tt.schedule)
 			if (err != nil) != tt.wantErr {
 				t.Errorf("ValidateSchedule() error = %v, wantErr %v", err, tt.wantErr)
+			}
+		})
+	}
+}
+
+func TestValidateTimeWindows(t *testing.T) {
+	tests := []struct {
+		name    string
+		windows []TimeWindow
+		wantErr bool
+	}{
+		{
+			name: "valid recurring window with timezone and days",
+			windows: []TimeWindow{
+				{
+					Type:       TimeWindowRecurring,
+					Start:      "22:00",
+					End:        "02:00",
+					Timezone:   "UTC",
+					DaysOfWeek: []string{"Mon", "Wed", "Fri"},
+				},
+			},
+			wantErr: false,
+		},
+		{
+			name: "valid absolute window",
+			windows: []TimeWindow{
+				{
+					Type:  TimeWindowAbsolute,
+					Start: "2026-01-10T01:00:00Z",
+					End:   "2026-01-10T03:00:00Z",
+				},
+			},
+			wantErr: false,
+		},
+		{
+			name: "invalid recurring clock format",
+			windows: []TimeWindow{
+				{
+					Type:  TimeWindowRecurring,
+					Start: "9:00",
+					End:   "18:00",
+				},
+			},
+			wantErr: true,
+		},
+		{
+			name: "invalid recurring day",
+			windows: []TimeWindow{
+				{
+					Type:       TimeWindowRecurring,
+					Start:      "09:00",
+					End:        "18:00",
+					DaysOfWeek: []string{"Funday"},
+				},
+			},
+			wantErr: true,
+		},
+		{
+			name: "invalid timezone",
+			windows: []TimeWindow{
+				{
+					Type:     TimeWindowRecurring,
+					Start:    "09:00",
+					End:      "18:00",
+					Timezone: "Not/AZone",
+				},
+			},
+			wantErr: true,
+		},
+		{
+			name: "invalid absolute order",
+			windows: []TimeWindow{
+				{
+					Type:  TimeWindowAbsolute,
+					Start: "2026-01-10T03:00:00Z",
+					End:   "2026-01-10T01:00:00Z",
+				},
+			},
+			wantErr: true,
+		},
+		{
+			name: "absolute with timezone not allowed",
+			windows: []TimeWindow{
+				{
+					Type:     TimeWindowAbsolute,
+					Start:    "2026-01-10T01:00:00Z",
+					End:      "2026-01-10T03:00:00Z",
+					Timezone: "UTC",
+				},
+			},
+			wantErr: true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			err := ValidateTimeWindows(tt.windows)
+			if (err != nil) != tt.wantErr {
+				t.Errorf("ValidateTimeWindows() error = %v, wantErr %v", err, tt.wantErr)
+			}
+		})
+	}
+}
+
+func TestIsWithinTimeWindows(t *testing.T) {
+	// Fixed test time: 2026-01-06 (Tuesday) 14:30 UTC
+	testTime := time.Date(2026, 1, 6, 14, 30, 0, 0, time.UTC)
+
+	tests := []struct {
+		name     string
+		windows  []TimeWindow
+		testTime time.Time
+		want     bool
+	}{
+		{
+			name:     "no windows - always allowed",
+			windows:  []TimeWindow{},
+			testTime: testTime,
+			want:     true,
+		},
+		{
+			name: "recurring window - within time on correct day",
+			windows: []TimeWindow{
+				{
+					Type:       TimeWindowRecurring,
+					Start:      "09:00",
+					End:        "17:00",
+					Timezone:   "UTC",
+					DaysOfWeek: []string{"Tue", "Wed", "Thu"},
+				},
+			},
+			testTime: testTime, // Tuesday 14:30 UTC
+			want:     true,
+		},
+		{
+			name: "recurring window - within time but wrong day",
+			windows: []TimeWindow{
+				{
+					Type:       TimeWindowRecurring,
+					Start:      "09:00",
+					End:        "17:00",
+					Timezone:   "UTC",
+					DaysOfWeek: []string{"Mon", "Wed", "Fri"},
+				},
+			},
+			testTime: testTime, // Tuesday 14:30 UTC
+			want:     false,
+		},
+		{
+			name: "recurring window - correct day but outside time",
+			windows: []TimeWindow{
+				{
+					Type:       TimeWindowRecurring,
+					Start:      "09:00",
+					End:        "12:00",
+					Timezone:   "UTC",
+					DaysOfWeek: []string{"Tue"},
+				},
+			},
+			testTime: testTime, // Tuesday 14:30 UTC
+			want:     false,
+		},
+		{
+			name: "recurring window - wrap around midnight (in window before midnight)",
+			windows: []TimeWindow{
+				{
+					Type:     TimeWindowRecurring,
+					Start:    "22:00",
+					End:      "02:00",
+					Timezone: "UTC",
+				},
+			},
+			testTime: time.Date(2026, 1, 7, 23, 30, 0, 0, time.UTC),
+			want:     true,
+		},
+		{
+			name: "recurring window - wrap around midnight (in window after midnight)",
+			windows: []TimeWindow{
+				{
+					Type:     TimeWindowRecurring,
+					Start:    "22:00",
+					End:      "02:00",
+					Timezone: "UTC",
+				},
+			},
+			testTime: time.Date(2026, 1, 7, 1, 30, 0, 0, time.UTC),
+			want:     true,
+		},
+		{
+			name: "recurring window - wrap around midnight (outside window)",
+			windows: []TimeWindow{
+				{
+					Type:     TimeWindowRecurring,
+					Start:    "22:00",
+					End:      "02:00",
+					Timezone: "UTC",
+				},
+			},
+			testTime: testTime, // 14:30 UTC
+			want:     false,
+		},
+		{
+			name: "recurring window - timezone conversion (Europe/Berlin)",
+			windows: []TimeWindow{
+				{
+					Type:     TimeWindowRecurring,
+					Start:    "09:00",
+					End:      "17:00",
+					Timezone: "Europe/Berlin",
+				},
+			},
+			testTime: time.Date(2026, 1, 7, 8, 30, 0, 0, time.UTC), // 09:30 Berlin time
+			want:     true,
+		},
+		{
+			name: "absolute window - within window",
+			windows: []TimeWindow{
+				{
+					Type:  TimeWindowAbsolute,
+					Start: "2026-01-06T14:00:00Z",
+					End:   "2026-01-06T15:00:00Z",
+				},
+			},
+			testTime: testTime, // 14:30 UTC
+			want:     true,
+		},
+		{
+			name: "absolute window - before window",
+			windows: []TimeWindow{
+				{
+					Type:  TimeWindowAbsolute,
+					Start: "2026-01-06T15:00:00Z",
+					End:   "2026-01-06T16:00:00Z",
+				},
+			},
+			testTime: testTime, // 14:30 UTC
+			want:     false,
+		},
+		{
+			name: "absolute window - after window",
+			windows: []TimeWindow{
+				{
+					Type:  TimeWindowAbsolute,
+					Start: "2026-01-06T12:00:00Z",
+					End:   "2026-01-06T13:00:00Z",
+				},
+			},
+			testTime: testTime, // 14:30 UTC
+			want:     false,
+		},
+		{
+			name: "multiple windows - matches second window",
+			windows: []TimeWindow{
+				{
+					Type:       TimeWindowRecurring,
+					Start:      "09:00",
+					End:        "12:00",
+					DaysOfWeek: []string{"Mon"},
+				},
+				{
+					Type:       TimeWindowRecurring,
+					Start:      "14:00",
+					End:        "18:00",
+					DaysOfWeek: []string{"Tue"},
+				},
+			},
+			testTime: testTime, // Tuesday 14:30 UTC
+			want:     true,
+		},
+		{
+			name: "multiple windows - matches none",
+			windows: []TimeWindow{
+				{
+					Type:       TimeWindowRecurring,
+					Start:      "09:00",
+					End:        "12:00",
+					DaysOfWeek: []string{"Mon"},
+				},
+				{
+					Type:       TimeWindowRecurring,
+					Start:      "18:00",
+					End:        "22:00",
+					DaysOfWeek: []string{"Tue"},
+				},
+			},
+			testTime: testTime, // Tuesday 14:30 UTC
+			want:     false,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := IsWithinTimeWindows(tt.windows, tt.testTime)
+			if got != tt.want {
+				t.Errorf("IsWithinTimeWindows() = %v, want %v", got, tt.want)
+			}
+		})
+	}
+}
+
+func TestNextTimeWindowBoundary(t *testing.T) {
+	// Fixed test time: 2026-01-06 (Tuesday) 14:30 UTC
+	testTime := time.Date(2026, 1, 6, 14, 30, 0, 0, time.UTC)
+
+	tests := []struct {
+		name           string
+		windows        []TimeWindow
+		testTime       time.Time
+		wantBoundary   time.Time
+		wantWillBeOpen bool
+	}{
+		{
+			name:           "no windows - always open",
+			windows:        []TimeWindow{},
+			testTime:       testTime,
+			wantBoundary:   time.Time{},
+			wantWillBeOpen: true,
+		},
+		{
+			name: "recurring window - before window opens today",
+			windows: []TimeWindow{
+				{
+					Type:     TimeWindowRecurring,
+					Start:    "18:00",
+					End:      "22:00",
+					Timezone: "UTC",
+				},
+			},
+			testTime:       testTime, // 14:30 UTC
+			wantBoundary:   time.Date(2026, 1, 6, 18, 0, 0, 0, time.UTC),
+			wantWillBeOpen: true,
+		},
+		{
+			name: "recurring window - inside window, next boundary is close",
+			windows: []TimeWindow{
+				{
+					Type:     TimeWindowRecurring,
+					Start:    "14:00",
+					End:      "15:00",
+					Timezone: "UTC",
+				},
+			},
+			testTime:       testTime, // 14:30 UTC
+			wantBoundary:   time.Date(2026, 1, 6, 15, 0, 0, 0, time.UTC),
+			wantWillBeOpen: false,
+		},
+		{
+			name: "recurring window - after today's window, next is tomorrow",
+			windows: []TimeWindow{
+				{
+					Type:     TimeWindowRecurring,
+					Start:    "09:00",
+					End:      "12:00",
+					Timezone: "UTC",
+				},
+			},
+			testTime:       testTime, // 14:30 UTC
+			wantBoundary:   time.Date(2026, 1, 7, 9, 0, 0, 0, time.UTC),
+			wantWillBeOpen: true,
+		},
+		{
+			name: "recurring window with days - next matching day",
+			windows: []TimeWindow{
+				{
+					Type:       TimeWindowRecurring,
+					Start:      "09:00",
+					End:        "17:00",
+					DaysOfWeek: []string{"Mon", "Wed", "Fri"},
+					Timezone:   "UTC",
+				},
+			},
+			testTime:       testTime,                                    // Tuesday 14:30 UTC
+			wantBoundary:   time.Date(2026, 1, 7, 9, 0, 0, 0, time.UTC), // Wednesday
+			wantWillBeOpen: true,
+		},
+		{
+			name: "absolute window - before start",
+			windows: []TimeWindow{
+				{
+					Type:  TimeWindowAbsolute,
+					Start: "2026-01-10T10:00:00Z",
+					End:   "2026-01-10T12:00:00Z",
+				},
+			},
+			testTime:       testTime,
+			wantBoundary:   time.Date(2026, 1, 10, 10, 0, 0, 0, time.UTC),
+			wantWillBeOpen: true,
+		},
+		{
+			name: "absolute window - inside window",
+			windows: []TimeWindow{
+				{
+					Type:  TimeWindowAbsolute,
+					Start: "2026-01-06T14:00:00Z",
+					End:   "2026-01-06T16:00:00Z",
+				},
+			},
+			testTime:       testTime,
+			wantBoundary:   time.Date(2026, 1, 6, 16, 0, 0, 0, time.UTC),
+			wantWillBeOpen: false,
+		},
+		{
+			name: "absolute window - after end (no future boundary)",
+			windows: []TimeWindow{
+				{
+					Type:  TimeWindowAbsolute,
+					Start: "2026-01-05T12:00:00Z",
+					End:   "2026-01-05T13:00:00Z",
+				},
+			},
+			testTime:       testTime,
+			wantBoundary:   time.Time{},
+			wantWillBeOpen: false,
+		},
+		{
+			name: "wrap-around window - before start",
+			windows: []TimeWindow{
+				{
+					Type:     TimeWindowRecurring,
+					Start:    "22:00",
+					End:      "02:00",
+					Timezone: "UTC",
+				},
+			},
+			testTime:       testTime, // 14:30 UTC
+			wantBoundary:   time.Date(2026, 1, 6, 22, 0, 0, 0, time.UTC),
+			wantWillBeOpen: true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			gotBoundary, gotWillBeOpen := NextTimeWindowBoundary(tt.windows, tt.testTime)
+			if !gotBoundary.Equal(tt.wantBoundary) {
+				t.Errorf("NextTimeWindowBoundary() boundary = %v, want %v",
+					gotBoundary.Format(time.RFC3339), tt.wantBoundary.Format(time.RFC3339))
+			}
+			if gotWillBeOpen != tt.wantWillBeOpen {
+				t.Errorf("NextTimeWindowBoundary() willBeOpen = %v, want %v", gotWillBeOpen, tt.wantWillBeOpen)
+			}
+		})
+	}
+}
+
+// TestValidateCIDR tests CIDR validation
+func TestValidateCIDR(t *testing.T) {
+	tests := []struct {
+		name    string
+		cidr    string
+		wantErr bool
+	}{
+		// Valid CIDRs
+		{name: "valid CIDR - /24", cidr: "192.168.1.0/24", wantErr: false},
+		{name: "valid CIDR - /16", cidr: "10.0.0.0/16", wantErr: false},
+		{name: "valid CIDR - /12", cidr: "10.96.0.0/12", wantErr: false},
+		{name: "valid CIDR - /32", cidr: "192.168.1.1/32", wantErr: false},
+		{name: "valid CIDR - /8", cidr: "10.0.0.0/8", wantErr: false},
+
+		// Invalid CIDRs
+		{name: "empty CIDR", cidr: "", wantErr: true},
+		{name: "invalid CIDR - no mask", cidr: "192.168.1.0", wantErr: true},
+		{name: "invalid CIDR - wrong format", cidr: "192.168.1.0/", wantErr: true},
+		{name: "invalid CIDR - mask too large", cidr: "192.168.1.0/33", wantErr: true},
+		{name: "invalid CIDR - negative mask", cidr: "192.168.1.0/-1", wantErr: true},
+		{name: "invalid CIDR - malformed IP", cidr: "256.1.1.1/24", wantErr: true},
+		{name: "invalid CIDR - text", cidr: "not-a-cidr/24", wantErr: true},
+		{name: "IPv6 CIDR (unsupported)", cidr: "2001:db8::/32", wantErr: true},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			err := ValidateCIDR(tt.cidr)
+			if (err != nil) != tt.wantErr {
+				t.Errorf("ValidateCIDR(%q) error = %v, wantErr %v", tt.cidr, err, tt.wantErr)
+			}
+		})
+	}
+}
+
+// TestValidateIP tests IP address validation
+func TestValidateIP(t *testing.T) {
+	tests := []struct {
+		name    string
+		ip      string
+		wantErr bool
+	}{
+		// Valid IPs
+		{name: "valid IP - loopback", ip: "127.0.0.1", wantErr: false},
+		{name: "valid IP - private 10.x", ip: "10.96.100.50", wantErr: false},
+		{name: "valid IP - private 192.168.x", ip: "192.168.1.100", wantErr: false},
+		{name: "valid IP - private 172.16.x", ip: "172.16.0.1", wantErr: false},
+		{name: "valid IP - public", ip: "8.8.8.8", wantErr: false},
+		{name: "valid IP - broadcast", ip: "255.255.255.255", wantErr: false},
+		{name: "valid IP - all zeros", ip: "0.0.0.0", wantErr: false},
+
+		// Invalid IPs
+		{name: "empty IP", ip: "", wantErr: true},
+		{name: "invalid IP - out of range octet", ip: "256.1.1.1", wantErr: true},
+		{name: "invalid IP - too many octets", ip: "1.2.3.4.5", wantErr: true},
+		{name: "invalid IP - too few octets", ip: "1.2.3", wantErr: true},
+		{name: "invalid IP - text", ip: "not-an-ip", wantErr: true},
+		{name: "invalid IP - hostname", ip: "example.com", wantErr: true},
+		{name: "IPv6 (unsupported)", ip: "::1", wantErr: true},
+		{name: "IPv6 (unsupported)", ip: "2001:db8::1", wantErr: true},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			err := ValidateIP(tt.ip)
+			if (err != nil) != tt.wantErr {
+				t.Errorf("ValidateIP(%q) error = %v, wantErr %v", tt.ip, err, tt.wantErr)
+			}
+		})
+	}
+}
+
+// TestValidatePortRange tests port range validation
+func TestValidatePortRange(t *testing.T) {
+	tests := []struct {
+		name    string
+		port    int32
+		wantErr bool
+	}{
+		// Valid ports
+		{name: "valid port - minimum", port: 1, wantErr: false},
+		{name: "valid port - HTTP", port: 80, wantErr: false},
+		{name: "valid port - HTTPS", port: 443, wantErr: false},
+		{name: "valid port - high", port: 8080, wantErr: false},
+		{name: "valid port - maximum", port: 65535, wantErr: false},
+
+		// Invalid ports
+		{name: "invalid port - zero", port: 0, wantErr: true},
+		{name: "invalid port - negative", port: -1, wantErr: true},
+		{name: "invalid port - too high", port: 65536, wantErr: true},
+		{name: "invalid port - way too high", port: 100000, wantErr: true},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			err := ValidatePortRange(tt.port)
+			if (err != nil) != tt.wantErr {
+				t.Errorf("ValidatePortRange(%d) error = %v, wantErr %v", tt.port, err, tt.wantErr)
+			}
+		})
+	}
+}
+
+// TestIsDangerousTarget tests dangerous target detection
+func TestIsDangerousTarget(t *testing.T) {
+	tests := []struct {
+		name           string
+		ip             string
+		wantDangerous  bool
+		wantReasonPart string
+	}{
+		// Dangerous targets
+		{name: "loopback", ip: "127.0.0.1", wantDangerous: true, wantReasonPart: "Loopback"},
+		{name: "link-local", ip: "169.254.1.1", wantDangerous: true, wantReasonPart: "Link-local"},
+		{name: "k8s API server", ip: "10.96.0.1", wantDangerous: true, wantReasonPart: "Kubernetes API"},
+		{name: "cluster DNS", ip: "10.96.0.10", wantDangerous: true, wantReasonPart: "Cluster DNS"},
+		{name: "cluster service IP", ip: "10.96.100.50", wantDangerous: true, wantReasonPart: "Cluster service"},
+
+		// Safe targets
+		{name: "public IP", ip: "8.8.8.8", wantDangerous: false, wantReasonPart: ""},
+		{name: "private IP outside cluster", ip: "192.168.1.100", wantDangerous: false, wantReasonPart: ""},
+
+		// Invalid IPs (return false, not an error)
+		{name: "invalid IP", ip: "not-an-ip", wantDangerous: false, wantReasonPart: ""},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			gotDangerous, gotReason := IsDangerousTarget(tt.ip)
+			if gotDangerous != tt.wantDangerous {
+				t.Errorf("IsDangerousTarget(%q) dangerous = %v, want %v", tt.ip, gotDangerous, tt.wantDangerous)
+			}
+			if tt.wantReasonPart != "" && gotReason == "" {
+				t.Errorf("IsDangerousTarget(%q) expected reason containing %q, got empty", tt.ip, tt.wantReasonPart)
+			}
+		})
+	}
+}
+
+// TestIsDangerousCIDR tests dangerous CIDR detection
+func TestIsDangerousCIDR(t *testing.T) {
+	tests := []struct {
+		name           string
+		cidr           string
+		wantDangerous  bool
+		wantReasonPart string
+	}{
+		// Dangerous CIDRs
+		{name: "loopback range", cidr: "127.0.0.0/8", wantDangerous: true, wantReasonPart: "loopback"},
+		{name: "cluster service CIDR", cidr: "10.96.0.0/12", wantDangerous: true, wantReasonPart: "overlaps"},
+		{name: "private 10.x", cidr: "10.0.0.0/8", wantDangerous: true, wantReasonPart: "overlaps"},
+		{name: "private 172.16.x", cidr: "172.16.0.0/12", wantDangerous: true, wantReasonPart: "overlaps"},
+
+		// Safe CIDRs
+		{name: "public CIDR", cidr: "8.8.8.0/24", wantDangerous: false, wantReasonPart: ""},
+		{name: "specific non-cluster private", cidr: "192.168.1.0/24", wantDangerous: false, wantReasonPart: ""},
+
+		// Invalid CIDRs (return false, not an error)
+		{name: "invalid CIDR", cidr: "not-a-cidr", wantDangerous: false, wantReasonPart: ""},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			gotDangerous, gotReason := IsDangerousCIDR(tt.cidr)
+			if gotDangerous != tt.wantDangerous {
+				t.Errorf("IsDangerousCIDR(%q) dangerous = %v, want %v", tt.cidr, gotDangerous, tt.wantDangerous)
+			}
+			if tt.wantReasonPart != "" && gotReason == "" {
+				t.Errorf("IsDangerousCIDR(%q) expected reason containing %q, got empty", tt.cidr, tt.wantReasonPart)
 			}
 		})
 	}
