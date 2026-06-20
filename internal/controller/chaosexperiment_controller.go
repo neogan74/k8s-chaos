@@ -637,7 +637,7 @@ func (r *ChaosExperimentReconciler) handleNodeCPUStress(ctx context.Context, exp
 	durationSeconds, err := r.parseDurationToSeconds(exp.Spec.Duration)
 	if err != nil {
 		return r.handleExperimentFailure(ctx, exp, &ChaosError{
-			Original:  fmt.Errorf("invalid duration format: %s", exp.Spec.Duration),
+			Original:  fmt.Errorf("Invalid duration format: %s", exp.Spec.Duration),
 			Type:      ErrorTypeValidation,
 			Operation: "parse node-cpu-stress duration",
 		})
