@@ -23,7 +23,6 @@ import (
 	"github.com/spf13/cobra"
 	"k8s.io/apimachinery/pkg/types"
 
-	"github.com/neogan74/k8s-chaos/api/v1alpha1"
 	chaosv1alpha1 "github.com/neogan74/k8s-chaos/api/v1alpha1"
 )
 
@@ -75,7 +74,8 @@ func runDescribe(cmd *cobra.Command, args []string) error {
 func printExperimentDetails(exp *chaosv1alpha1.ChaosExperiment) {
 	fmt.Printf("Name:         %s\n", exp.Name)
 	fmt.Printf("Namespace:    %s\n", exp.Namespace)
-	fmt.Printf("Created:      %s (Age: %s)\n", exp.CreationTimestamp.Format("2006-01-02 15:04:05"), formatAge(exp.CreationTimestamp.Time))
+	created := exp.CreationTimestamp.Format("2006-01-02 15:04:05")
+	fmt.Printf("Created:      %s (Age: %s)\n", created, formatAge(exp.CreationTimestamp.Time))
 	fmt.Println()
 
 	fmt.Println("Spec:")
@@ -105,7 +105,7 @@ func printExperimentDetails(exp *chaosv1alpha1.ChaosExperiment) {
 	if len(exp.Spec.TimeWindows) > 0 {
 		fmt.Printf("  Time Windows:        %d configured\n", len(exp.Spec.TimeWindows))
 		for i, w := range exp.Spec.TimeWindows {
-			if w.Type == v1alpha1.TimeWindowRecurring {
+			if w.Type == chaosv1alpha1.TimeWindowRecurring {
 				fmt.Printf("    [%d] Recurring: %s-%s (%v) TZ:%s\n", i+1, w.Start, w.End, w.DaysOfWeek, w.Timezone)
 			} else {
 				fmt.Printf("    [%d] Absolute:  %s to %s\n", i+1, w.Start, w.End)
@@ -116,7 +116,7 @@ func printExperimentDetails(exp *chaosv1alpha1.ChaosExperiment) {
 	if len(exp.Spec.MaintenanceWindows) > 0 {
 		fmt.Printf("  Maintenance Windows: %d configured\n", len(exp.Spec.MaintenanceWindows))
 		for i, w := range exp.Spec.MaintenanceWindows {
-			if w.Type == v1alpha1.TimeWindowRecurring {
+			if w.Type == chaosv1alpha1.TimeWindowRecurring {
 				fmt.Printf("    [%d] Recurring: %s-%s (%v) TZ:%s\n", i+1, w.Start, w.End, w.DaysOfWeek, w.Timezone)
 			} else {
 				fmt.Printf("    [%d] Absolute:  %s to %s\n", i+1, w.Start, w.End)

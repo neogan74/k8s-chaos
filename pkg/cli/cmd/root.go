@@ -22,7 +22,6 @@ import (
 
 	"github.com/spf13/cobra"
 	"k8s.io/apimachinery/pkg/runtime"
-	"k8s.io/client-go/kubernetes"
 	clientgoscheme "k8s.io/client-go/kubernetes/scheme"
 	"k8s.io/client-go/tools/clientcmd"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -59,8 +58,10 @@ func Execute() {
 }
 
 func init() {
-	rootCmd.PersistentFlags().StringVar(&kubeconfig, "kubeconfig", "", "path to kubeconfig file (default: $HOME/.kube/config)")
-	rootCmd.PersistentFlags().StringVarP(&namespace, "namespace", "n", "", "namespace to operate in (default: all namespaces)")
+	rootCmd.PersistentFlags().StringVar(&kubeconfig, "kubeconfig", "",
+		"path to kubeconfig file (default: $HOME/.kube/config)")
+	rootCmd.PersistentFlags().StringVarP(&namespace, "namespace", "n", "",
+		"namespace to operate in (default: all namespaces)")
 }
 
 // getKubeClient creates and returns a Kubernetes client
@@ -100,19 +101,4 @@ func getKubeconfigPath() string {
 		return ""
 	}
 	return fmt.Sprintf("%s/.kube/config", home)
-}
-
-// getClientset creates and returns a kubernetes.Clientset
-func getClientset() (*kubernetes.Clientset, error) {
-	config, err := clientcmd.BuildConfigFromFlags("", getKubeconfigPath())
-	if err != nil {
-		return nil, fmt.Errorf("failed to build kubeconfig: %w", err)
-	}
-
-	clientset, err := kubernetes.NewForConfig(config)
-	if err != nil {
-		return nil, fmt.Errorf("failed to create Kubernetes clientset: %w", err)
-	}
-
-	return clientset, nil
 }
