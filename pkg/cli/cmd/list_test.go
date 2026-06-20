@@ -6,10 +6,10 @@ import (
 )
 
 func TestFormatSelector(t *testing.T) {
-	if got := formatSelector(nil); got != "<none>" {
+	if got := formatSelector(nil); got != selectorNone {
 		t.Fatalf("expected <none> for nil selector, got %s", got)
 	}
-	if got := formatSelector(map[string]string{}); got != "<none>" {
+	if got := formatSelector(map[string]string{}); got != selectorNone {
 		t.Fatalf("expected <none> for empty selector, got %s", got)
 	}
 	if got := formatSelector(map[string]string{"app": "demo"}); got != "app=demo" {

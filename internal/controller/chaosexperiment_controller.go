@@ -2737,7 +2737,7 @@ func (r *ChaosExperimentReconciler) handlePodNetworkCorruption(ctx context.Conte
 
 	if exp.Spec.Duration == "" {
 		return r.handleExperimentFailure(ctx, exp, &ChaosError{
-			Original:  fmt.Errorf("Duration is required for network corruption"),
+			Original:  fmt.Errorf("duration is required for network corruption"),
 			Type:      ErrorTypeValidation,
 			Operation: "validate pod-network-corruption config",
 		})
@@ -3502,7 +3502,7 @@ func (r *ChaosExperimentReconciler) handleNetworkPartition(ctx context.Context, 
 	// Validate required fields
 	if exp.Spec.Duration == "" {
 		return r.handleExperimentFailure(ctx, exp, &ChaosError{
-			Original:  fmt.Errorf("Duration is required for network-partition action"),
+			Original:  fmt.Errorf("duration is required for network-partition action"),
 			Type:      ErrorTypeValidation,
 			Operation: "validate network-partition config",
 		})

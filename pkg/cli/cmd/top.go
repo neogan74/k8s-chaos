@@ -198,10 +198,10 @@ func printFailed(metrics []experimentMetrics) {
 	})
 
 	w := tabwriter.NewWriter(os.Stdout, 0, 0, 3, ' ', 0)
-	fmt.Fprintln(w, "NAMESPACE\tNAME\tACTION\tRETRIES\tAGE")
+	_, _ = fmt.Fprintln(w, "NAMESPACE\tNAME\tACTION\tRETRIES\tAGE")
 
 	for _, m := range failed {
-		fmt.Fprintf(w, "%s\t%s\t%s\t%d\t%s\n",
+		_, _ = fmt.Fprintf(w, "%s\t%s\t%s\t%d\t%s\n",
 			m.Namespace,
 			m.Name,
 			m.Action,
@@ -210,5 +210,5 @@ func printFailed(metrics []experimentMetrics) {
 		)
 	}
 
-	w.Flush()
+	_ = w.Flush()
 }

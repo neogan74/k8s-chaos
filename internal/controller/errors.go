@@ -181,14 +181,14 @@ func FormatErrorMessage(ce *ChaosError) string {
 		msg.WriteString(" ")
 	}
 	if ce.Subresource != "" {
-		msg.WriteString(fmt.Sprintf("%s/%s", ce.Resource, ce.Subresource))
+		fmt.Fprintf(&msg, "%s/%s", ce.Resource, ce.Subresource)
 	} else if ce.Resource != "" {
 		msg.WriteString(ce.Resource)
 	} else {
 		msg.WriteString("perform operation")
 	}
 	if ce.Namespace != "" {
-		msg.WriteString(fmt.Sprintf(" in namespace %s", ce.Namespace))
+		fmt.Fprintf(&msg, " in namespace %s", ce.Namespace)
 	}
 	msg.WriteString(". ")
 
@@ -225,7 +225,7 @@ func FormatErrorMessage(ce *ChaosError) string {
 	}
 	msg.WriteString(" --as=system:serviceaccount:k8s-chaos-system:k8s-chaos-controller-manager")
 	if ce.Namespace != "" {
-		msg.WriteString(fmt.Sprintf(" -n %s", ce.Namespace))
+		fmt.Fprintf(&msg, " -n %s", ce.Namespace)
 	}
 	msg.WriteString(". ")
 
@@ -245,4 +245,3 @@ func WrapK8sError(err error, operation string) *ChaosError {
 	ce.Operation = operation
 	return ce
 }
-
