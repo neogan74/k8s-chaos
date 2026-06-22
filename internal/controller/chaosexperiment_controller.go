@@ -192,6 +192,8 @@ func (r *ChaosExperimentReconciler) Reconcile(ctx context.Context, req ctrl.Requ
 		return r.handleNodeTaint(ctx, &exp)
 	case "node-cpu-stress":
 		return r.handleNodeCPUStress(ctx, &exp)
+	case "node-disk-fill":
+		return r.handleNodeDiskFill(ctx, &exp)
 	case "pod-cpu-stress":
 		return r.handlePodCPUStress(ctx, &exp)
 	case "pod-memory-stress":
@@ -842,6 +844,274 @@ func (r *ChaosExperimentReconciler) deployNodeCPUStressPod(ctx context.Context, 
 
 	if err := r.Create(ctx, pod); err != nil {
 		return "", fmt.Errorf("failed to create stress pod on node %s: %w", targetNode, err)
+	}
+
+	return podName, nil
+}
+
+// handleNodeDiskFill deploys a privileged pod with a hostPath volume to fill disk space on the target node
+func (r *ChaosExperimentReconciler) handleNodeDiskFill(ctx context.Context, exp *chaosv1alpha1.ChaosExperiment) (ctrl.Result, error) {
+	log := ctrl.LoggerFrom(ctx)
+	startTime := time.Now()
+
+	chaosmetrics.ActiveExperiments.WithLabelValues("node-disk-fill").Inc()
+	defer chaosmetrics.ActiveExperiments.WithLabelValues("node-disk-fill").Dec()
+
+	if exp.Spec.Duration == "" {
+		return r.handleExperimentFailure(ctx, exp, &ChaosError{
+			Original:  fmt.Errorf("duration is required for node-disk-fill action"),
+			Type:      ErrorTypeValidation,
+			Operation: "validate node-disk-fill config",
+		})
+	}
+
+	fillPercentage := exp.Spec.FillPercentage
+	if fillPercentage <= 0 {
+		fillPercentage = 80
+	}
+
+	targetPath := exp.Spec.TargetPath
+	if targetPath == "" {
+		targetPath = "/tmp"
+	}
+
+	durationSeconds, err := r.parseDurationToSeconds(exp.Spec.Duration)
+	if err != nil {
+		return r.handleExperimentFailure(ctx, exp, &ChaosError{
+			Original:  fmt.Errorf("invalid duration format: %s", exp.Spec.Duration),
+			Type:      ErrorTypeValidation,
+			Operation: "parse node-disk-fill duration",
+		})
+	}
+
+	// List eligible nodes
+	nodeList := &corev1.NodeList{}
+	selector := labels.SelectorFromSet(exp.Spec.Selector)
+	if err := r.List(ctx, nodeList, client.MatchingLabelsSelector{Selector: selector}); err != nil {
+		log.Error(err, "Failed to list nodes")
+		if isPermissionDeniedError(err) {
+			return ctrl.Result{}, r.handlePermissionDenied(ctx, exp, "listing nodes for node-disk-fill", err)
+		}
+		return r.handleExperimentFailure(ctx, exp, &ChaosError{
+			Original:  fmt.Errorf("failed to list nodes: %w", err),
+			Type:      ErrorTypeExecution,
+			Operation: "list nodes for node-disk-fill",
+		})
+	}
+
+	if len(nodeList.Items) == 0 {
+		log.Info("No eligible nodes found for selector", "selector", exp.Spec.Selector)
+		exp.Status.Message = "No eligible nodes found matching selector"
+		_ = r.Status().Update(ctx, exp)
+		return ctrl.Result{RequeueAfter: time.Minute}, nil
+	}
+
+	// Handle dry-run mode
+	if exp.Spec.DryRun {
+		count := exp.Spec.Count
+		if count <= 0 {
+			count = 1
+		}
+		if count > len(nodeList.Items) {
+			count = len(nodeList.Items)
+		}
+		nodeNames := []string{}
+		for i := 0; i < count; i++ {
+			nodeNames = append(nodeNames, nodeList.Items[i].Name)
+		}
+		now := metav1.Now()
+		exp.Status.LastRunTime = &now
+		exp.Status.Message = fmt.Sprintf("DRY RUN: Would fill %d%% of disk on %d node(s) at %s: %v",
+			fillPercentage, count, targetPath, nodeNames)
+		exp.Status.Phase = phaseCompleted
+		if err := r.Status().Update(ctx, exp); err != nil {
+			log.Error(err, "Failed to update ChaosExperiment status")
+			return ctrl.Result{}, err
+		}
+		log.Info("Dry run completed", "action", "node-disk-fill", "wouldAffect", count, "nodes", nodeNames)
+		return ctrl.Result{}, nil
+	}
+
+	// Shuffle nodes
+	rand.Shuffle(len(nodeList.Items), func(i, j int) {
+		nodeList.Items[i], nodeList.Items[j] = nodeList.Items[j], nodeList.Items[i]
+	})
+
+	affectCount := exp.Spec.Count
+	if affectCount <= 0 {
+		affectCount = 1
+	}
+	if affectCount > len(nodeList.Items) {
+		affectCount = len(nodeList.Items)
+	}
+
+	affectedNodes := []string{}
+	for i := 0; i < affectCount; i++ {
+		node := &nodeList.Items[i]
+		log.Info("Injecting disk fill onto node",
+			"node", node.Name,
+			"fillPercentage", fillPercentage,
+			"targetPath", targetPath,
+			"duration", durationSeconds)
+
+		podName, err := r.deployNodeDiskFillPod(ctx, exp, node.Name, fillPercentage, targetPath, durationSeconds)
+		if err != nil {
+			log.Error(err, "Failed to deploy disk fill pod", "node", node.Name)
+			chaosmetrics.ExperimentErrors.WithLabelValues("node-disk-fill", exp.Spec.Namespace).Inc()
+			continue
+		}
+
+		r.Recorder.Eventf(node, corev1.EventTypeWarning, "ChaosNodeDiskFill",
+			"Deployed disk fill pod %s (%d%% at %s) by chaos experiment %s",
+			podName, fillPercentage, targetPath, exp.Name)
+
+		affectedNodes = append(affectedNodes, node.Name)
+	}
+
+	// Update status
+	now := metav1.Now()
+	exp.Status.LastRunTime = &now
+	status := statusSuccess
+	if len(affectedNodes) > 0 {
+		exp.Status.Message = fmt.Sprintf("Successfully filling disk to %d%% on %d node(s) at %s for %ds",
+			fillPercentage, len(affectedNodes), targetPath, durationSeconds)
+		exp.Status.RetryCount = 0
+		exp.Status.LastError = ""
+		exp.Status.NextRetryTime = nil
+	} else {
+		exp.Status.Message = "Failed to fill disk on any nodes"
+		status = statusFailure
+	}
+	if err := r.Status().Update(ctx, exp); err != nil {
+		log.Error(err, "Failed to update ChaosExperiment status")
+		return ctrl.Result{}, err
+	}
+
+	// Record metrics
+	elapsed := time.Since(startTime).Seconds()
+	chaosmetrics.ExperimentsTotal.WithLabelValues("node-disk-fill", exp.Spec.Namespace, status).Inc()
+	chaosmetrics.ExperimentDuration.WithLabelValues("node-disk-fill", exp.Spec.Namespace).Observe(elapsed)
+	chaosmetrics.ResourcesAffected.WithLabelValues("node-disk-fill", exp.Spec.Namespace, exp.Name).Set(float64(len(affectedNodes)))
+
+	// Create history record
+	affectedResources := buildResourceReferences(fmt.Sprintf("node-disk-fill-%d%%", fillPercentage), "", affectedNodes, "Node")
+	var errorDetails *chaosv1alpha1.ErrorDetails
+	if status == statusFailure {
+		errorDetails = &chaosv1alpha1.ErrorDetails{
+			Message:       exp.Status.Message,
+			FailureReason: "ExecutionError",
+		}
+	}
+	if err := r.createHistoryRecord(ctx, exp, status, affectedResources, startTime, errorDetails); err != nil {
+		log.Error(err, "Failed to create history record")
+	}
+
+	return ctrl.Result{RequeueAfter: time.Minute}, nil
+}
+
+// deployNodeDiskFillPod creates a privileged pod on the target node that fills disk space via a hostPath volume
+func (r *ChaosExperimentReconciler) deployNodeDiskFillPod(ctx context.Context, exp *chaosv1alpha1.ChaosExperiment, targetNode string, fillPercentage int, targetPath string, durationSeconds int) (string, error) {
+	podName := fmt.Sprintf("chaos-node-disk-fill-%s-%d", exp.Name, time.Now().Unix())
+	namespace := exp.Namespace
+	if namespace == "" {
+		namespace = "default"
+	}
+
+	privileged := true
+
+	// Build the fill script; writes to /fill-target which is the node's targetPath via hostPath
+	diskFillCmd := fmt.Sprintf(`set -e
+TARGET=/fill-target
+FILE="$TARGET/chaos-node-disk-fill.img"
+PERCENT=%d
+DURATION=%d
+
+mkdir -p "$TARGET"
+df_out=$(df -Pk "$TARGET" | tail -1)
+total_kb=$(echo "$df_out" | awk '{print $2}')
+used_kb=$(echo "$df_out" | awk '{print $3}')
+if [ -z "$total_kb" ] || [ -z "$used_kb" ]; then
+  echo "failed to read disk usage"
+  exit 1
+fi
+target_kb=$((total_kb * PERCENT / 100))
+fill_kb=$((target_kb - used_kb))
+if [ "$fill_kb" -le 0 ]; then
+  echo "disk already above target"
+  sleep "$DURATION"
+  exit 0
+fi
+fallocate_failed=0
+if command -v fallocate >/dev/null 2>&1; then
+  if ! fallocate -l "${fill_kb}K" "$FILE"; then
+    fallocate_failed=1
+  fi
+else
+  fallocate_failed=1
+fi
+if [ "$fallocate_failed" -ne 0 ]; then
+  count=$((fill_kb / 1024))
+  if [ "$count" -le 0 ]; then
+    count=1
+  fi
+  dd if=/dev/zero of="$FILE" bs=1M count="$count" conv=fsync 2>/dev/null
+fi
+sleep "$DURATION"
+rm -f "$FILE"
+`, fillPercentage, durationSeconds)
+
+	hostPathType := corev1.HostPathDirectoryOrCreate
+
+	pod := &corev1.Pod{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      podName,
+			Namespace: namespace,
+			Labels: map[string]string{
+				"chaos.gushchin.dev/experiment": exp.Name,
+				"chaos.gushchin.dev/action":     "node-disk-fill",
+			},
+			OwnerReferences: []metav1.OwnerReference{
+				*metav1.NewControllerRef(exp, chaosv1alpha1.GroupVersion.WithKind("ChaosExperiment")),
+			},
+		},
+		Spec: corev1.PodSpec{
+			NodeName:      targetNode,
+			RestartPolicy: corev1.RestartPolicyNever,
+			Tolerations: []corev1.Toleration{
+				{Operator: corev1.TolerationOpExists},
+			},
+			Volumes: []corev1.Volume{
+				{
+					Name: "fill-target",
+					VolumeSource: corev1.VolumeSource{
+						HostPath: &corev1.HostPathVolumeSource{
+							Path: targetPath,
+							Type: &hostPathType,
+						},
+					},
+				},
+			},
+			Containers: []corev1.Container{
+				{
+					Name:    "disk-fill",
+					Image:   "busybox:1.36",
+					Command: []string{"/bin/sh", "-c", diskFillCmd},
+					SecurityContext: &corev1.SecurityContext{
+						Privileged: &privileged,
+					},
+					VolumeMounts: []corev1.VolumeMount{
+						{
+							Name:      "fill-target",
+							MountPath: "/fill-target",
+						},
+					},
+				},
+			},
+		},
+	}
+
+	if err := r.Create(ctx, pod); err != nil {
+		return "", fmt.Errorf("failed to create disk fill pod on node %s: %w", targetNode, err)
 	}
 
 	return podName, nil
