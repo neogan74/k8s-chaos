@@ -66,7 +66,7 @@
 - [x] **node-uncordon** - Auto-uncordon nodes after drain experiments complete ✅
 - [x] **node-taint** - Add taints to nodes
 - [x] **node-cpu-stress** - Stress node CPU
-- [ ] **node-disk-fill** - Fill node disk space (see ADR 0008 pattern for reference)
+- [x] **node-disk-fill** - Fill node disk space (see ADR 0008 pattern for reference)
 
 ### Network Chaos
 - [ ] **network-partition** - Simulate network splits between pod groups
