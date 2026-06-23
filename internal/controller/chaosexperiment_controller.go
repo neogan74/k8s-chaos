@@ -2422,6 +2422,10 @@ func (r *ChaosExperimentReconciler) handlePodMemoryStress(ctx context.Context, e
 	// Update status
 	now := metav1.Now()
 	exp.Status.LastRunTime = &now
+	exp.Status.Phase = phaseRunning
+	exp.Status.RetryCount = 0
+	exp.Status.LastError = ""
+	exp.Status.NextRetryTime = nil
 	status := statusSuccess
 	if len(stressedPods) > 0 {
 		exp.Status.Message = fmt.Sprintf("Successfully injected memory stress into %d pod(s) for %s", len(stressedPods), exp.Spec.Duration)
@@ -2665,18 +2669,35 @@ func (r *ChaosExperimentReconciler) handlePodRestart(ctx context.Context, exp *c
 		pod := eligiblePods[i]
 		log.Info("Gracefully restarting pod", "pod", pod.Name, "namespace", pod.Namespace)
 
-		// Send SIGTERM to gracefully restart the container
-		if err := r.gracefullyRestartContainer(ctx, &pod); err != nil {
+		containerName, initialRestartCount, err := getPrimaryContainerRestartCount(&pod)
+		if err != nil {
 			log.Error(err, "Failed to restart pod", "pod", pod.Name)
-			chaosErr := WrapK8sError(err, "exec pod")
+			chaosmetrics.ExperimentErrors.WithLabelValues("pod-restart", exp.Spec.Namespace, string(ErrorTypeExecution)).Inc()
+			// Continue with other pods even if one fails
+			continue
+		}
+
+		// Send SIGTERM to gracefully restart the container.
+		restartErr := r.gracefullyRestartContainer(ctx, &pod)
+		if restartErr != nil {
+			log.Error(restartErr, "Exec returned an error while sending restart signal", "pod", pod.Name)
+		}
+
+		if err := r.waitForContainerRestart(ctx, pod.Namespace, pod.Name, containerName, initialRestartCount); err != nil {
+			log.Error(err, "Failed to observe container restart", "pod", pod.Name, "container", containerName)
+			if restartErr != nil {
+				err = fmt.Errorf("%w; restart signal error: %v", err, restartErr)
+			}
+			chaosErr := WrapK8sError(err, "observe pod restart")
 			chaosmetrics.ExperimentErrors.WithLabelValues("pod-restart", exp.Spec.Namespace, string(chaosErr.Type)).Inc()
 			// Continue with other pods even if one fails
-		} else {
-			// Emit event on the affected pod
-			r.Recorder.Event(&pod, corev1.EventTypeWarning, "ChaosPodRestart",
-				fmt.Sprintf("Restarted pod by chaos experiment %s", exp.Name))
-			restartedPods = append(restartedPods, pod.Name)
+			continue
 		}
+
+		// Emit event on the affected pod
+		r.Recorder.Event(&pod, corev1.EventTypeWarning, "ChaosPodRestart",
+			fmt.Sprintf("Restarted pod by chaos experiment %s", exp.Name))
+		restartedPods = append(restartedPods, pod.Name)
 	}
 
 	// Check if we restarted any pods
@@ -2811,6 +2832,10 @@ func (r *ChaosExperimentReconciler) handlePodNetworkLoss(ctx context.Context, ex
 	// Update status
 	now := metav1.Now()
 	exp.Status.LastRunTime = &now
+	exp.Status.Phase = phaseRunning
+	exp.Status.RetryCount = 0
+	exp.Status.LastError = ""
+	exp.Status.NextRetryTime = nil
 	status := statusSuccess
 	if len(affectedPods) > 0 {
 		exp.Status.Message = fmt.Sprintf("Successfully injected %d%% packet loss into %d pod(s) for %s",
@@ -2949,6 +2974,10 @@ func (r *ChaosExperimentReconciler) handlePodDiskFill(ctx context.Context, exp *
 	// Update status
 	now := metav1.Now()
 	exp.Status.LastRunTime = &now
+	exp.Status.Phase = phaseRunning
+	exp.Status.RetryCount = 0
+	exp.Status.LastError = ""
+	exp.Status.NextRetryTime = nil
 	status := statusSuccess
 	if len(affectedPods) > 0 {
 		exp.Status.Message = fmt.Sprintf("Successfully filled disk to %d%% on %d pod(s) for %s",
@@ -3389,6 +3418,54 @@ func (r *ChaosExperimentReconciler) gracefullyRestartContainer(ctx context.Conte
 		"stderr", stderr)
 
 	return nil
+}
+
+func getPrimaryContainerRestartCount(pod *corev1.Pod) (string, int32, error) {
+	if len(pod.Spec.Containers) == 0 {
+		return "", 0, fmt.Errorf("no containers found in pod")
+	}
+
+	containerName := pod.Spec.Containers[0].Name
+	for _, status := range pod.Status.ContainerStatuses {
+		if status.Name == containerName {
+			return containerName, status.RestartCount, nil
+		}
+	}
+
+	return "", 0, fmt.Errorf("container status not found for %q", containerName)
+}
+
+func (r *ChaosExperimentReconciler) waitForContainerRestart(ctx context.Context, namespace, podName, containerName string, initialRestartCount int32) error {
+	log := ctrl.LoggerFrom(ctx)
+	deadline := time.Now().Add(45 * time.Second)
+
+	for {
+		currentPod := &corev1.Pod{}
+		if err := r.Get(ctx, types.NamespacedName{Namespace: namespace, Name: podName}, currentPod); err != nil {
+			return fmt.Errorf("failed to get pod while waiting for restart: %w", err)
+		}
+
+		for _, status := range currentPod.Status.ContainerStatuses {
+			if status.Name == containerName && status.RestartCount > initialRestartCount {
+				log.Info("Observed container restart",
+					"pod", podName,
+					"container", containerName,
+					"initialRestartCount", initialRestartCount,
+					"currentRestartCount", status.RestartCount)
+				return nil
+			}
+		}
+
+		if time.Now().After(deadline) {
+			return fmt.Errorf("container %q in pod %s/%s did not restart within 45s", containerName, namespace, podName)
+		}
+
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		case <-time.After(1 * time.Second):
+		}
+	}
 }
 
 // checkSchedule determines if a scheduled experiment should run now
