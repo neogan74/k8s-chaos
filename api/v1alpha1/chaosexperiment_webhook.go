@@ -214,67 +214,102 @@ func (w *ChaosExperimentWebhook) validateCrossFieldConstraints(name string, spec
 func (w *ChaosExperimentWebhook) validateActionRequirements(spec *ChaosExperimentSpec) error {
 	switch spec.Action {
 	case "pod-delay":
-		if spec.Duration == "" {
-			return fmt.Errorf("duration is required for pod-delay action")
-		}
+		return requireDuration(spec.Action, spec.Duration)
 	case "pod-cpu-stress", "node-cpu-stress":
-		if spec.Duration == "" {
-			return fmt.Errorf("duration is required for %s action", spec.Action)
-		}
-		if spec.CPULoad <= 0 {
-			return fmt.Errorf("cpuLoad must be specified and greater than 0 for %s action", spec.Action)
-		}
+		return validateCPUStressRequirements(spec)
 	case "node-taint":
-		if spec.Duration == "" {
-			return fmt.Errorf("duration is required for node-taint action")
-		}
-		if spec.TaintKey == "" {
-			return fmt.Errorf("taintKey must be specified for node-taint action")
-		}
-		if spec.TaintEffect == "" {
-			return fmt.Errorf("taintEffect must be specified for node-taint action")
-		}
+		return validateNodeTaintRequirements(spec)
 	case "pod-memory-stress":
-		if spec.Duration == "" {
-			return fmt.Errorf("duration is required for pod-memory-stress action")
-		}
-		if spec.MemorySize == "" {
-			return fmt.Errorf("memorySize must be specified for pod-memory-stress action")
-		}
-		if err := ValidateMemorySize(spec.MemorySize); err != nil {
-			return err
-		}
+		return validateMemoryStressRequirements(spec)
 	case "pod-network-loss":
-		if spec.Duration == "" {
-			return fmt.Errorf("duration is required for pod-network-loss action")
-		}
-		if spec.LossPercentage <= 0 {
-			return fmt.Errorf("lossPercentage must be specified and greater than 0 for pod-network-loss action")
-		}
+		return validateNetworkLossRequirements(spec)
 	case "pod-network-corruption":
-		if spec.Duration == "" {
-			return fmt.Errorf("duration is required for pod-network-corruption action")
-		}
-		if spec.CorruptionPercentage <= 0 {
-			return fmt.Errorf("corruptionPercentage must be specified and greater than 0 for pod-network-corruption action")
-		}
+		return validateNetworkCorruptionRequirements(spec)
 	case "pod-disk-fill":
-		if spec.Duration == "" {
-			return fmt.Errorf("duration is required for pod-disk-fill action")
-		}
-		if spec.FillPercentage <= 0 {
-			return fmt.Errorf("fillPercentage must be specified and greater than 0 for pod-disk-fill action")
-		}
-		if spec.VolumeName == "" && spec.TargetPath == "" {
-			return fmt.Errorf("targetPath must be specified when volumeName is not set for pod-disk-fill action")
-		}
+		return validateDiskFillRequirements(spec)
 	case "network-partition":
-		if spec.Duration == "" {
-			return fmt.Errorf("duration is required for network-partition action")
+		if err := requireDuration(spec.Action, spec.Duration); err != nil {
+			return err
 		}
 		if err := w.validateNetworkPartitionTargets(spec); err != nil {
 			return err
 		}
+	}
+	return nil
+}
+
+func requireDuration(action, duration string) error {
+	if duration == "" {
+		return fmt.Errorf("duration is required for %s action", action)
+	}
+	return nil
+}
+
+func validateCPUStressRequirements(spec *ChaosExperimentSpec) error {
+	if err := requireDuration(spec.Action, spec.Duration); err != nil {
+		return err
+	}
+	if spec.CPULoad <= 0 {
+		return fmt.Errorf("cpuLoad must be specified and greater than 0 for %s action", spec.Action)
+	}
+	return nil
+}
+
+func validateNodeTaintRequirements(spec *ChaosExperimentSpec) error {
+	if err := requireDuration(spec.Action, spec.Duration); err != nil {
+		return err
+	}
+	if spec.TaintKey == "" {
+		return fmt.Errorf("taintKey must be specified for node-taint action")
+	}
+	if spec.TaintEffect == "" {
+		return fmt.Errorf("taintEffect must be specified for node-taint action")
+	}
+	return nil
+}
+
+func validateMemoryStressRequirements(spec *ChaosExperimentSpec) error {
+	if err := requireDuration(spec.Action, spec.Duration); err != nil {
+		return err
+	}
+	if spec.MemorySize == "" {
+		return fmt.Errorf("memorySize must be specified for pod-memory-stress action")
+	}
+	if err := ValidateMemorySize(spec.MemorySize); err != nil {
+		return err
+	}
+	return nil
+}
+
+func validateNetworkLossRequirements(spec *ChaosExperimentSpec) error {
+	if err := requireDuration(spec.Action, spec.Duration); err != nil {
+		return err
+	}
+	if spec.LossPercentage <= 0 {
+		return fmt.Errorf("lossPercentage must be specified and greater than 0 for pod-network-loss action")
+	}
+	return nil
+}
+
+func validateNetworkCorruptionRequirements(spec *ChaosExperimentSpec) error {
+	if err := requireDuration(spec.Action, spec.Duration); err != nil {
+		return err
+	}
+	if spec.CorruptionPercentage <= 0 {
+		return fmt.Errorf("corruptionPercentage must be specified and greater than 0 for pod-network-corruption action")
+	}
+	return nil
+}
+
+func validateDiskFillRequirements(spec *ChaosExperimentSpec) error {
+	if err := requireDuration(spec.Action, spec.Duration); err != nil {
+		return err
+	}
+	if spec.FillPercentage <= 0 {
+		return fmt.Errorf("fillPercentage must be specified and greater than 0 for pod-disk-fill action")
+	}
+	if spec.VolumeName == "" && spec.TargetPath == "" {
+		return fmt.Errorf("targetPath must be specified when volumeName is not set for pod-disk-fill action")
 	}
 	return nil
 }
