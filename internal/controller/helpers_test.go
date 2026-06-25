@@ -96,6 +96,66 @@ func TestParseDuration(t *testing.T) {
 	}
 }
 
+func TestGetPrimaryContainerRestartCount(t *testing.T) {
+	tests := []struct {
+		name          string
+		pod           *corev1.Pod
+		wantContainer string
+		wantCount     int32
+		wantErr       bool
+	}{
+		{
+			name: "returns first container restart count",
+			pod: &corev1.Pod{
+				Spec: corev1.PodSpec{
+					Containers: []corev1.Container{{Name: "app"}, {Name: "sidecar"}},
+				},
+				Status: corev1.PodStatus{
+					ContainerStatuses: []corev1.ContainerStatus{
+						{Name: "sidecar", RestartCount: 7},
+						{Name: "app", RestartCount: 2},
+					},
+				},
+			},
+			wantContainer: "app",
+			wantCount:     2,
+		},
+		{
+			name: "errors when pod has no containers",
+			pod: &corev1.Pod{
+				Spec: corev1.PodSpec{},
+			},
+			wantErr: true,
+		},
+		{
+			name: "errors when primary container status is missing",
+			pod: &corev1.Pod{
+				Spec: corev1.PodSpec{
+					Containers: []corev1.Container{{Name: "app"}},
+				},
+				Status: corev1.PodStatus{
+					ContainerStatuses: []corev1.ContainerStatus{{Name: "sidecar", RestartCount: 1}},
+				},
+			},
+			wantErr: true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			container, count, err := getPrimaryContainerRestartCount(tt.pod)
+			if tt.wantErr {
+				assert.Error(t, err)
+				return
+			}
+
+			assert.NoError(t, err)
+			assert.Equal(t, tt.wantContainer, container)
+			assert.Equal(t, tt.wantCount, count)
+		})
+	}
+}
+
 // Test parseDurationToSeconds function
 func TestParseDurationToSeconds(t *testing.T) {
 	r := &ChaosExperimentReconciler{}

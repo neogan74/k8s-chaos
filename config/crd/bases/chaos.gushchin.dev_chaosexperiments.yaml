@@ -66,6 +66,7 @@ spec:
                 - node-drain
                 - node-taint
                 - node-cpu-stress
+                - node-disk-fill
                 - pod-cpu-stress
                 - pod-memory-stress
                 - pod-failure

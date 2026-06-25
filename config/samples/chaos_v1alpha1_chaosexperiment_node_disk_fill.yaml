@@ -1,0 +1,52 @@
+---
+# Basic node-disk-fill example: fill 80% of /tmp on nodes labelled kubernetes.io/role=worker
+apiVersion: chaos.gushchin.dev/v1alpha1
+kind: ChaosExperiment
+metadata:
+  name: node-disk-fill-basic
+  namespace: default
+spec:
+  action: node-disk-fill
+  namespace: default
+  selector:
+    kubernetes.io/role: worker
+  count: 1
+  duration: "5m"
+  fillPercentage: 80
+  targetPath: /tmp
+
+---
+# Aggressive example: fill /var/log on control-plane nodes
+apiVersion: chaos.gushchin.dev/v1alpha1
+kind: ChaosExperiment
+metadata:
+  name: node-disk-fill-logs
+  namespace: default
+spec:
+  action: node-disk-fill
+  namespace: default
+  selector:
+    node-role.kubernetes.io/control-plane: ""
+  count: 1
+  duration: "3m"
+  fillPercentage: 90
+  targetPath: /var/log
+  maxPercentage: 50
+
+---
+# Dry-run preview: see which nodes would be affected without actual disk fill
+apiVersion: chaos.gushchin.dev/v1alpha1
+kind: ChaosExperiment
+metadata:
+  name: node-disk-fill-dryrun
+  namespace: default
+spec:
+  action: node-disk-fill
+  namespace: default
+  selector:
+    kubernetes.io/hostname: kind-worker
+  count: 1
+  duration: "2m"
+  fillPercentage: 80
+  targetPath: /tmp
+  dryRun: true
