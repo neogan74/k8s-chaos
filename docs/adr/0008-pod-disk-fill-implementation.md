@@ -1,6 +1,6 @@
 # ADR 0008: Pod Disk Fill Implementation
 
-**Status**: Implemented
+**Status**: Completed
 **Date**: 2025-12-18
 **Author**: k8s-chaos team
 
@@ -288,17 +288,16 @@ rm -f /tmp/chaos-disk-fill.img
 
 ## Implementation Status
 
-### Planned
-- [ ] CRD/schema fields and webhook validation
-- [ ] Controller logic for disk fill injection
-- [ ] Ephemeral container with fallocate/dd logic
-- [ ] Cleanup tracking and automatic file removal
-- [ ] Safety wiring (exclusions, maxPercentage, namespace protection)
-- [ ] Metrics and events for disk fill operations
-- [ ] Sample YAML in `config/samples/`
-- [ ] Scenario documentation in `docs/SCENARIOS.md`
-- [ ] Unit and integration tests
-- [ ] E2E test in Kind cluster
+### Completed
+- [x] CRD/schema fields and webhook validation
+- [x] Controller logic for disk fill injection
+- [x] Ephemeral container with fallocate/dd logic
+- [x] Cleanup tracking and automatic file removal
+- [x] Safety wiring (exclusions, maxPercentage, namespace protection)
+- [x] Metrics and events for disk fill operations
+- [x] Sample YAML in `config/samples/chaos_v1alpha1_chaosexperiment_disk_fill.yaml`
+- [x] Unit tests (`internal/controller/disk_fill_test.go`)
+- [ ] E2E test in Kind cluster (deferred)
 
 ### Deferred
 - [ ] Volume-based targeting (by PVC name)
