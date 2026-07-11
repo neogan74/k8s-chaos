@@ -14,7 +14,11 @@
       "Bash(go test *)",
       "Bash(go tool *)",
       "Bash(go version *)",
-      "Bash(echo \"Exit: $?\")"
+      "Bash(echo \"Exit: $?\")",
+      "Bash(git rev-list *)",
+      "Bash(golangci-lint run *)",
+      "Bash(gh pr *)",
+      "Bash(gh issue *)"
     ]
   }
 }
