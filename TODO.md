@@ -69,7 +69,7 @@
 - [x] **node-disk-fill** - Fill node disk space (see ADR 0008 pattern for reference)
 
 ### Network Chaos
-- [ ] **network-partition** - Simulate network splits between pod groups
+- [x] **network-partition** - Simulate network splits between pod groups
 - [ ] **dns-chaos** - DNS resolution failures (corrupt or drop DNS responses)
 - [ ] **http-chaos** - HTTP response manipulation (inject errors, delays, wrong codes)
 
