@@ -14,12 +14,12 @@ jobs:
       fail-fast: false
       matrix:
         suite:
-          - { name: manager, focus: "^Manager" }
-          - { name: disk-fill, focus: "^Disk Fill" }
-          - { name: memory-stress, focus: "^Memory Stress" }
-          - { name: network-loss, focus: "^Pod Network Loss" }
-          - { name: network-partition, focus: "^Network Partition" }
-          - { name: pod-restart, focus: "^Pod Restart" }
+          - { name: manager, focus: "e2e suite Manager" }
+          - { name: disk-fill, focus: "e2e suite Disk Fill" }
+          - { name: memory-stress, focus: "e2e suite Memory Stress" }
+          - { name: network-loss, focus: "e2e suite Pod Network Loss" }
+          - { name: network-partition, focus: "e2e suite Network Partition" }
+          - { name: pod-restart, focus: "e2e suite Pod Restart" }
     env:
       # Each shard runs on its own runner with its own Kind cluster.
       KIND_CLUSTER: k8s-chaos-e2e-${{ matrix.suite.name }}
