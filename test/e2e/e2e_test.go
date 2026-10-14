@@ -49,32 +49,10 @@ const metricsRoleBindingName = "k8s-chaos-metrics-binding"
 var _ = Describe("Manager", Ordered, func() {
 	var controllerPodName string
 
-	// Before running the tests, set up the environment by creating the namespace,
-	// enforce the restricted security policy to the namespace, installing CRDs,
-	// and deploying the controller.
+	// The namespace is created, labeled, and the controller-manager is deployed
+	// in BeforeSuite so that all test suites (including those registered before
+	// this file alphabetically, like disk_fill_test.go) have a running operator.
 	BeforeAll(func() {
-		By("creating manager namespace")
-		cmd := exec.Command("kubectl", "create", "ns", namespace)
-		output, err := utils.Run(cmd)
-		if err != nil && !strings.Contains(output, "already exists") {
-			Fail(fmt.Sprintf("Failed to create namespace: %s", output))
-		}
-
-		By("labeling the namespace to enforce the restricted security policy")
-		cmd = exec.Command("kubectl", "label", "--overwrite", "ns", namespace,
-			"pod-security.kubernetes.io/enforce=restricted")
-		_, err = utils.Run(cmd)
-		Expect(err).NotTo(HaveOccurred(), "Failed to label namespace with restricted policy")
-
-		By("installing CRDs")
-		cmd = exec.Command("make", "install")
-		_, err = utils.Run(cmd)
-		Expect(err).NotTo(HaveOccurred(), "Failed to install CRDs")
-
-		By("deploying the controller-manager")
-		cmd = exec.Command("make", "deploy", fmt.Sprintf("IMG=%s", projectImage))
-		_, err = utils.Run(cmd)
-		Expect(err).NotTo(HaveOccurred(), "Failed to deploy the controller-manager")
 	})
 
 	// After all tests have been executed, clean up test-specific resources only.

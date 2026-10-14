@@ -226,15 +226,7 @@ func (w *ChaosExperimentWebhook) validateActionRequirements(spec *ChaosExperimen
 	case "pod-network-corruption":
 		return validateNetworkCorruptionRequirements(spec)
 	case "pod-disk-fill":
-		if spec.Duration == "" {
-			return fmt.Errorf("duration is required for pod-disk-fill action")
-		}
-		if spec.FillPercentage <= 0 {
-			return fmt.Errorf("fillPercentage must be specified and greater than 0 for pod-disk-fill action")
-		}
-		if spec.VolumeName == "" && spec.TargetPath == "" {
-			return fmt.Errorf("targetPath must be specified when volumeName is not set for pod-disk-fill action")
-		}
+		return validateDiskFillRequirements(spec)
 	case "node-disk-fill":
 		if spec.Duration == "" {
 			return fmt.Errorf("duration is required for node-disk-fill action")

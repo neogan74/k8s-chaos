@@ -3437,7 +3437,7 @@ func getPrimaryContainerRestartCount(pod *corev1.Pod) (string, int32, error) {
 
 func (r *ChaosExperimentReconciler) waitForContainerRestart(ctx context.Context, namespace, podName, containerName string, initialRestartCount int32) error {
 	log := ctrl.LoggerFrom(ctx)
-	deadline := time.Now().Add(45 * time.Second)
+	deadline := time.Now().Add(120 * time.Second)
 
 	for {
 		currentPod := &corev1.Pod{}
@@ -3457,7 +3457,7 @@ func (r *ChaosExperimentReconciler) waitForContainerRestart(ctx context.Context,
 		}
 
 		if time.Now().After(deadline) {
-			return fmt.Errorf("container %q in pod %s/%s did not restart within 45s", containerName, namespace, podName)
+			return fmt.Errorf("container %q in pod %s/%s did not restart within 120s", containerName, namespace, podName)
 		}
 
 		select {
@@ -3942,6 +3942,10 @@ func (r *ChaosExperimentReconciler) handleNetworkPartition(ctx context.Context, 
 	exp.Status.LastRunTime = &now
 	status := statusSuccess
 	if len(affectedPods) > 0 {
+		exp.Status.Phase = phaseRunning
+		exp.Status.RetryCount = 0
+		exp.Status.LastError = ""
+		exp.Status.NextRetryTime = nil
 		exp.Status.Message = fmt.Sprintf("Successfully injected network partition (%s) into %d pod(s) for %s",
 			direction, len(affectedPods), exp.Spec.Duration)
 	} else {

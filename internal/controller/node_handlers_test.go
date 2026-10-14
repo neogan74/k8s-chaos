@@ -443,6 +443,140 @@ func TestHandleNodeTaint_Validation(t *testing.T) {
 }
 
 // ---------------------------------------------------------------------------
+// handleNodeCPUStress — behavioural tests (no-eligible-nodes, dry-run, success)
+// ---------------------------------------------------------------------------
+
+func TestHandleNodeCPUStress_NoEligibleNodes(t *testing.T) {
+	ctx := context.Background()
+
+	exp := makeCPUStressExperiment("cpu-stress-no-nodes", "default")
+	// Selector requires "role=worker" but no matching node exists.
+
+	r := newReconcilerWithObjects(t, exp)
+	result, err := r.handleNodeCPUStress(ctx, exp)
+	require.NoError(t, err)
+	assert.Greater(t, result.RequeueAfter.Seconds(), 0.0)
+
+	updated := fetchExperiment(t, r, exp.Name, exp.Namespace)
+	assert.Contains(t, updated.Status.Message, "No eligible nodes")
+}
+
+func TestHandleNodeCPUStress_DryRun(t *testing.T) {
+	ctx := context.Background()
+
+	node := &corev1.Node{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:   "worker-node",
+			Labels: map[string]string{"role": "worker"},
+		},
+	}
+	exp := makeCPUStressExperiment("cpu-stress-dryrun", "default")
+	exp.Spec.DryRun = true
+
+	r := newReconcilerWithObjects(t, exp, node)
+	_, err := r.handleNodeCPUStress(ctx, exp)
+	require.NoError(t, err)
+
+	updated := fetchExperiment(t, r, exp.Name, exp.Namespace)
+	assert.Equal(t, "Completed", updated.Status.Phase)
+	assert.Contains(t, updated.Status.Message, "DRY RUN")
+	assert.Contains(t, updated.Status.Message, "CPU stress")
+	assert.Contains(t, updated.Status.Message, "worker-node")
+}
+
+func TestHandleNodeCPUStress_Success(t *testing.T) {
+	ctx := context.Background()
+
+	node := &corev1.Node{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:   "worker-node",
+			Labels: map[string]string{"role": "worker"},
+		},
+	}
+	exp := makeCPUStressExperiment("cpu-stress-success", "default")
+
+	r := newReconcilerWithObjects(t, exp, node)
+	result, err := r.handleNodeCPUStress(ctx, exp)
+	require.NoError(t, err)
+	assert.Greater(t, result.RequeueAfter.Seconds(), 0.0)
+
+	updated := fetchExperiment(t, r, exp.Name, exp.Namespace)
+	assert.Contains(t, updated.Status.Message, "Successfully applied")
+	assert.Contains(t, updated.Status.Message, "50%")
+	assert.Contains(t, updated.Status.Message, "1 node(s)")
+}
+
+// ---------------------------------------------------------------------------
+// handleNodeTaint — behavioural tests (no-eligible-nodes, dry-run, success)
+// ---------------------------------------------------------------------------
+
+func TestHandleNodeTaint_NoEligibleNodes(t *testing.T) {
+	ctx := context.Background()
+
+	exp := makeTaintExperiment("taint-no-nodes", "default")
+	// Selector requires "role=worker" but no matching node exists.
+
+	r := newReconcilerWithObjects(t, exp)
+	result, err := r.handleNodeTaint(ctx, exp)
+	require.NoError(t, err)
+	assert.Greater(t, result.RequeueAfter.Seconds(), 0.0)
+
+	updated := fetchExperiment(t, r, exp.Name, exp.Namespace)
+	assert.Contains(t, updated.Status.Message, "No nodes found")
+}
+
+func TestHandleNodeTaint_DryRun(t *testing.T) {
+	ctx := context.Background()
+
+	node := &corev1.Node{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:   "worker-node",
+			Labels: map[string]string{"role": "worker"},
+		},
+	}
+	exp := makeTaintExperiment("taint-dryrun", "default")
+	exp.Spec.DryRun = true
+
+	r := newReconcilerWithObjects(t, exp, node)
+	_, err := r.handleNodeTaint(ctx, exp)
+	require.NoError(t, err)
+
+	updated := fetchExperiment(t, r, exp.Name, exp.Namespace)
+	assert.Equal(t, "Completed", updated.Status.Phase)
+	assert.Contains(t, updated.Status.Message, "DRY RUN")
+	assert.Contains(t, updated.Status.Message, "taint")
+	assert.Contains(t, updated.Status.Message, "worker-node")
+}
+
+func TestHandleNodeTaint_Success(t *testing.T) {
+	ctx := context.Background()
+
+	node := &corev1.Node{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:   "worker-node",
+			Labels: map[string]string{"role": "worker"},
+		},
+	}
+	exp := makeTaintExperiment("taint-success", "default")
+
+	r := newReconcilerWithObjects(t, exp, node)
+	result, err := r.handleNodeTaint(ctx, exp)
+	require.NoError(t, err)
+	assert.Greater(t, result.RequeueAfter.Seconds(), 0.0)
+
+	updated := fetchExperiment(t, r, exp.Name, exp.Namespace)
+	assert.Contains(t, updated.Status.Message, "Successfully tainted")
+	assert.Contains(t, updated.Status.Message, "worker-node")
+
+	// Verify the node actually has the taint applied.
+	taintedNode := &corev1.Node{}
+	require.NoError(t, r.Get(ctx, types.NamespacedName{Name: "worker-node"}, taintedNode))
+	require.Len(t, taintedNode.Spec.Taints, 1)
+	assert.Equal(t, "chaos/test", taintedNode.Spec.Taints[0].Key)
+	assert.Equal(t, corev1.TaintEffectNoSchedule, taintedNode.Spec.Taints[0].Effect)
+}
+
+// ---------------------------------------------------------------------------
 // helpers for node handler tests
 // ---------------------------------------------------------------------------
 
