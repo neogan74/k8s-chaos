@@ -66,8 +66,8 @@ func TestResolveDiskFillTarget(t *testing.T) {
 		{
 			name:       "returns targetPath when volumeName is empty",
 			volumeName: "",
-			targetPath: "/tmp",
-			wantPath:   "/tmp",
+			targetPath: diskFillTestPath,
+			wantPath:   diskFillTestPath,
 		},
 		{
 			name:       "resolves volume from regular container",
@@ -129,7 +129,7 @@ func TestHandlePodDiskFill_Validation(t *testing.T) {
 			spec: func(s *chaosv1alpha1.ChaosExperimentSpec) {
 				s.Duration = ""
 				s.FillPercentage = 80
-				s.TargetPath = "/tmp"
+				s.TargetPath = diskFillTestPath
 			},
 			wantMessage: "duration is required",
 		},
@@ -138,7 +138,7 @@ func TestHandlePodDiskFill_Validation(t *testing.T) {
 			spec: func(s *chaosv1alpha1.ChaosExperimentSpec) {
 				s.Duration = "not-a-duration"
 				s.FillPercentage = 80
-				s.TargetPath = "/tmp"
+				s.TargetPath = diskFillTestPath
 			},
 			wantMessage: "invalid duration format",
 		},
@@ -148,7 +148,7 @@ func TestHandlePodDiskFill_Validation(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			ctx := context.Background()
 
-			exp := makeDiskFillExperiment("disk-fill-validation", "default")
+			exp := makeDiskFillExperiment("disk-fill-validation")
 			tc.spec(&exp.Spec)
 
 			r := newReconcilerWithObjects(t, exp)
@@ -165,7 +165,7 @@ func TestHandlePodDiskFill_Validation(t *testing.T) {
 func TestHandlePodDiskFill_NoEligiblePods(t *testing.T) {
 	ctx := context.Background()
 
-	exp := makeDiskFillExperiment("disk-fill-no-pods", "default")
+	exp := makeDiskFillExperiment("disk-fill-no-pods")
 
 	r := newReconcilerWithObjects(t, exp)
 	result, err := r.handlePodDiskFill(ctx, exp)
@@ -179,7 +179,7 @@ func TestHandlePodDiskFill_NoEligiblePods(t *testing.T) {
 func TestHandlePodDiskFill_DryRun(t *testing.T) {
 	ctx := context.Background()
 
-	exp := makeDiskFillExperiment("disk-fill-dryrun", "default")
+	exp := makeDiskFillExperiment("disk-fill-dryrun")
 	exp.Spec.DryRun = true
 
 	pod := &corev1.Pod{
@@ -203,7 +203,7 @@ func TestHandlePodDiskFill_DryRun(t *testing.T) {
 func TestHandlePodDiskFill_DefaultFillPercentage(t *testing.T) {
 	ctx := context.Background()
 
-	exp := makeDiskFillExperiment("disk-fill-default-pct", "default")
+	exp := makeDiskFillExperiment("disk-fill-default-pct")
 	exp.Spec.FillPercentage = 0 // should default to 80
 
 	// No pods — just verifies the function handles the default properly
@@ -218,20 +218,25 @@ func TestHandlePodDiskFill_DefaultFillPercentage(t *testing.T) {
 // helpers
 // ---------------------------------------------------------------------------
 
-func makeDiskFillExperiment(name, namespace string) *chaosv1alpha1.ChaosExperiment {
+const (
+	diskFillTestPath = "/tmp"
+	testNamespace    = "default"
+)
+
+func makeDiskFillExperiment(name string) *chaosv1alpha1.ChaosExperiment {
 	return &chaosv1alpha1.ChaosExperiment{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      name,
-			Namespace: namespace,
+			Namespace: testNamespace,
 		},
 		Spec: chaosv1alpha1.ChaosExperimentSpec{
 			Action:         "pod-disk-fill",
-			Namespace:      namespace,
+			Namespace:      testNamespace,
 			Selector:       map[string]string{"app": "demo"},
 			Count:          1,
 			Duration:       "2m",
 			FillPercentage: 80,
-			TargetPath:     "/tmp",
+			TargetPath:     diskFillTestPath,
 		},
 	}
 }
