@@ -6,6 +6,14 @@
 
 A **production-ready**, lightweight Kubernetes Chaos Engineering operator built with Kubebuilder v4. Test your application's resilience through controlled chaos injection with comprehensive safety features.
 
+## Status
+
+**Stage:** feature-rich operator, development stalled on a red CI · **Last commit:** 2026-09-05 · **Updated:** 2026-10-10
+
+- **Done:** pod-kill/delay, CPU/memory/disk stress, node taint and CPU stress, network partition and other actions, validation webhook, safety checks (dry-run, max-percentage, exclusion labels, production approval), Prometheus metrics, retries with backoff, Helm chart.
+- **Blocked:** `main` has had failing Lint and E2E workflows since 2026-06-23, and PR #67, which is meant to fix that, is itself red and unreviewed. Details in [docs/backlog-2026-10-10.md](docs/backlog-2026-10-10.md).
+- **Next:** get CI green, add tests for `internal/metrics`, scope `dns-chaos`. Feature checklist in [TODO.md](TODO.md).
+
 ## ✨ Highlights
 
 - 🛡️ **Safety First**: Dry-run mode, percentage limits, exclusion labels, production protection
