@@ -7,8 +7,22 @@ on:
 
 jobs:
   test-e2e:
-    name: Run on Ubuntu
+    name: E2E (${{ matrix.suite.name }})
     runs-on: ubuntu-latest
+    timeout-minutes: 25
+    strategy:
+      fail-fast: false
+      matrix:
+        suite:
+          - { name: manager, focus: "^Manager" }
+          - { name: disk-fill, focus: "^Disk Fill" }
+          - { name: memory-stress, focus: "^Memory Stress" }
+          - { name: network-loss, focus: "^Pod Network Loss" }
+          - { name: network-partition, focus: "^Network Partition" }
+          - { name: pod-restart, focus: "^Pod Restart" }
+    env:
+      # Each shard runs on its own runner with its own Kind cluster.
+      KIND_CLUSTER: k8s-chaos-e2e-${{ matrix.suite.name }}
     steps:
       - name: Clone the code
         uses: actions/checkout@v4
@@ -30,4 +44,4 @@ jobs:
       - name: Running Test e2e
         run: |
           go mod tidy
-          make test-e2e
+          make test-e2e E2E_FOCUS="${{ matrix.suite.focus }}"
