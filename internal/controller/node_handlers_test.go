@@ -383,7 +383,7 @@ func TestHandleNodeCPUStress_Validation(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			ctx := context.Background()
 
-			exp := makeCPUStressExperiment("cpu-stress-validation", "default")
+			exp := makeCPUStressExperiment("cpu-stress-validation")
 			tc.spec(&exp.Spec)
 
 			r := newReconcilerWithObjects(t, exp)
@@ -429,7 +429,7 @@ func TestHandleNodeTaint_Validation(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			ctx := context.Background()
 
-			exp := makeTaintExperiment("taint-validation", "default")
+			exp := makeTaintExperiment("taint-validation")
 			tc.spec(&exp.Spec)
 
 			r := newReconcilerWithObjects(t, exp)
@@ -449,7 +449,7 @@ func TestHandleNodeTaint_Validation(t *testing.T) {
 func TestHandleNodeCPUStress_NoEligibleNodes(t *testing.T) {
 	ctx := context.Background()
 
-	exp := makeCPUStressExperiment("cpu-stress-no-nodes", "default")
+	exp := makeCPUStressExperiment("cpu-stress-no-nodes")
 	// Selector requires "role=worker" but no matching node exists.
 
 	r := newReconcilerWithObjects(t, exp)
@@ -470,7 +470,7 @@ func TestHandleNodeCPUStress_DryRun(t *testing.T) {
 			Labels: map[string]string{"role": "worker"},
 		},
 	}
-	exp := makeCPUStressExperiment("cpu-stress-dryrun", "default")
+	exp := makeCPUStressExperiment("cpu-stress-dryrun")
 	exp.Spec.DryRun = true
 
 	r := newReconcilerWithObjects(t, exp, node)
@@ -493,7 +493,7 @@ func TestHandleNodeCPUStress_Success(t *testing.T) {
 			Labels: map[string]string{"role": "worker"},
 		},
 	}
-	exp := makeCPUStressExperiment("cpu-stress-success", "default")
+	exp := makeCPUStressExperiment("cpu-stress-success")
 
 	r := newReconcilerWithObjects(t, exp, node)
 	result, err := r.handleNodeCPUStress(ctx, exp)
@@ -513,7 +513,7 @@ func TestHandleNodeCPUStress_Success(t *testing.T) {
 func TestHandleNodeTaint_NoEligibleNodes(t *testing.T) {
 	ctx := context.Background()
 
-	exp := makeTaintExperiment("taint-no-nodes", "default")
+	exp := makeTaintExperiment("taint-no-nodes")
 	// Selector requires "role=worker" but no matching node exists.
 
 	r := newReconcilerWithObjects(t, exp)
@@ -534,7 +534,7 @@ func TestHandleNodeTaint_DryRun(t *testing.T) {
 			Labels: map[string]string{"role": "worker"},
 		},
 	}
-	exp := makeTaintExperiment("taint-dryrun", "default")
+	exp := makeTaintExperiment("taint-dryrun")
 	exp.Spec.DryRun = true
 
 	r := newReconcilerWithObjects(t, exp, node)
@@ -557,7 +557,7 @@ func TestHandleNodeTaint_Success(t *testing.T) {
 			Labels: map[string]string{"role": "worker"},
 		},
 	}
-	exp := makeTaintExperiment("taint-success", "default")
+	exp := makeTaintExperiment("taint-success")
 
 	r := newReconcilerWithObjects(t, exp, node)
 	result, err := r.handleNodeTaint(ctx, exp)
@@ -581,11 +581,11 @@ func TestHandleNodeTaint_Success(t *testing.T) {
 // ---------------------------------------------------------------------------
 
 // makeCPUStressExperiment builds a minimal ChaosExperiment for node-cpu-stress tests.
-func makeCPUStressExperiment(name, namespace string) *chaosv1alpha1.ChaosExperiment {
+func makeCPUStressExperiment(name string) *chaosv1alpha1.ChaosExperiment {
 	return &chaosv1alpha1.ChaosExperiment{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      name,
-			Namespace: namespace,
+			Namespace: testNamespace,
 		},
 		Spec: chaosv1alpha1.ChaosExperimentSpec{
 			Action:   "node-cpu-stress",
@@ -597,11 +597,11 @@ func makeCPUStressExperiment(name, namespace string) *chaosv1alpha1.ChaosExperim
 }
 
 // makeTaintExperiment builds a minimal ChaosExperiment for node-taint tests.
-func makeTaintExperiment(name, namespace string) *chaosv1alpha1.ChaosExperiment {
+func makeTaintExperiment(name string) *chaosv1alpha1.ChaosExperiment {
 	return &chaosv1alpha1.ChaosExperiment{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      name,
-			Namespace: namespace,
+			Namespace: testNamespace,
 		},
 		Spec: chaosv1alpha1.ChaosExperimentSpec{
 			Action:      "node-taint",
