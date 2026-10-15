@@ -7,8 +7,22 @@ on:
 
 jobs:
   test-e2e:
-    name: Run on Ubuntu
+    name: E2E (${{ matrix.suite.name }})
     runs-on: ubuntu-latest
+    timeout-minutes: 25
+    strategy:
+      fail-fast: false
+      matrix:
+        suite:
+          - { name: manager, focus: "e2e suite Manager" }
+          - { name: disk-fill, focus: "e2e suite Disk Fill" }
+          - { name: memory-stress, focus: "e2e suite Memory Stress" }
+          - { name: network-loss, focus: "e2e suite Pod Network Loss" }
+          - { name: network-partition, focus: "e2e suite Network Partition" }
+          - { name: pod-restart, focus: "e2e suite Pod Restart" }
+    env:
+      # Each shard runs on its own runner with its own Kind cluster.
+      KIND_CLUSTER: k8s-chaos-e2e-${{ matrix.suite.name }}
     steps:
       - name: Clone the code
         uses: actions/checkout@v4
@@ -18,9 +32,10 @@ jobs:
         with:
           go-version-file: go.mod
 
-      - name: Install the latest version of kind
+      - name: Install kind
         run: |
-          curl -Lo ./kind https://kind.sigs.k8s.io/dl/latest/kind-linux-amd64
+          curl -fsSL --retry 5 --retry-all-errors --retry-delay 3 -o ./kind \
+            https://github.com/kubernetes-sigs/kind/releases/download/v0.30.0/kind-linux-amd64
           chmod +x ./kind
           sudo mv ./kind /usr/local/bin/kind
 
@@ -30,4 +45,4 @@ jobs:
       - name: Running Test e2e
         run: |
           go mod tidy
-          make test-e2e
+          make test-e2e E2E_FOCUS="${{ matrix.suite.focus }}"
