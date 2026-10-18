@@ -67,7 +67,6 @@ spec:
     app: frontend
   count: 1
   duration: "10m"
-  delayMs: 200
 
   # Only run during business hours (9 AM - 5 PM EST, Mon-Fri)
   timeWindows:

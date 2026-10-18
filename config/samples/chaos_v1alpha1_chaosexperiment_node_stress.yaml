@@ -5,6 +5,8 @@ metadata:
   namespace: default
 spec:
   action: node-cpu-stress
+  # Required by the CRD
+  namespace: default
   selector:
     kubernetes.io/hostname: k8s-chaos-test-e2e-worker
   count: 1

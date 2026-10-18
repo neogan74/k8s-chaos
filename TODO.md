@@ -179,10 +179,10 @@
   - [ ] Guided prompts for action, namespace, selector
   - [ ] Validation before creation
   - [ ] Template selection
-- [ ] **validate** - Validate experiment YAML files
-  - [ ] Schema validation
-  - [ ] Cross-field validation
-  - [ ] Namespace and selector checks
+- [x] **validate** - Validate experiment YAML files ✅ COMPLETED (offline; see docs/CLI.md)
+  - [x] Schema validation
+  - [x] Cross-field validation
+  - [ ] Namespace and selector checks (needs a cluster; optional `--cluster` mode)
 - [ ] **check** - Health check for cluster readiness
   - [ ] Verify CRD installation
   - [ ] Check RBAC permissions
