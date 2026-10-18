@@ -13,7 +13,7 @@ This file tracks remaining work items not yet completed. For the full historical
 - Pause/resume experiments via `paused: true` spec field.
 - Expand E2E scenarios (selectors, namespaces, concurrency, cancellation).
 - `create` interactive wizard (CLI).
-- `validate` command for YAML (CLI).
+- `validate --cluster`: optional namespace/selector checks against a live cluster (offline `validate` is done).
 - `check` command for cluster readiness (CLI).
 - `logs` command for history browsing/export (CLI).
 - Fine-grained RBAC permissions and namespace isolation.

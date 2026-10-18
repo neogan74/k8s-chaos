@@ -182,6 +182,43 @@ chaos-testing   flaky-test         pod-kill    5        3d
 staging         node-test-fail     node-drain  3        2d
 ```
 
+### `validate` - Validate Manifests Offline
+
+Check ChaosExperiment YAML files before applying them. The command does not contact a cluster, so it works in CI and pre-commit hooks without a kubeconfig.
+
+```bash
+# Validate a single file
+k8s-chaos validate -f experiment.yaml
+
+# Validate a directory recursively (.yaml, .yml, .json)
+k8s-chaos validate -f config/samples/
+
+# Validate from stdin
+cat experiment.yaml | k8s-chaos validate -f -
+```
+
+`-f` can be repeated. Multi-document YAML files are supported. Documents of another `kind` (for example a Deployment in the same file) are skipped.
+
+**Checks performed:**
+- YAML syntax and unknown or misspelled fields (e.g. `coutn: 2`)
+- `apiVersion`, `kind` and `metadata.name`
+- CRD schema rules: `action` value, required `namespace` and `selector`, numeric ranges, duration and memory-size formats, enums
+- Cross-field rules shared with the admission webhook (e.g. `duration` is required for `pod-delay`, valid cron `schedule`, time windows, action-specific requirements)
+
+**Not checked** (needs a cluster): that the namespace exists, that the selector matches pods, and production-namespace protection. The admission webhook still enforces those on `kubectl apply`.
+
+**Output:**
+```
+✓ experiment.yaml (nginx-chaos): valid
+✗ broken.yaml (bad-delay): invalid
+    - spec.action: unsupported value "pod-explode", must be one of: pod-kill, pod-delay, ...
+    - spec.count: 500 is out of range, must be between 1 and 100
+
+2 ChaosExperiment(s) checked, 1 valid, 1 invalid, 0 other document(s) skipped
+```
+
+The exit code is non-zero if any experiment is invalid, or if no ChaosExperiment is found.
+
 ## Common Workflows
 
 ### Quick Experiment Overview
@@ -311,7 +348,6 @@ diff stats-20251027.txt stats-20251028.txt
 Planned features for future releases:
 
 - **Interactive Wizard**: `k8s-chaos create --interactive`
-- **Validation**: `k8s-chaos validate experiment.yaml`
 - **Health Check**: `k8s-chaos check` - verify cluster readiness
 - **Logs/History**: View experiment execution history
 - **Watch Mode**: Real-time updates with `--watch` flag

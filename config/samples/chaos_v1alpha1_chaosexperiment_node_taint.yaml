@@ -14,11 +14,10 @@ spec:
   # Target nodes in this namespace context (though nodes are cluster-scoped)
   namespace: default
   
-  # Select which nodes to affect
-  # If empty or not provided, affects all nodes
+  # Select which nodes to affect (at least one label is required by the CRD)
   selector:
     # Example: only target nodes with a specific label
-    # node-role.kubernetes.io/worker: "true"
+    node-role.kubernetes.io/worker: "true"
     
   # How many matching nodes to taint (default is 1)
   count: 1
