@@ -24,6 +24,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - See ADR-0009 for full design rationale and implementation details
   - Sample configurations in `config/samples/chaos_v1alpha1_chaosexperiment_pod_restart.yaml`
 
+- **Pause/resume**: documented the `paused` spec field (`docs/API.md`) and added a sample (`config/samples/chaos_v1alpha1_chaosexperiment_paused.yaml`)
+
 ### Changed
 
 ### Deprecated
