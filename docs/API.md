@@ -673,6 +673,41 @@ spec:
   restartInterval: "1m"  # Wait 1 minute between restarts
 ```
 
+### paused
+
+**Type:** `boolean`
+**Required:** No
+**Default:** `false`
+
+Pauses the experiment without deleting it. While `paused: true`, the controller does not run any chaos action and sets `status.phase` to `Paused` (message: `Experiment is paused`). Setting it back to `false` (or removing it) resumes the experiment; the phase moves to `Running` on the next reconcile.
+
+#### Example
+
+```yaml
+spec:
+  action: "pod-kill"
+  namespace: "default"
+  selector:
+    app: nginx
+  paused: true
+```
+
+```bash
+# Pause
+kubectl patch chaosexperiment my-experiment --type merge -p '{"spec":{"paused":true}}'
+
+# Resume
+kubectl patch chaosexperiment my-experiment --type merge -p '{"spec":{"paused":false}}'
+```
+
+#### Notes
+
+- Pausing only stops *new* injections. Chaos that was already applied (ephemeral containers, cordoned nodes, taints) is **not** rolled back; delete the experiment or let `experimentDuration` end to trigger cleanup.
+- `experimentDuration` is measured from `status.startTime`, so time spent paused still counts. A long pause can make the experiment complete right after resuming.
+- A paused experiment is skipped before schedule, time-window and dependency checks.
+
+---
+
 ---
 
 ## Status Fields

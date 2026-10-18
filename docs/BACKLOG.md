@@ -10,7 +10,6 @@ This file tracks remaining work items not yet completed. For the full historical
 ## P1 (important)
 - `node-disk-fill` (follow ADR 0008 pattern).
 - `network-partition` — simulate network splits between pod groups.
-- Pause/resume experiments via `paused: true` spec field.
 - Expand E2E scenarios (selectors, namespaces, concurrency, cancellation).
 - `create` interactive wizard (CLI).
 - `validate` command for YAML (CLI).

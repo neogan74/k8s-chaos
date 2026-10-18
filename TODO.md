@@ -87,7 +87,7 @@
 ### Duration Control
 - [x] **Experiment Duration** - Add `experimentDuration` field to auto-stop experiments
 - [x] **Graceful Termination** - Clean up resources when experiment ends
-- [ ] **Pause/Resume** - Allow pausing and resuming experiments via spec field `paused: true`
+- [x] **Pause/Resume** ✅ COMPLETED - Allow pausing and resuming experiments via spec field `paused: true`
 
 ## 🧪 Testing
 
