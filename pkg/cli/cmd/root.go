@@ -23,6 +23,7 @@ import (
 	"github.com/spf13/cobra"
 	"k8s.io/apimachinery/pkg/runtime"
 	clientgoscheme "k8s.io/client-go/kubernetes/scheme"
+	"k8s.io/client-go/rest"
 	"k8s.io/client-go/tools/clientcmd"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
@@ -64,11 +65,20 @@ func init() {
 		"namespace to operate in (default: all namespaces)")
 }
 
-// getKubeClient creates and returns a Kubernetes client
-func getKubeClient() (client.Client, error) {
+// getRestConfig builds a rest config from the kubeconfig flag, $KUBECONFIG or ~/.kube/config
+func getRestConfig() (*rest.Config, error) {
 	config, err := clientcmd.BuildConfigFromFlags("", getKubeconfigPath())
 	if err != nil {
 		return nil, fmt.Errorf("failed to build kubeconfig: %w", err)
+	}
+	return config, nil
+}
+
+// getKubeClient creates and returns a Kubernetes client
+func getKubeClient() (client.Client, error) {
+	config, err := getRestConfig()
+	if err != nil {
+		return nil, err
 	}
 
 	// Create scheme and register ChaosExperiment types
