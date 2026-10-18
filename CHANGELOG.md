@@ -28,6 +28,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - Catches unknown fields, CRD schema violations and the webhook's cross-field rules without a cluster
   - New `ChaosExperiment.ValidateStatic()` in `api/v1alpha1` reuses the webhook's validators
   - A test now validates every manifest in `config/samples/`
+- **Pause/resume**: documented the `paused` spec field (`docs/API.md`) and added a sample (`config/samples/chaos_v1alpha1_chaosexperiment_paused.yaml`)
 
 ### Fixed
 - Sample manifests that the CRD would reject: `node_stress` (missing `namespace`), `node_taint` (empty `selector`), `timewindows` (non-existent `delayMs` field)
