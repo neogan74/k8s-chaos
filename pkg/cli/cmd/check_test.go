@@ -234,7 +234,7 @@ func TestCheck_Webhook(t *testing.T) {
 	}
 
 	other := chaosWebhook()
-	other.Webhooks[0].Rules[0].Rule.APIGroups = []string{"apps"}
+	other.Webhooks[0].Rules[0].APIGroups = []string{"apps"}
 	c = newFakeChecker(t, "", nil, nil, other)
 	if got := c.checkWebhook(context.Background()); got.Status != statusWarn {
 		t.Errorf("a webhook for another group must not count, got %+v", got)

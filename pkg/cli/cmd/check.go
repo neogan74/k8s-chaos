@@ -340,7 +340,7 @@ func (c *clusterChecker) checkRBAC(ctx context.Context) []checkResult {
 		{resourceHistories, []string{verbList, verbGet}, map[string]bool{}},
 	}
 
-	var results []checkResult
+	results := make([]checkResult, 0, len(requirements))
 	for _, req := range requirements {
 		results = append(results, c.checkResourcePermissions(ctx, req))
 	}
@@ -354,7 +354,8 @@ func (c *clusterChecker) checkResourcePermissions(ctx context.Context, req rbacR
 	}
 	res := checkResult{Name: fmt.Sprintf("RBAC: %s (%s)", req.resource, scope)}
 
-	var denied, deniedRequired []string
+	denied := make([]string, 0, len(req.verbs))
+	var deniedRequired []string
 	for _, verb := range req.verbs {
 		allowed, err := c.canI(ctx, verb, req.resource)
 		if err != nil {
