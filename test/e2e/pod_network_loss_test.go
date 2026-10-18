@@ -366,6 +366,8 @@ spec:
       labels:
         app: %s
     spec:
+      # sleep as PID 1 ignores SIGTERM; skip the 30s grace period so namespace cleanup is fast.
+      terminationGracePeriodSeconds: 0
       containers:
       - name: busybox
         image: busybox:1.36
@@ -383,6 +385,7 @@ func createBusyboxPod(namespace, name, labels string) {
 		"--image=busybox:1.36",
 		"--labels="+labels,
 		"--namespace", namespace,
+		`--overrides={"spec":{"terminationGracePeriodSeconds":0}}`,
 		"--command", "--", "sleep", "3600")
 	output, err := utils.Run(cmd)
 	if err != nil && !strings.Contains(output, "already exists") {
