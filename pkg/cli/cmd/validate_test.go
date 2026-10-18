@@ -97,12 +97,12 @@ func TestValidateReader(t *testing.T) {
 			}
 			for i, want := range tc.wantErr {
 				r := got[i]
-				switch {
-				case want == wantSkip:
+				switch want {
+				case wantSkip:
 					if !r.Skip {
 						t.Errorf("doc %d: expected skip, got %+v", i, r)
 					}
-				case want == "":
+				case "":
 					if r.Err != nil || r.Skip {
 						t.Errorf("doc %d: expected valid, got %+v", i, r)
 					}
@@ -128,7 +128,7 @@ func TestValidateReader_EmptyInput(t *testing.T) {
 
 func TestValidateTarget_DirectoryAndFile(t *testing.T) {
 	dir := t.TempDir()
-	write := func(rel, content string) string {
+	write := func(rel, content string) {
 		p := filepath.Join(dir, rel)
 		if err := os.MkdirAll(filepath.Dir(p), 0o750); err != nil {
 			t.Fatal(err)
@@ -136,7 +136,6 @@ func TestValidateTarget_DirectoryAndFile(t *testing.T) {
 		if err := os.WriteFile(p, []byte(content), 0o600); err != nil {
 			t.Fatal(err)
 		}
-		return p
 	}
 	write("a.yaml", validDoc)
 	write("sub/b.yml", strings.Replace(validDoc, testActionKill, "nope", 1))

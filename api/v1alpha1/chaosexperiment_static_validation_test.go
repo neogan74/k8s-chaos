@@ -24,7 +24,10 @@ import (
 	"testing"
 )
 
-const countField = "spec.count"
+const (
+	countField     = "spec.count"
+	actionPodDelay = "pod-delay"
+)
 
 func validExperiment() *ChaosExperiment {
 	exp := &ChaosExperiment{}
@@ -63,8 +66,8 @@ func TestValidateStatic(t *testing.T) {
 			[]string{"spec.action", "spec.namespace", countField},
 		},
 		// cross-field / action-specific rules shared with the webhook
-		{"pod-delay needs duration", func(e *ChaosExperiment) { e.Spec.Action = "pod-delay" }, []string{"duration is required"}},
-		{"pod-delay with duration", func(e *ChaosExperiment) { e.Spec.Action = "pod-delay"; e.Spec.Duration = "30s" }, nil},
+		{"pod-delay needs duration", func(e *ChaosExperiment) { e.Spec.Action = actionPodDelay }, []string{"duration is required"}},
+		{"pod-delay with duration", func(e *ChaosExperiment) { e.Spec.Action = actionPodDelay; e.Spec.Duration = "30s" }, nil},
 		{"self dependency", func(e *ChaosExperiment) { e.Spec.DependsOn = []string{"test"} }, []string{"cannot depend on itself"}},
 		{"bad schedule", func(e *ChaosExperiment) { e.Spec.Schedule = "not a cron" }, []string{"schedule"}},
 		{"valid schedule", func(e *ChaosExperiment) { e.Spec.Schedule = "*/5 * * * *" }, nil},
