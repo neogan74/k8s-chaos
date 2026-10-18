@@ -183,10 +183,10 @@
   - [x] Schema validation
   - [x] Cross-field validation
   - [ ] Namespace and selector checks (needs a cluster; optional `--cluster` mode)
-- [ ] **check** - Health check for cluster readiness
-  - [ ] Verify CRD installation
-  - [ ] Check RBAC permissions
-  - [ ] Test API connectivity
+- [x] **check** - Health check for cluster readiness ✅ COMPLETED (see docs/CLI.md)
+  - [x] Verify CRD installation
+  - [x] Check RBAC permissions
+  - [x] Test API connectivity
 - [ ] **logs** - Show experiment execution history
   - [ ] View past executions
   - [ ] Filter by date/status

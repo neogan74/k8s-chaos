@@ -219,6 +219,42 @@ cat experiment.yaml | k8s-chaos validate -f -
 
 The exit code is non-zero if any experiment is invalid, or if no ChaosExperiment is found.
 
+### `check` - Check Cluster Readiness
+
+Run read-only health checks against the current cluster before running experiments.
+
+```bash
+k8s-chaos check
+
+# Check permissions and look for the controller in one namespace
+k8s-chaos check -n chaos-testing
+```
+
+**Checks performed:**
+
+| Check | Result when it fails |
+|---|---|
+| API server connectivity | ✗ fail (remaining checks are skipped) |
+| ChaosExperiment CRDs installed | ✗ fail if `chaosexperiments` is missing; ! warning if only `chaosexperimenthistories` is missing |
+| Controller deployed and ready | ✗ fail if a controller deployment has no ready replicas or is scaled to 0; ! warning if partially ready or not found (it may run locally with `make run`) |
+| Validating admission webhook registered | ! warning (advanced validation is skipped without it) |
+| RBAC for the current user (`SelfSubjectAccessReview`) | ✗ fail if `list` or `get` on `chaosexperiments` is denied; ! warning for `create`/`delete` or history access |
+
+**Output:**
+```
+✓ API server connectivity: connected, Kubernetes v1.30.0
+✓ CRDs installed: chaosexperiments and chaosexperimenthistories are available
+✓ Controller deployed and ready: chaos-system/k8s-chaos-controller-manager (1/1 ready)
+! Admission webhook registered: no validating webhook for chaosexperiments found
+    hint: without it namespace, selector and production-protection checks only happen at reconcile time
+✓ RBAC: chaosexperiments (all namespaces): allowed: list, get, create, delete
+✓ RBAC: chaosexperimenthistories (all namespaces): allowed: list, get
+
+6 check(s): 5 passed, 1 warning(s), 0 failed
+```
+
+The exit code is non-zero only when a check fails; warnings do not change it. Use `--timeout` (default 30s) to bound the total run time.
+
 ## Common Workflows
 
 ### Quick Experiment Overview
@@ -348,7 +384,6 @@ diff stats-20251027.txt stats-20251028.txt
 Planned features for future releases:
 
 - **Interactive Wizard**: `k8s-chaos create --interactive`
-- **Health Check**: `k8s-chaos check` - verify cluster readiness
 - **Logs/History**: View experiment execution history
 - **Watch Mode**: Real-time updates with `--watch` flag
 - **Export**: Export stats to JSON/CSV format

@@ -29,6 +29,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - New `ChaosExperiment.ValidateStatic()` in `api/v1alpha1` reuses the webhook's validators
   - A test now validates every manifest in `config/samples/`
 - **Pause/resume**: documented the `paused` spec field (`docs/API.md`) and added a sample (`config/samples/chaos_v1alpha1_chaosexperiment_paused.yaml`)
+- **CLI `check` command**: read-only cluster readiness check (`k8s-chaos check [-n NAMESPACE]`)
+  - Verifies API connectivity, CRD installation, controller readiness, admission webhook registration and the current user's RBAC permissions
+  - Exits non-zero only on failures; warnings (e.g. no webhook) do not fail the run
 
 ### Fixed
 - Sample manifests that the CRD would reject: `node_stress` (missing `namespace`), `node_taint` (empty `selector`), `timewindows` (non-existent `delayMs` field)
