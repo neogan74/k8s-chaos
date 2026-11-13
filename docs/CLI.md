@@ -219,49 +219,41 @@ cat experiment.yaml | k8s-chaos validate -f -
 
 The exit code is non-zero if any experiment is invalid, or if no ChaosExperiment is found.
 
-### `logs` - Show Execution History
+### `check` - Check Cluster Readiness
 
-Show past executions of chaos experiments, newest first. History comes from the `ChaosExperimentHistory` records the controller creates after every execution.
+Run read-only health checks against the current cluster before running experiments.
 
 ```bash
-# The 20 most recent executions
-k8s-chaos logs
+k8s-chaos check
 
-# History of one experiment
-k8s-chaos logs nginx-chaos-demo -n chaos-testing
-
-# Failures in the last 7 days
-k8s-chaos logs --status failure --since 7d
-
-# Everything in October, exported to CSV
-k8s-chaos logs --since 2026-10-01 --until 2026-11-01 --limit 0 -o csv --file history.csv
+# Check permissions and look for the controller in one namespace
+k8s-chaos check -n chaos-testing
 ```
 
-**Flags:**
+**Checks performed:**
 
-| Flag | Description |
+| Check | Result when it fails |
 |---|---|
-| `EXPERIMENT_NAME` | Only show executions of this experiment |
-| `--status` | `success` or `failure` (`failed` is accepted too) |
-| `--action` | Only one chaos action, e.g. `pod-kill` |
-| `--since`, `--until` | Time window on the start time. Accepts a relative duration (`90m`, `24h`, `7d`, `2w`), a date (`2026-10-01`), a date-time, or RFC3339 |
-| `--limit` | Maximum records, newest kept (default 20, `0` for all) |
-| `-o, --output` | `table` (default), `wide`, `json`, `yaml`, `csv` |
-| `--file` | Write the output to a file instead of stdout |
-| `-n` | Namespace the history records live in (default: all) |
-
-Experiment, action and status are filtered by the API server using the labels the controller sets on history records; the time window and limit are applied by the CLI.
+| API server connectivity | ✗ fail (remaining checks are skipped) |
+| ChaosExperiment CRDs installed | ✗ fail if `chaosexperiments` is missing; ! warning if only `chaosexperimenthistories` is missing |
+| Controller deployed and ready | ✗ fail if a controller deployment has no ready replicas or is scaled to 0; ! warning if partially ready or not found (it may run locally with `make run`) |
+| Validating admission webhook registered | ! warning (advanced validation is skipped without it) |
+| RBAC for the current user (`SelfSubjectAccessReview`) | ✗ fail if `list` or `get` on `chaosexperiments` is denied; ! warning for `create`/`delete` or history access |
 
 **Output:**
 ```
-STARTED               EXPERIMENT   NAMESPACE       ACTION      STATUS    DURATION   AFFECTED
-2026-10-19 07:43:37   beta         chaos-testing   pod-delay   success   30s        2
-2026-10-17 08:43:37   alpha        chaos-testing   pod-kill    failure   30s        0
+✓ API server connectivity: connected, Kubernetes v1.30.0
+✓ CRDs installed: chaosexperiments and chaosexperimenthistories are available
+✓ Controller deployed and ready: chaos-system/k8s-chaos-controller-manager (1/1 ready)
+! Admission webhook registered: no validating webhook for chaosexperiments found
+    hint: without it namespace, selector and production-protection checks only happen at reconcile time
+✓ RBAC: chaosexperiments (all namespaces): allowed: list, get, create, delete
+✓ RBAC: chaosexperimenthistories (all namespaces): allowed: list, get
+
+6 check(s): 5 passed, 1 warning(s), 0 failed
 ```
 
-`-o wide` adds retries, dry-run, who started the run and the message (the error message for failures). `-o json` and `-o yaml` print the full records as a list; `-o csv` is meant for spreadsheets and reports (times are UTC).
-
-History is only available while records are retained; retention is controlled by the controller's history settings (retention limit and TTL).
+The exit code is non-zero only when a check fails; warnings do not change it. Use `--timeout` (default 30s) to bound the total run time.
 
 ## Common Workflows
 
@@ -392,7 +384,7 @@ diff stats-20251027.txt stats-20251028.txt
 Planned features for future releases:
 
 - **Interactive Wizard**: `k8s-chaos create --interactive`
-- **Health Check**: `k8s-chaos check` - verify cluster readiness
+- **Logs/History**: View experiment execution history
 - **Watch Mode**: Real-time updates with `--watch` flag
 - **Export**: Export stats to JSON/CSV format
 - **Dashboard**: Web-based UI integration
