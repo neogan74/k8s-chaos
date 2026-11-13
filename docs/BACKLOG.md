@@ -14,6 +14,7 @@ This file tracks remaining work items not yet completed. For the full historical
 - `create` interactive wizard (CLI).
 - `validate --cluster`: optional namespace/selector checks against a live cluster (offline `validate` is done).
 - `logs` command for history browsing/export (CLI).
+- `check` command for cluster readiness (CLI).
 - Fine-grained RBAC permissions and namespace isolation.
 - Resource quotas and rate limiting.
 - Leader election verification and horizontal scaling tests.

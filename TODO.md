@@ -191,6 +191,14 @@
   - [ ] View past executions
   - [ ] Filter by date/status
   - [ ] Export to file
+- [ ] **check** - Health check for cluster readiness
+  - [ ] Verify CRD installation
+  - [ ] Check RBAC permissions
+  - [ ] Test API connectivity
+- [x] **logs** - Show experiment execution history ✅ COMPLETED (see docs/CLI.md)
+  - [x] View past executions
+  - [x] Filter by date/status
+  - [x] Export to file
 
 ### Enhancements
 - [ ] **Watch mode** - Real-time updates with `--watch` flag
