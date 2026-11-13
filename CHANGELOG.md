@@ -29,6 +29,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - New `ChaosExperiment.ValidateStatic()` in `api/v1alpha1` reuses the webhook's validators
   - A test now validates every manifest in `config/samples/`
 - **Pause/resume**: documented the `paused` spec field (`docs/API.md`) and added a sample (`config/samples/chaos_v1alpha1_chaosexperiment_paused.yaml`)
+- **CLI `logs` command**: browse the execution history (`k8s-chaos logs [EXPERIMENT] [--status] [--action] [--since] [--until] [--limit] [-o table|wide|json|yaml|csv] [--file PATH]`)
+  - Reads `ChaosExperimentHistory` records, newest first; experiment, action and status are filtered server-side via labels
+  - Exports to JSON, YAML or CSV, optionally straight to a file
 
 ### Fixed
 - Sample manifests that the CRD would reject: `node_stress` (missing `namespace`), `node_taint` (empty `selector`), `timewindows` (non-existent `delayMs` field)

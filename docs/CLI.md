@@ -219,6 +219,50 @@ cat experiment.yaml | k8s-chaos validate -f -
 
 The exit code is non-zero if any experiment is invalid, or if no ChaosExperiment is found.
 
+### `logs` - Show Execution History
+
+Show past executions of chaos experiments, newest first. History comes from the `ChaosExperimentHistory` records the controller creates after every execution.
+
+```bash
+# The 20 most recent executions
+k8s-chaos logs
+
+# History of one experiment
+k8s-chaos logs nginx-chaos-demo -n chaos-testing
+
+# Failures in the last 7 days
+k8s-chaos logs --status failure --since 7d
+
+# Everything in October, exported to CSV
+k8s-chaos logs --since 2026-10-01 --until 2026-11-01 --limit 0 -o csv --file history.csv
+```
+
+**Flags:**
+
+| Flag | Description |
+|---|---|
+| `EXPERIMENT_NAME` | Only show executions of this experiment |
+| `--status` | `success` or `failure` (`failed` is accepted too) |
+| `--action` | Only one chaos action, e.g. `pod-kill` |
+| `--since`, `--until` | Time window on the start time. Accepts a relative duration (`90m`, `24h`, `7d`, `2w`), a date (`2026-10-01`), a date-time, or RFC3339 |
+| `--limit` | Maximum records, newest kept (default 20, `0` for all) |
+| `-o, --output` | `table` (default), `wide`, `json`, `yaml`, `csv` |
+| `--file` | Write the output to a file instead of stdout |
+| `-n` | Namespace the history records live in (default: all) |
+
+Experiment, action and status are filtered by the API server using the labels the controller sets on history records; the time window and limit are applied by the CLI.
+
+**Output:**
+```
+STARTED               EXPERIMENT   NAMESPACE       ACTION      STATUS    DURATION   AFFECTED
+2026-10-19 07:43:37   beta         chaos-testing   pod-delay   success   30s        2
+2026-10-17 08:43:37   alpha        chaos-testing   pod-kill    failure   30s        0
+```
+
+`-o wide` adds retries, dry-run, who started the run and the message (the error message for failures). `-o json` and `-o yaml` print the full records as a list; `-o csv` is meant for spreadsheets and reports (times are UTC).
+
+History is only available while records are retained; retention is controlled by the controller's history settings (retention limit and TTL).
+
 ## Common Workflows
 
 ### Quick Experiment Overview
@@ -349,7 +393,6 @@ Planned features for future releases:
 
 - **Interactive Wizard**: `k8s-chaos create --interactive`
 - **Health Check**: `k8s-chaos check` - verify cluster readiness
-- **Logs/History**: View experiment execution history
 - **Watch Mode**: Real-time updates with `--watch` flag
 - **Export**: Export stats to JSON/CSV format
 - **Dashboard**: Web-based UI integration
